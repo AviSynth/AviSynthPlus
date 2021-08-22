@@ -10,12 +10,12 @@ class BufferPool
 private:
 
   struct BufferDesc;
-  typedef std::multimap<size_t, BufferDesc*> MapType;
+  typedef std::multimap<std::size_t, BufferDesc*> MapType;
 
   InternalEnvironment* Env;
   MapType Map;
 
-  void* PrivateAlloc(size_t nBytes, size_t alignment, void* user);
+  void* PrivateAlloc(std::size_t nBytes, std::size_t alignment, void* user);
   void PrivateFree(void* buffer);
 
 public:
@@ -23,7 +23,7 @@ public:
   BufferPool(InternalEnvironment* env);
   ~BufferPool();
 
-  void* Allocate(size_t nBytes, size_t alignment, bool pool);
+  void* Allocate(std::size_t nBytes, std::size_t alignment, bool pool);
   void Free(void* ptr);
 
 };
