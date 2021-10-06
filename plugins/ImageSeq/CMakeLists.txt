@@ -73,7 +73,7 @@ else()
   #                  library is found all the others are as well. That's the
   #                  way the DevIL developers release it.
   if(DevIL_FOUND)
-    message("Found DevIL library: {$IL_LIBRARIES}") 
+    message("Found DevIL library: ${IL_LIBRARIES}") 
     target_link_libraries(${ProjectName} "${IL_LIBRARIES}" "${FSLIB}")
     target_include_directories(${ProjectName} PRIVATE "${IL_INCLUDE_DIR}" ${AvsCore_SOURCE_DIR})
   else()
