@@ -1,5 +1,3 @@
-# We need CMake 3.8 at least, because we require
-# CMAKE_CXX_STANDARD to be set to C++17.
 # Visual Studio 2019 is supported from CMake 3.14.1
 
 # Tested generators:
@@ -42,7 +40,7 @@
 
 # "Visual Studio 16 2019" + LLVM 8.0 (clang) optional platform generator Win32 and x64
 
-CMAKE_MINIMUM_REQUIRED( VERSION 3.8.2 )
+CMAKE_MINIMUM_REQUIRED( VERSION 3.6.2 )
 # VS2019: 3.14.1
 # Intel 2021: 3.20
 
@@ -84,9 +82,11 @@ if(NOT HEADERS_ONLY)
   set(CMAKE_CXX_STANDARD_LIBRARIES "" CACHE STRING "" FORCE)
 
   # We require C++17 or higher.
+if(CMAKE_VERSION VERSION_GREATER 3.7)
   set(CMAKE_CXX_STANDARD 17)
   set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
   set(CMAKE_CXX_EXTENSIONS FALSE)
+endif()
 
   # Detect Intel processors and turn Intel SIMD on or off automatically.
   message("-- Detected target processor as: ${CMAKE_SYSTEM_PROCESSOR}")
@@ -305,6 +305,19 @@ if(NOT HEADERS_ONLY)
 
   ELSE()
     # not MS Visual Studio IDE
+
+    # CMAKE_CXX_STANDARD doesn't cover the use-case of pre-final C++17 support,
+    # but I'd assume most setups with a new enough version of CMake to use
+    # CMAKE_CXX_STANDARD 17 would also be running a version of GCC/Clang new enough
+    # to not need this.  So this will most likely only ever be used by setups running
+    # older versions of CMake; regardless, it shouldn't be necessary to force a
+    # CMAKE_VERSION check on this part unless the mere presence of CMAKE_CXX_STANDARD 17
+    # ends up causing problems for the older compilers here.
+    if( ((CMAKE_CXX_COMPILER_ID STREQUAL "GNU")   AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 8)) OR
+        ((CMAKE_CXX_COMPILER_ID STREQUAL "Clang") AND (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 5)) )
+      set( CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++1z" )
+    endif()
+
     if(ENABLE_INTEL_SIMD)
       SET( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -msse2 -DINTEL_INTRINSICS" )
     endif()
