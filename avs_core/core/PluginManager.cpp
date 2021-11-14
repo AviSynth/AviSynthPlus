@@ -120,9 +120,7 @@ static bool IsParameterTypeSpecifier(char c) {
   switch (c) {
   case 'b': case 'i': case 'f': case 's': case 'c': case '.':
   case 'n':
-#ifdef NEW_AVSVALUE
   case 'a': // Arrays as function parameters
-#endif
       return true;
     default:
       return false;
@@ -293,9 +291,7 @@ bool AVSFunction::SingleTypeMatch(char type, const AVSValue& arg, bool strict) {
     case 's': return arg.IsString();
     case 'c': return arg.IsClip();
     case 'n': return arg.IsFunction();
-#ifdef NEW_AVSVALUE
     case 'a': return arg.IsArray(); // PF 161028 AVS+ script arrays
-#endif
     default:  return false;
   }
 }
@@ -366,7 +362,6 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
     switch (*param_types) {
       case 'b': case 'i': case 'f': case 's': case 'c':
       case 'n':
-#ifdef NEW_AVSVALUE
       case 'a':
         // PF 2016: 'a' is special letter for script arrays, but if possible we are using .* and .+ (legacy Avisynth style) instead
         // Note (2021): 'a' is still not used
@@ -374,7 +369,6 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
         //       no type check (array of int)
         //       cannot be used in plugins which are intended to work for Avisynth 2.6 Classic. ("a" is invalid in function signature -> plugin load error)
         // pros: clean syntax, accept _only_ arrays when required, no comma-delimited-list-to-array option (like in old Avisynth syntax)
-#endif
         // array arguments are not necessarily "flattened" when TypeMatch is called.
         if (param_types[1] == '+' // parameter indicates an array-type args[i]
           && args[i].IsArray() // allow single e.g. 'c' parameter in place of a 'c+' requirement
@@ -401,7 +395,6 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
         ++i;
         break;
       case '+': case '*':
-#ifdef NEW_AVSVALUE
         // check array content type if required
         if (args[i].IsArray() && param_types[-1] != '.') {
           // A script can provide an array argument in an direct array-type variable.
@@ -416,7 +409,6 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
           ++i;
         }
         else
-#endif
         // Legacy Avisynth array check.
         // Array of arguments of known types last until an argument of another type is found.
         // This is the reason why an .+ or .* (array of anything) must only appear at the end

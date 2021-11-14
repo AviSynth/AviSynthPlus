@@ -84,9 +84,7 @@ extern const AVSFunction Conditional_filters[] = {
   { "propSet", BUILTIN_FUNC_PREFIX, "csi[mode]i", SetProperty::Create, (void*)10 },
   { "propSet", BUILTIN_FUNC_PREFIX, "csf[mode]i", SetProperty::Create, (void*)11 },
   { "propSet", BUILTIN_FUNC_PREFIX, "css[mode]i", SetProperty::Create, (void*)12 },
-#ifdef NEW_AVSVALUE
   { "propSet", BUILTIN_FUNC_PREFIX, "csa", SetProperty::Create, (void*)13 }, // no mode parameter, full entry refresh
-#endif
   { "propSet", BUILTIN_FUNC_PREFIX, "csc[mode]i", SetProperty::Create, (void*)14 },
 
   { "propDelete", BUILTIN_FUNC_PREFIX, "cs", DeleteProperty::Create },

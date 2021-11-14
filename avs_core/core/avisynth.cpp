@@ -1609,9 +1609,6 @@ public:
   AVSValue __stdcall Invoke25(const char* name,
     const AVSValue args, const char* const* arg_names)
   {
-#ifndef NEW_AVSVALUE
-    return Invoke(name, args, arg_names);
-#else
     AVSValue result;
     // MarkArrayAsC: signing for destructor: don't free array elements.
     // Reason: CPP 2.5 plugins have "baked code" in their avisynth.h and do not know 
@@ -1628,7 +1625,6 @@ public:
       throw NotFound();
 
     return result;
-#endif
   }
 
 
@@ -4031,9 +4027,7 @@ bool ScriptEnvironment::PlanarChromaAlignment(IScriptEnvironment::PlanarChromaAl
 static size_t Flatten(const AVSValue& src, AVSValue* dst, size_t index, int level, const char* const* arg_names = NULL) {
   // level is starting from zero
   if (src.IsArray()
-#ifdef NEW_AVSVALUE
     && level == 0
-#endif
     ) { // flatten for the first arg level
     const int array_size = src.ArraySize();
     for (int i=0; i<array_size; ++i) {
@@ -4481,12 +4475,6 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
               // from the unnamed section we don't throw error for the first time
               ThrowError("Script error: the named argument \"%s\" was passed more than once (twice as named or first unnamed then named) to %s", arg_names[i], name);
             }
-#ifndef NEW_AVSVALUE
-            //PF 161028 AVS+ arrays as named arguments
-            else if (args[i].IsArray()) {
-              ThrowError("Script error: can't pass an array as a named argument");
-            }
-#endif
             else if (args[i].Defined() && args[i].IsArray() && ((q[2] == '*' || q[2] == '+')) && !AVSFunction::SingleTypeMatchArray(q[1], args[i], false))
             {
               // e.g. passing colors=[235, 128, "Hello"] to [colors]f+
@@ -4564,9 +4552,6 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
   for (int i = argbase; i < (int)args2.size(); ++i)
   {
     auto& argx = args2[i];
-#ifndef NEW_AVSVALUE
-    assert(!argx.IsArray()); // todo: we can have arrays 161106
-#endif
     // todo PF 161112 new arrays: recursive look into arrays whether they contain clips
     if (argx.IsClip())
     {

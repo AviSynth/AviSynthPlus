@@ -135,10 +135,8 @@ extern const AVSFunction Conditional_funtions_filters[] = {
   { "propNumKeys", BUILTIN_FUNC_PREFIX, "c[offset]i", GetPropertyNumKeys::Create},
   { "propGetKeyByIndex", BUILTIN_FUNC_PREFIX, "c[index]i[offset]i", GetPropertyKeyByIndex::Create},
   { "propGetType", BUILTIN_FUNC_PREFIX, "cs[offset]i", GetPropertyType::Create},
-#ifdef NEW_AVSVALUE
   { "propGetAsArray", BUILTIN_FUNC_PREFIX, "cs[offset]i", GetPropertyAsArray::Create},
   { "propGetAll", BUILTIN_FUNC_PREFIX, "c[offset]i", GetAllProperties::Create},
-#endif
 
   { 0 }
 };
@@ -984,7 +982,6 @@ AVSValue GetProperty::Create(AVSValue args, void* user_data, IScriptEnvironment*
   return AVSValue();
 }
 
-#ifdef NEW_AVSVALUE
 AVSValue GetPropertyAsArray::Create(AVSValue args, void* , IScriptEnvironment* env)
 {
   AVSValue clip = args[0];
@@ -1162,13 +1159,11 @@ AVSValue GetAllProperties::Create(AVSValue args, void*, IScriptEnvironment* env)
     }
 
     pair[1] = elem;
-    result[index] = AVSValue(pair.data(), 2); // NEW_AVSVALUE: arrays in arrays, automatic deep copy
+    result[index] = AVSValue(pair.data(), 2); // arrays in arrays, automatic deep copy
   }
 
   return AVSValue(result.data(), propNum); // array deep copy
 }
-
-#endif
 
 // e.g. string length
 AVSValue GetPropertyDataSize::Create(AVSValue args, void* , IScriptEnvironment* env) {

@@ -144,7 +144,3 @@ size_t get_sad_rgb_isse(const uint8_t* src_ptr, const uint8_t* other_ptr, size_t
 
 #endif
 
-
-
-
-

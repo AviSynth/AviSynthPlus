@@ -9,14 +9,9 @@ FilterConstructor::FilterConstructor(IScriptEnvironment2 * env, IScriptEnvironme
   ArgStorage(std::move(*argStorage)),
   CtorArgs(std::move(*ctorArgs))
 #else
-#ifndef NEW_AVSVALUE
-  ArgStorage(std::move(*argStorage)),
-  CtorArgs(std::move(*ctorArgs))
-#else
   // no need to move, subarrays could not be returned
   ArgStorage(*argStorage),
   CtorArgs(*ctorArgs)
-#endif
 #endif
 {
 }
@@ -30,7 +25,6 @@ AVSValue FilterConstructor::InstantiateFilter() const
   AVSValue retval = Func->apply(funcArgs, Func->user_data, 
     Func->isAvs25 ? (IScriptEnvironment *)Env25 : Env);
   // pass back proper ScriptEnvironment, because a 2.5 plugin e.g. GRunT can back-Invoke ScriptClip
-#ifdef NEW_AVSVALUE
   if (Func->isAvs25)
   {
     // After instantiate a v2.5 "baked code" filter
@@ -61,6 +55,5 @@ AVSValue FilterConstructor::InstantiateFilter() const
     // e.g. VirtualDub consecutively press "script reload"s. Memory will leak even 50-80Mbytes so after a while
     // memory gets full.
   }
-#endif
   return retval;
 }

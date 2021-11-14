@@ -161,7 +161,6 @@ PExpression ScriptParser::ParseFunctionDefinition(void)
         else if (tokenizer.IsIdentifier("string")) type = 's';
         else if (tokenizer.IsIdentifier("clip")) type = 'c';
         else if (tokenizer.IsIdentifier("func")) type = 'n';
-#ifdef NEW_AVSVALUE
         // AVS+ 161028 array type in user defined functions
         else if (tokenizer.IsIdentifier("array") || tokenizer.IsIdentifier("val_array")) {
           array_kind = '*';  type = '.';
@@ -207,7 +206,6 @@ PExpression ScriptParser::ParseFunctionDefinition(void)
         else if (tokenizer.IsIdentifier("func_array_nz")) {
           array_kind = '+';  type = 'n';
         }
-#endif
         else env->ThrowError("Script error: expected \"val\", \"bool\", \"int\", \"float\", \"string\", \"array\", or \"clip\" (or their \"_array\" or \"_array_nz\" versions");
         tokenizer.NextToken();
       }
@@ -661,13 +659,6 @@ PExpression ScriptParser::ParseUnary(void) {
 
 PExpression ScriptParser::ParseOOP(void)
 {
-#ifndef NEW_AVSVALUE
-  PExpression left = ParseFunction(nullptr);
-  while (tokenizer.IsOperator('.')) {
-    tokenizer.NextToken();
-    left = ParseFunction(left);
-  }
-#else
   // check if need convert [] brackets to function calls: Array() and ArrayGet()
   // no context and [: e.g. x = [23,2] --> x = Array(23,2)
   PExpression left;
@@ -687,7 +678,6 @@ PExpression ScriptParser::ParseOOP(void)
     else
       left = ParseFunction(left);
   }
-#endif
   return left;
 }
 

@@ -903,22 +903,17 @@ extern "C"
 void AVSC_CC avs_copy_value(AVS_Value * dest, AVS_Value src)
 {
   // true: don't copy array elements recursively
-#ifdef NEW_AVSVALUE
   new(dest) AVSValue(*(const AVSValue*)&src, true);
-#else
-  new(dest) AVSValue(*(const AVSValue*)&src);
-#endif
 }
 
 extern "C"
 void AVSC_CC avs_release_value(AVS_Value v)
 {
-#ifdef NEW_AVSVALUE
   if (((AVSValue*)&v)->IsArray()) {
     // signing for destructor: don't free array elements
     ((AVSValue*)&v)->MarkArrayAsC();
   }
-#endif
+
   ((AVSValue*)&v)->~AVSValue();
 }
 

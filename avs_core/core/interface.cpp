@@ -728,9 +728,6 @@ void AVSValue::CONSTRUCTOR8(const AVSValue* a, int size)
 {
   type = 'a';
   array_size = (short)size;
-#ifndef NEW_AVSVALUE
-  array = a;
-#else
   if (a == nullptr || size == 0) {
     array = nullptr;
   }
@@ -740,30 +737,17 @@ void AVSValue::CONSTRUCTOR8(const AVSValue* a, int size)
       const_cast<AVSValue *>(array)[i].Assign(&a[i], true); // init from source
     }
   }
-#endif
 }
 
 AVSValue::AVSValue(const AVSValue& v)                    { CONSTRUCTOR9(v); }
 void AVSValue::CONSTRUCTOR9(const AVSValue& v)           { Assign(&v, true); }
 
-#ifdef NEW_AVSVALUE
 AVSValue::AVSValue(const AVSValue& v, bool c_arrays) { CONSTRUCTOR10(v, c_arrays); }
 void AVSValue::CONSTRUCTOR10(const AVSValue& v, bool c_arrays)  { Assign2(&v, true, c_arrays); }
-#endif
 
 AVSValue::AVSValue(const PFunction& n) { CONSTRUCTOR11(n); }
 void AVSValue::CONSTRUCTOR11(const PFunction& n) { type = 'n'; array_size = 0; function = n.GetPointerWithAddRef(); }
 
-#ifndef NEW_AVSVALUE
-AVSValue::~AVSValue()                                    { DESTRUCTOR(); }
-void AVSValue::DESTRUCTOR()
-{
-  if (IsClip() && clip)
-    clip->Release();
-  if (IsFunction() && function)
-    function->Release();
-}
-#else
 AVSValue::~AVSValue()                                    { DESTRUCTOR(); }
 void AVSValue::DESTRUCTOR()
 {
@@ -784,8 +768,6 @@ void AVSValue::MarkArrayAsC()
   if(array_size > 0)
     array_size = -array_size;
 }
-
-#endif
 
 AVSValue& AVSValue::operator=(const AVSValue& v)         { return OPERATOR_ASSIGN(v); }
 AVSValue& AVSValue::OPERATOR_ASSIGN(const AVSValue& v)   { Assign(&v, false); return *this; }
@@ -851,23 +833,6 @@ const AVSValue& AVSValue::OPERATOR_INDEX(int index) const {
   return (IsArray() && index>=0 && index<array_size) ? array[index] : *this;
 }
 
-#ifndef NEW_AVSVALUE
-void AVSValue::Assign(const AVSValue* src, bool init) {
-  if (src->IsClip() && src->clip)
-    src->clip->AddRef();
-  if (!init && IsClip() && clip)
-    clip->Release();
-
-  if (src->IsFunction() && src->function)
-    src->function->AddRef();
-  if (!init && IsFunction() && function)
-    function->Release();
-
-  this->type = src->type;
-  this->array_size = src->array_size;
-  this->clip = src->clip; // "clip" is the largest member of the union, making sure we copy everything
-}
-#else
 // this Assign copies array elements for new AVSVALUE handling
 // For C interface, we use Assign2 through CONSTRUCTOR10
 void AVSValue::Assign(const AVSValue* src, bool init) {
@@ -946,7 +911,6 @@ void AVSValue::Assign2(const AVSValue* src, bool init, bool c_arrays) {
   if (shouldReleaseFunction)
     ((IFunction *)prev_pointer_to_release)->Release();
 }
-#endif
 
 // end class AVSValue
 

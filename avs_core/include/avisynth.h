@@ -1283,12 +1283,10 @@ public:
   double          AsFloat2(float def) const;
   const char*     AsString2(const char* def) const;
 
-#ifdef NEW_AVSVALUE
   void            MarkArrayAsC(); // for C interface, no deep-copy and deep-free
   void            CONSTRUCTOR10(const AVSValue& v, bool c_arrays);
   AVSValue(const AVSValue& v, bool c_arrays);
   void            Assign2(const AVSValue* src, bool init, bool c_arrays);
-#endif
 
 #endif
 }; // end class AVSValue

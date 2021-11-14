@@ -19,7 +19,6 @@
 
 static AVSValue DeepCopyValue(std::vector<std::unique_ptr<AVSValue[]>>& arrays, const AVSValue& src) {
   if (src.IsArray()) {
-#ifdef NEW_AVSVALUE
     AVSValue* copy = new AVSValue[src.ArraySize()];
     for (int i = 0; i < src.ArraySize(); ++i) {
       copy[i] = src[i]; // NEW_AVSVALUE is already doing deep copy
@@ -27,14 +26,6 @@ static AVSValue DeepCopyValue(std::vector<std::unique_ptr<AVSValue[]>>& arrays, 
     }
     arrays.emplace_back(std::unique_ptr<AVSValue[]>(copy));
     return AVSValue(copy, src.ArraySize());
-#else
-    AVSValue* copy = new AVSValue[src.ArraySize()];
-    for (int i = 0; i < src.ArraySize(); ++i) {
-      copy[i] = DeepCopyValue(arrays, src[i]);
-    }
-    arrays.emplace_back(std::unique_ptr<AVSValue[]>(copy));
-    return AVSValue(copy, src.ArraySize());
-#endif
   }
   return src;
 }

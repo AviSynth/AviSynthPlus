@@ -287,13 +287,11 @@ AVSValue IsFloatUvZeroBased(AVSValue args, void*, IScriptEnvironment* env); // a
 AVSValue BuildPixelType(AVSValue args, void*, IScriptEnvironment* env); // avs+ 180517
 AVSValue VarExist(AVSValue args, void*, IScriptEnvironment* env); // avs+ 180606
 
-#ifdef NEW_AVSVALUE
 AVSValue ArrayCreate(AVSValue args, void*, IScriptEnvironment* env);
 AVSValue IsArray(AVSValue args, void*, IScriptEnvironment* env);
 AVSValue ArrayGet(AVSValue args, void*, IScriptEnvironment* env);
 AVSValue ArraySize(AVSValue args, void*, IScriptEnvironment* env);
 AVSValue ArrayIns(AVSValue args, void*, IScriptEnvironment* env);
 AVSValue ArrayDel(AVSValue args, void*, IScriptEnvironment* env);
-#endif
 
 #endif  // __Script_H__

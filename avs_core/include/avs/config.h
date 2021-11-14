@@ -148,12 +148,6 @@
 
 #endif
 
-#if defined(AVS_POSIX)
-#define NEW_AVSVALUE
-#else
-#define NEW_AVSVALUE
-#endif
-
 #if defined(AVS_WINDOWS) && defined(_USING_V110_SDK71_)
 // Windows XP does not have proper initialization for
 // thread local variables.

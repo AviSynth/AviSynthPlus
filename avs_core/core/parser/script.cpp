@@ -299,7 +299,6 @@ extern const AVSFunction Script_functions[] = {
   { "VarExist", BUILTIN_FUNC_PREFIX, "s", VarExist }, // 180606-
 
 
-#ifdef NEW_AVSVALUE
     // Creates script array from zero or more anything.
     // Direct array constant syntax e.g. x = [arg1,arg2,...] is translated to x = Array(arg1,arg2,...)
   { "Array", BUILTIN_FUNC_PREFIX, ".*", ArrayCreate },
@@ -316,7 +315,6 @@ extern const AVSFunction Script_functions[] = {
   /*
   { "IsArrayOf", BUILTIN_FUNC_PREFIX, ".s", IsArrayOf },
   */
-#endif
   { 0 }
 };
 
@@ -2163,8 +2161,6 @@ AVSValue VarExist(AVSValue args, void*, IScriptEnvironment* env)
 }
 
 
-#ifdef NEW_AVSVALUE
-
 AVSValue ArrayCreate(AVSValue args, void*, IScriptEnvironment* env)
 {
     return args[0];
@@ -2286,4 +2282,3 @@ AVSValue ArrayDel(AVSValue args, void*, IScriptEnvironment* env)
   return AVSValue(new_val.data(), orig_size - 1);
 }
 
-#endif

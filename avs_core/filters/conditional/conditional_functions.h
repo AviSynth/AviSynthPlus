@@ -77,7 +77,6 @@ public:
   static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
 };
 
-#ifdef NEW_AVSVALUE
 class GetPropertyAsArray {
 public:
   static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
@@ -87,8 +86,6 @@ class GetAllProperties {
 public:
   static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
 };
-
-#endif
 
 class GetPropertyDataSize {
 public:
