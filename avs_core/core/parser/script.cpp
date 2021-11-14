@@ -61,6 +61,7 @@
 #include <map>
 #include <string>
 #include <utility>
+#define __STDC_FORMAT_MACROS
 #include <inttypes.h>
 
 #ifndef MINGW_HAS_SECURE_API
