@@ -88,7 +88,8 @@
 #ifndef __AVISYNTH_8_H__
 enum {
   AVISYNTH_INTERFACE_CLASSIC_VERSION = 6,
-  AVISYNTH_INTERFACE_VERSION = 8
+  AVISYNTH_INTERFACE_VERSION = 8,
+  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 // reset to zero whenever the normal interface version bumps
 };
 #endif
 
