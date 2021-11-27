@@ -2917,6 +2917,8 @@ size_t  ScriptEnvironment::GetEnvProperty(AvsEnvProperty prop)
 #else
     return AVS_SEQREV;
 #endif
+  case AEP_HOST_SYSTEM_ENDIANNESS:
+    return (uint64_t)AVS_ENDIANNESS;
   default:
     this->ThrowError("Invalid property request.");
     return std::numeric_limits<size_t>::max();

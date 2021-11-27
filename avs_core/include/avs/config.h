@@ -161,4 +161,17 @@
 #define XP_TLS
 #endif
 
+#ifndef MSVC
+// GCC and Clang can be used on big endian systems, MSVC can't.
+#  if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#    define AVS_ENDIANNESS "little"
+#  elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#    define AVS_ENDIANNESS "big"
+#  else
+#    define AVS_ENDIANNESS "middle"
+#  endif
+#else
+#define AVS_ENDIANNESS "little"
+#endif
+
 #endif //AVS_CONFIG_H

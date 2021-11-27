@@ -1363,6 +1363,7 @@ enum AvsEnvProperty
   AEP_FILTERCHAIN_THREADS = 4,
   AEP_THREAD_ID = 5,
   AEP_VERSION = 6,
+  AEP_HOST_SYSTEM_ENDIANNESS = 7,
 
   // Neo additionals
   AEP_NUM_DEVICES = 901,
