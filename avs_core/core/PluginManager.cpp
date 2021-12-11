@@ -960,7 +960,7 @@ bool PluginManager::LoadPlugin(PluginFile &plugin, bool throwOnError, AVSValue *
 #else // AVS_POSIX
   plugin.Library = dlopen(plugin.FilePath.c_str(), RTLD_LAZY);
   if (plugin.Library == NULL)
-    Env->ThrowError("Cannot load file '%s'.", plugin.FilePath.c_str());
+    Env->ThrowError("Cannot load file '%s'. Reason: %s", plugin.FilePath.c_str(), dlerror());
 #endif
 
   // Try to load various plugin interfaces
