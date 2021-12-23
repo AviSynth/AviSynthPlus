@@ -313,6 +313,10 @@ extern const AVSFunction Script_functions[] = {
   { "ArrayAdd",  BUILTIN_FUNC_PREFIX, "..i*", ArrayIns, (void*)1 },
   { "ArraySet",  BUILTIN_FUNC_PREFIX, "..i+", ArrayIns, (void*)2 },
   { "ArrayDel",  BUILTIN_FUNC_PREFIX, ".i+", ArrayIns, (void*)3 },
+  { "ArrayMap",  BUILTIN_FUNC_PREFIX, ".n", ArrayMap },
+  { "ArrayFlatMap", BUILTIN_FUNC_PREFIX, ".n", ArrayFlatMap },
+  { "ArrayReduce", BUILTIN_FUNC_PREFIX, "..n", ArrayReduce },
+  { "ArrayReduce", BUILTIN_FUNC_PREFIX, ".n", ArrayReduce },
   /*
   { "IsArrayOf", BUILTIN_FUNC_PREFIX, ".s", IsArrayOf },
   */
@@ -2313,3 +2317,77 @@ AVSValue ArrayIns(AVSValue args, void* user_data, IScriptEnvironment* env)
   return AVSValue(new_val.data(), new_size);
 }
 
+AVSValue ArrayMap(AVSValue args, void* user_data, IScriptEnvironment* env)
+{
+  InternalEnvironment *envi = static_cast<InternalEnvironment*>(env);
+  // func signature: ".n"
+  if (!args[0].IsArray())
+    env->ThrowError("ArrayMap: first parameter must be an array.");
+  if (args[0].ArraySize() <= 0)
+    return AVSValue(nullptr, 0);
+
+  std::vector<AVSValue> new_val(args[0].ArraySize());
+  auto &&func = args[1].AsFunction();
+
+  for (int i = 0; i < args[0].ArraySize(); ++i) {
+    auto *func_name = func->GetLegacyName();
+    auto *func_def = func->GetDefinition();
+    if (!envi->Invoke_(&new_val[i], AVSValue(), func_name, func_def, AVSValue(&args[0][i], 1), 0))
+      env->ThrowError("ArrayMap: cannot process array element %d: invalid arguments to callback function.", i);
+  }
+
+  return AVSValue(new_val.data(), (int) new_val.size());
+}
+
+AVSValue ArrayFlatMap(AVSValue args, void* user_data, IScriptEnvironment* env)
+{
+  InternalEnvironment *envi = static_cast<InternalEnvironment*>(env);
+  // func signature: ".n"
+  if (!args[0].IsArray())
+    env->ThrowError("ArrayFlatMap: first parameter must be an array.");
+
+  std::vector<AVSValue> new_val;
+  auto &&func = args[1].AsFunction();
+
+  for (int i = 0; i < args[0].ArraySize(); ++i) {
+    auto *func_name = func->GetLegacyName();
+    auto *func_def = func->GetDefinition();
+    AVSValue result;
+    if (!envi->Invoke_(&result, AVSValue(), func_name, func_def, AVSValue(&args[0][i], 1), 0))
+      env->ThrowError("ArrayFlatMap: cannot process array element %d: invalid arguments to callback function.", i);
+    if (!result.IsArray())
+      env->ThrowError("ArrayFlatMap: cannot process array element %d: callback function must return an array (got '%s').", i, GetAVSTypeName(result));
+    for (int j = 0; j < result.ArraySize(); ++j)
+      new_val.push_back(result[j]);
+  }
+
+  return AVSValue(new_val.data(), (int) new_val.size());
+}
+
+AVSValue ArrayReduce(AVSValue args, void* user_data, IScriptEnvironment* env)
+{
+  InternalEnvironment *envi = static_cast<InternalEnvironment*>(env);
+  // func signature: ".n" or "..n"
+  if (!args[0].IsArray())
+    env->ThrowError("ArrayReduce: first parameter must be an array.");
+
+  bool hasAccArg = args.ArraySize() == 3;
+  AVSValue acc;
+  if (hasAccArg)
+    acc = args[1];
+  else if (args[0].ArraySize() > 0)
+    acc = args[0][0];
+  else
+    env->ThrowError("ArrayReduce: cannot reduce empty array with no initial value.");
+  auto &&func = args[args.ArraySize() - 1].AsFunction();
+
+  for (int i = !hasAccArg; i < args[0].ArraySize(); ++i) {
+    auto *func_name = func->GetLegacyName();
+    auto *func_def = func->GetDefinition();
+    AVSValue func_args[2] {acc, args[0][i]};
+    if (!envi->Invoke_(&acc, AVSValue(), func_name, func_def, AVSValue(func_args, 2), 0))
+      env->ThrowError("ArrayReduce: cannot process array element %d: invalid arguments to callback function.", i);
+  }
+
+  return acc;
+}

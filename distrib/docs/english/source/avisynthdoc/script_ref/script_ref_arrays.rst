@@ -20,6 +20,8 @@ Beginning Avisynth+ 3.6 script arrays are supported. Functionality is different 
   - ArrayDel - delete from position
   - ArrayIns - insert before position
   - ArraySet - replace at position
+  - ArrayMap, ArrayFlatMap - create new array with the results of calling a function on every element
+  - ArrayReduce - call a function on every array element with an accumulator value
 
 ArrayIns
 ^^^^^^^^
@@ -56,6 +58,38 @@ ArraySet(array_to_mod, replacement_value, index1 [, index2, index3...])
 
     Returns a new array with array_to_mod[index1 (, index2, index3...)] = replacement_value
     Original array (as with the other functions) remains untouched.
+
+ArrayMap
+^^^^^^^^
+
+ArrayMap(array, callback_fn)
+
+    Creates a new array populated with the results of calling the provided function
+    ``callback_fn`` on every element in ``array``.
+
+ArrayFlatMap
+^^^^^^^^^^^^
+
+ArrayFlatMap(array, callback_fn)
+
+    Creates a new array formed by applying the given function ``callback_fn``,
+    which must return an array, to each element of ``array``, and then
+    concatenating the results.
+
+ArrayReduce
+^^^^^^^^^^^
+
+ArrayReduce(array[, initial_value], callback_fn)
+
+    Executes the supplied function ``callback_fn`` on each element of ``array``,
+    in order, passing in the return value from the calculation on the preceding element
+    as the first argument, and the current array element as the second argument.
+    The final result is a single value.
+
+    The first time that the callback is run there is no "return value of the
+    previous calculation". So ``initial_value``, if supplied, is used in its place.
+    Otherwise, array element 0 is used as the initial value and iteration starts
+    from the next element. In this case, an error is thrown if ``array`` is empty.
 
 ArraySize
 ^^^^^^^^^
@@ -169,6 +203,32 @@ Example:
         }
         return a
       }
+
+Example:
+
+::
+
+      BlankClip(pixel_type="YV12")
+      [1, 2, 3, 4, 5, 6, 7, 8, 9]
+      \   .ArrayMap(function(int i) { [String(i), i] }) # [["1", 1], ["2", 2], ...]
+      \   .ArrayReduce(last, function(clip c, val v) { c.Subtitle(v[0], align=v[1]) })
+
+Example:
+
+::
+
+      text = [["a", [10, 20, 30]], ["b", [40, 50, 60]]]
+      \   .ArrayFlatMap(function(val v) {
+              v[1].ArrayMap(function[v](int i) {
+                  v[0]+String(i)
+              })
+          }) # ["a10", "a20", "a30", "b40", "b50", "b60"]
+      \   .ArrayReduce(function(string acc, string s) {
+              acc+", "+s
+          }) # "a10, a20, a30, b40, b50, b60"
+
+      BlankClip(pixel_type="YV12")
+      Subtitle(text)
 
 Arrays in user defined functions
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
