@@ -279,6 +279,9 @@ bool AVSFunction::IsScriptFunction(const Function* func)
           || (func->apply == &Eval)
           || (func->apply == &EvalOop)
           || (func->apply == &Import)
+          || (func->apply == &ArrayMap)
+          || (func->apply == &ArrayFlatMap)
+          || (func->apply == &ArrayReduce)
         );
 }
 
