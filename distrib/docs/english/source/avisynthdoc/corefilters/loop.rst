@@ -2,34 +2,67 @@
 Loop
 ====
 
-``Loop`` (clip, int "times", int "start", int "end")
+Loops the segment from frame *start* to frame *end* a given number of times.
 
-Loops the segment from frame start to frame end a given number of times.
-times (default -1) is the number of times the loop is applied.
-start (default 0) the frame of the clip where the loop starts.
-end (default framecount(clip)) the frame of the clip where the loop ends.
+
+Syntax and Parameters
+----------------------
 
 ::
 
-    # Loops frame 100 to 110 of the current clip 10 times
-    Loop(10,100,110)
+    Loop (clip, int "times", int "start", int "end")
+
+.. describe:: clip
+
+    Source clip.
+
+.. describe:: times
+
+    The number of times the loop is applied.
+
+    Setting ``times`` to -1 loops a "very large" number of times.
+
+    Default: -1
+
+.. describe:: start
+
+    The frame of the clip where the loop starts.
+
+    Default: 0
+
+.. describe:: end
+
+    The frame of the clip where the loop ends.
+
+    Default: FrameCount(clip)
 
 
-    Loop() # make the clip loop (almost) endlessly
+Examples
+--------
+
+::
+
+    Loop()                           # play the clip (almost) endlessly.
+    Loop(times=-1)                   # play the clip (almost) endlessly.
+    
+    Loop(times=10)                   # play the clip ten times.
+    
+    Loop(times=-1, start=20, end=29) # play up to frame 19;
+                                     # frames 20-29 are repeated (almost) infinite times. 
+    
+    Loop(times=2, start=20, end=29)  # play up to frame 19; 
+                                     # play frames 20-29 two times; 
+                                     # continue from frame 30 to end of clip. 
+    
+    Loop(times=10, start=20, end=29) # play up to frame 19; 
+                                     # play frames 20-29 ten times; 
+                                     # continue from frame 30 to end of clip. 
+    
+    Loop(times=0, start=20, end=29)  # play up to frame 19;
+                                     # delete frames 20-29 (play them zero times); 
+                                     # continue to end of clip. 
+    
+    Loop(times=1, start=20, end=29)  # play all frames normally. 
 
 
-    Loop(10) # make the clip loop ten times
-
-
-    Loop(10,20,29) # repeat frames 20 to 29 ten times before going on
-
-
-    # actual clip duration increased by 90 frames
-    Loop(0,20,29) # delete frames 20 to 29
-
-
-    # actual clip duration decreased by 10 frames
-    Loop(-1,20,29) # frame 20 to 29 is repeated (almost) infinite times
-
-
-$Date: 2004/03/07 22:44:06 $
+$Date: 2022/02/04 22:44:06 $
