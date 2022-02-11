@@ -2,29 +2,66 @@
 MergeChannels
 =============
 
-``MergeChannels`` (clip1 , clip2 [, clip3, ...])
+Merge the audio channels of two or more clips.
 
-Starting from v2.5 ``MergeChannels`` replaces :doc:`MonoToStereo <monotostereo>`, and can be
-used to merge the audio channels of two or more clips.
-Don't confuse this with mixing of channels (:doc:`MixAudio <mixaudio>` and
-:doc:`ConvertToMono <converttomono>` do this) - the sound of each channel is left untouched,
-the channels are only put into the new clip.
-Before merging audio is converted to the sample type of clip1.
+There is no *mixing* of channels – :doc:`MixAudio <mixaudio>` and 
+:doc:`ConvertToMono <converttomono>` do this. The channels are added to the 
+new clip unchanged.
+
+
+Syntax and Parameters
+----------------------
 
 ::
 
-    # Example, converts "uncompressed wav" audio to a 44.1 kHz stereo signal:
-    video = AviSource("c:\divx_wav.avi")
-    audio = WavSource("c:\divx_wav.avi")
-    l_ch = GetChannel(audio, 1)
-    r_ch = GetChannel(audio, 2)
-    stereo = MergeChannels(l_ch, r_ch).ResampleAudio(44100)
-    return AudioDub(video, stereo)
+    MergeChannels (clip1 , clip2 [, clip3, ...])
 
-    # This is similar to:
-    video = AviSource("c:\divx_wav.avi")
-    audio = WavSource("c:\divx_wav.avi")
-    stereo = GetChannel(audio, 1, 2).ResampleAudio(44100)
-    return AudioDub(video, stereo)
+.. describe:: clip1, clip2, ...
 
-$Date: 2004/03/09 21:28:07 $
+    | Source clips; a minimum of 2 are required.
+    | Output video, framerate and running time are taken from clip1.
+    | All audio is :doc:`converted <convertaudio>` to the sample type of clip1. 
+
+
+Examples
+--------
+
+For example, given the following source clips:
+
+    | A (mono) 
+    | B (mono) 
+
+...and merging them::
+
+    MergeChannels(A, B)
+
+Results in a clip with the following :doc:`properties <../syntax/syntax_clip_properties>`:
+
+    | video = A 
+    | audio channel 1 = A 
+    | audio channel 2 = B 
+
+This is equivalent to using :doc:`MonoToStereo <monotostereo>`.
+
+-------------
+
+For a more complex example, given the following source clips:
+
+    | A and B (stereo) 
+    | C and D (mono) 
+
+...and merging them::
+
+    MergeChannels(A, B, C, D)
+
+Results in a clip with the following :doc:`properties <../syntax/syntax_clip_properties>`:
+
+    | video = A 
+    | audio channel 1 = A channel 1 
+    | audio channel 2 = A channel 2 
+    | audio channel 3 = B channel 1 
+    | audio channel 4 = B channel 2 
+    | audio channel 5 = C 
+    | audio channel 6 = D 
+
+$Date: 2022/02/08 21:28:07 $
