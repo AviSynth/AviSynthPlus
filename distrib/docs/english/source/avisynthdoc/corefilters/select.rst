@@ -2,13 +2,24 @@
 SelectEven / SelectOdd
 ======================
 
-| ``SelectEven`` (clip)
-| ``SelectOdd`` (clip)
+**SelectEven** makes an output video stream using only the even-numbered
+frames from the input. **SelectOdd** is its odd counterpart.
 
-``SelectEven`` makes an output video stream using only the even-numbered
-frames from the input. ``SelectOdd`` is its odd counterpart.
-
-Since frames are numbered starting from zero, ``SelectEven`` actually selects
+Since frames are numbered starting from zero, **SelectEven** actually selects
 the first, third, fifth,... frames by human counting conventions.
 
-$Date: 2004/03/09 21:28:07 $
+
+Syntax and Parameters
+----------------------
+
+::
+
+    SelectEven (clip)
+    SelectOdd (clip)
+
+.. describe:: clip
+
+    Source clip.
+
+
+$Date: 2022/02/06 21:28:07 $
