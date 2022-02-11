@@ -2,12 +2,20 @@
 ConvertToMono
 =============
 
-``ConvertToMono`` (clip)
+Converts a multichannel audio signal to mono by averaging all channels with 
+equal weights. If the signal is already in mono, it is returned untouched. 
 
-Prior to v2.5 it converts a stereo signal to mono, and starting from v2.5 it
-converts a multichannel signal to mono by averaging all channels with equal
-weights.
 
-If the signal is already in mono, it is returned untouched.
+Syntax and Parameters
+----------------------
 
-$Date: 2004/03/07 22:44:06 $
+::
+
+    ConvertToMono (clip)
+
+.. describe:: clip
+
+    Source clip.
+
+
+$Date: 2022/02/05 22:44:06 $
