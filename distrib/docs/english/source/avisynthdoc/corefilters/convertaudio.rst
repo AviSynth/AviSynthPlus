@@ -2,26 +2,55 @@
 ConvertAudio
 ============
 
-ConvertAudioTo8bit / ConvertAudioTo16bit / ConvertAudioTo24bit / ConvertAudioTo32bit / ConvertAudioToFloat
-----------------------------------------------------------------------------------------------------------
+Set of filters to convert the audio sample type to 8, 16, 24, 32 integer bits, 
+and Float. 
 
-| ``ConvertAudioTo8bit`` (clip)
-| ``ConvertAudioTo16bit`` (clip)
-| ``ConvertAudioTo24bit`` (clip)
-| ``ConvertAudioTo32bit`` (clip)
-| ``ConvertAudioToFloat`` (clip)
+See Wikipedia: `audio bit depth`_
 
-The first four filters convert the audio samples to 8, 16, 24 and 32 bits,
-and ``ConvertAudioToFloat`` converts the audio samples to float.
-``ConvertAudioTo8bit``, ``ConvertAudioTo24bit``, ``ConvertAudioTo32bit`` and
-``ConvertAudioToFloat`` are available starting from *v2.5*.
 
-Starting from v2.5 the audio samples will be automatically converted if any
-filters requires a special type of sample. This means that most filters will
-accept several types of input, but if a filter doesn't support the type of
-sample it is given, it will automatically convert the samples to something it
-supports. The internal formats supported in each filter is listed in the
-colorspace column. A specific sample type can be forced by using the
-ConvertAudio functions.
+Syntax and Parameters
+----------------------
 
-$Date: 2004/12/23 22:00:52 $
+::
+
+    ConvertAudioTo8bit (clip)
+    ConvertAudioTo16bit (clip)
+    ConvertAudioTo24bit (clip)
+    ConvertAudioTo32bit (clip)
+    ConvertAudioToFloat (clip)
+
+.. describe:: clip
+
+    Source clip to convert; all sample types supported.
+
+.. note::
+    The sample types supported by the AviSynth audio filters are listed `here`_, 
+    in the **Sample type** column. If a filter doesn't support the type of 
+    sample it is given, it will throw an error. Use **ConvertAudio** to convert 
+    the audio clip to the supported format.
+
+
+Changelog
+----------
+
+.. table::
+    :widths: 20 80
+
+    +------------------+------------------------------------------------------------+
+    | Version          | Changes                                                    |
+    +==================+============================================================+
+    | AviSynth+ 3.7.1  || Fix: ConvertAudio integer 32-to-8 bits C code garbage     |
+    |                  |  (regression in 3.7.0).                                    |
+    |                  || Fix: ConvertAudio: float to 32 bit integer conversion max |
+    |                  |  value glitch (regression in 3.7.0).                       |
+    |                  || Add direct Float from/to 8/16 conversions (C,SSE2,AVX2)   |
+    +------------------+------------------------------------------------------------+
+    | AviSynth+ 3.7.0  |  Internally refactored ConvertAudio.                       |
+    +------------------+------------------------------------------------------------+
+
+$Date: 2022/02/08 22:00:52 $
+
+.. _audio bit depth:
+    https://en.wikipedia.org/wiki/Audio_bit_depth
+.. _here:
+    http://avisynth.nl/index.php/Internal_filters#Audio_processing_filters
