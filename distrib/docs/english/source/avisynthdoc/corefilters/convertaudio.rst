@@ -24,10 +24,11 @@ Syntax and Parameters
     Source clip to convert; all sample types supported.
 
 .. note::
-    The sample types supported by the AviSynth audio filters are listed `here`_, 
-    in the **Sample type** column. If a filter doesn't support the type of 
-    sample it is given, it will throw an error. Use **ConvertAudio** to convert 
-    the audio clip to the supported format.
+    The sample types supported by the AviSynth audio filters are listed 
+    :ref:`here <Audio processing filters>`, in the **Sample type** column. 
+    If a filter doesn't support the type of sample it is given, it will throw 
+    an error. Use **ConvertAudio** to convert the audio clip to the supported 
+    format.
 
 
 Changelog
@@ -52,5 +53,3 @@ $Date: 2022/02/08 22:00:52 $
 
 .. _audio bit depth:
     https://en.wikipedia.org/wiki/Audio_bit_depth
-.. _here:
-    http://avisynth.nl/index.php/Internal_filters#Audio_processing_filters
