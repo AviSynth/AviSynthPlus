@@ -7,7 +7,7 @@ FlipHorizontal / FlipVertical
 **FlipVertical** flips the video top to bottom.
 
 | It is useful for dealing with some video codecs which return an upside-down image.
-| It doesn't modify the interlaced :ref:`parity flags <AssumeFieldFirst>`. 
+| It doesn't modify the interlaced :doc:`parity flags <parity>`. 
 
 
 Syntax and Parameters
