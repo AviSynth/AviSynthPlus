@@ -7,7 +7,7 @@ FlipHorizontal / FlipVertical
 **FlipVertical** flips the video top to bottom.
 
 | It is useful for dealing with some video codecs which return an upside-down image.
-| It doesn't modify the interlaced `parity flags`_. 
+| It doesn't modify the interlaced :ref:`parity flags <AssumeFieldFirst>`. 
 
 
 Syntax and Parameters
@@ -41,6 +41,3 @@ Changelog
 +----------------+----------------------------------------------------+
 
 $Date: 2022/02/05 22:44:06 $
-
-.. _parity flags:
-    http://avisynth.nl/index.php/Interlaced_fieldbased#The_parity_.28.3D_order.29_of_the_fields_in_AviSynth
