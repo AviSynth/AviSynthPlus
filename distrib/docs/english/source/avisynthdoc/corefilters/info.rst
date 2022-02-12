@@ -2,50 +2,115 @@
 Info
 ====
 
-``Info`` (clip)
+Gives :doc:`clip property information <../syntax/syntax_clip_properties>` as a 
+text overlay in the upper-left corner.
 
-Present in *v2.5*. It gives info of a clip printed in the left corner of the
-clip. The info consists of the duration, colorspace, size, fps, whether it is
-field (you applied :doc:`SeparateFields <separatefields>`) or frame based (you didn't apply
-``SeparateFields``), whether AviSynth thinks it is bottom (the default in
-case of :doc:`AviSource <avisource>`) or top field first, whether there is audio present,
-the number of channels, sample type, number of samples and the samplerate. In
-* v2.55* a CPU flag is added with supported optimizations.
+The displayed information consists of:
 
-Example:
+* current frame and total frame count,
+* current time and total duration,
+* colorspace and bit depth,
+* width and height,
+* frame rate (as floating-point and fraction),
+* whether it is field or frame based,
+* parity: whether AviSynth thinks it is bottom or top field first,
+* video pitch (length of a video line in bytes),
+* whether there is audio present,
+* the number of audio channels,
+* audio sample type,
+* audio sample rate,
+* total audio samples and total audio duration (hh:mm:ss:ddd).
+
+
+Syntax and Parameters
+----------------------
 
 ::
 
-    AviSource("C:\filename.avi").Info
+    Info (clip clip, string "font", float "size", int "text_color", "halo_color")
 
-Results in a video with information in the top left corner:
+.. describe:: clip
+
+    Source clip. If only an audio clip is supplied, **Info** creates a blank 
+    video clip to overlay the information on.
+
+.. describe:: font
+
+    Font name; can be the name of any installed Windows font.
+
+    Default: "Courier New"
+
+.. describe:: size
+
+    | Height of the text in pixels, and is rounded to the nearest 0.125 pixel. 
+    | Default depends on the dimensions of the clip:
+    
+    * If either the width or height is less than 384x224, the font is auto-scaled.
+    * If the both the width and height are greater than 384x224, ``size`` defaults
+      to 15.
+    * If ``size`` is set to < 0, the font is automatically enlarged for clips 
+      over 640x480.
+
+    Default: auto
+
+.. describe:: text_color, halo_color
+
+    | Colors for font fill and outline respectively.  See the
+      :doc:`colors <../syntax/syntax_colors>` page for more information on 
+      specifying colors.
+    | Default text color is yellow and halo color is black.
+
+    Default: $FFFF00, $000000
+
+
+Examples
+--------
 
 ::
 
-    Frame: 0 of 6035
-    Time: 00:00:00:000 of 00:04:01:400
-    ColorSpace: YUY2
-    Width: 720 pixels, Height: 576 pixels.
-    Frames per second: 25.0000 (25/1)
-    FieldBased (Separated) Video: NO
-    Parity: Bottom Field First
-    Video Pitch: 1440 bytes.
-    Has Audio: YES
-    Audio Channels: 2
-    Sample Type: Integer 16 bit
-    Samples Per Second: 44100
-    Audio length: 10650150 samples. 00:04:01:500
-    CPU deteced: x87 MMX ISSE SSE 3DNOW 3DNOW_EXT
+    Blankclip(pixel_type="YUV444P16")
+    Info()
 
-+-----------+-----------------------------------------------------------------------+
-| Changelog |                                                                       |
-+===========+=======================================================================+
-| v2.57     | Added time of current frame, total time, numerator and denominator of |
-|           | the framerate and audio length.                                       |
-+-----------+-----------------------------------------------------------------------+
-| v2.55     | Added supported CPU optimizations                                     |
-+-----------+-----------------------------------------------------------------------+
-| v2.50     | Initial Release                                                       |
-+-----------+-----------------------------------------------------------------------+
+Results in a video with the following information overlay:
+    
+::
 
-$Date: 2009/09/12 15:10:22 $
+     Frame: 0 of 240
+     Time: 00:00:00:000 of 00:00:10:000
+     ColorSpace: YUV444P16, BitsPerComponent: 16
+     Width: 640 pixels, Height: 480 pixels.
+     Frames per second: 24.0000 (24/1)
+     FieldBased (Separated) Video: NO
+     Parity: Bottom Field First
+     Video Pitch: 1280 bytes.
+     Has Audio: YES
+     Audio Channels: 1
+     Sample Type: Integer 16 bit
+     Samples Per Second: 44100
+     Audio length: 441000 samples. 00:00:10:000
+     CPU: SSE2 SSE3 SSSE3 SSE4.1 SSE4.2 AVX F16C
+
+
+Changelog
+---------
+
++-----------------+-----------------------------------------------------------------------+
+| Version         | Changes                                                               |
++=================+=======================================================================+
+| AviSynth+ 3.5.1 | When parameter ``size`` < 0, font is automatically enlarged when the  |
+|                 | dimensions of the clip are greater than 640x480.                      | 
++-----------------+-----------------------------------------------------------------------+
+| AviSynth+ r2487 | Added parameters ``font, size, text_color, halo_color`` and fix       |
+|                 | hardcoded dimensions.                                                 |
++-----------------+-----------------------------------------------------------------------+
+| AviSynth 2.6.0  | Added support audio only clips.                                       |
++-----------------+-----------------------------------------------------------------------+
+| AviSynth 2.5.7  | Added time of current frame, total time, numerator and denominator of |
+|                 | the framerate and audio length.                                       |
++-----------------+-----------------------------------------------------------------------+
+| AviSynth 2.5.5  | Added supported CPU optimizations                                     |
++-----------------+-----------------------------------------------------------------------+
+| AviSynth 2.5.0  | Initial Release                                                       |
++-----------------+-----------------------------------------------------------------------+
+
+$Date: 2022/02/08 15:10:22 $
