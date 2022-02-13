@@ -15,7 +15,9 @@ Syntax and Parameters
 
 .. describe:: clip
 
-    Source clip.
+    | Source clip. Supported audio sample types: 16-bit integer and 32-bit float. 
+    | Other sample types (8-, 24- and 32-bit integer) are automatically 
+      :doc:`converted <convertaudio>` to 32-bit float. 
 
 
 $Date: 2022/02/05 22:44:06 $
