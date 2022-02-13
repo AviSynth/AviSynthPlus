@@ -2,49 +2,83 @@
 ResampleAudio
 =============
 
-``ResampleAudio`` (clip, int new_rate_numerator[, int new_rate_denominator])
+High-quality audio sample rate converter:
 
-``ResampleAudio`` performs a high-quality change of audio samplerate. The
-conversion is skipped if the samplerate is already at the given rate.
+* Accepts any number of channels.
+* The conversion is skipped if the sample rate is already at the given rate.
+* Supports fractional resampling (where *new_rate_denominator* ≠ 1).
+* Note, internal rounding may affect 
+  :doc:`AudioDuration <../syntax/syntax_clip_properties>` slightly – see 
+  `Examples`_ below. 
 
-When using fractional resampling the output audio samplerate is given by :
-::
+See Wikipedia: `Sample-rate conversion`_
 
-    int(new_rate_numerator / new_rate_denominator + 0.5)
-
-However the internally the resampling factor used is:
-::
-
-    new_rate_numerator / (new_rate_denominator * old_sample_rate)
-
-This causes the audio duration to vary slightly (which is generally what is desired).
+Syntax and Parameters
+----------------------
 
 ::
 
-    # resamples audio to 48 kHz
+    ResampleAudio (clip, int new_rate_numerator, int "new_rate_denominator")
+
+.. describe:: clip
+
+    | Source clip. Supported audio sample types: 16-bit integer and 32-bit float. 
+    | Other sample types (8-, 24- and 32-bit integer) are automatically 
+      :doc:`converted <convertaudio>` to 32-bit float.
+
+.. describe:: new_rate_numerator
+
+    Set the numerator for the new sample rate. 
+
+.. describe:: new_rate_denominator
+
+    Set the denominator for the new sample rate.
+
+    Default: 1 
+
+
+Examples
+--------
+
+* Resample audio to 48 kHz::
+
     source = AviSource("c:\audio.wav")
     return ResampleAudio(source, 48000)
 
-    # Exact 4% speed up for Pal telecine
-    Global Nfr_num=25
-    Global Nfr_den=1
+* Exact 4% speed up for Pal telecine::
+
+    nfr_num = 25
+    nfr_den = 1
     AviSource("C:\Film.avi") # 23.976 fps, 44100Hz
-    Ar=Audiorate()
-    ResampleAudio(Ar*FramerateNumerator()*Nfr_den,
-    FramerateDenominator()*Nfr_num)
-    AssumeSampleRate(Ar)
-    AssumeFPS(Nfr_num, Nfr_den, False)
+    ar = Audiorate()
+    # intermediate sample rate:
+    ResampleAudio(ar*FramerateNumerator*nfr_den, FramerateDenominator*nfr_num)
+    # final sample rate:
+    AssumeSampleRate(ar)
+    AssumeFPS(nfr_num, nfr_den, sync_audio=False)
 
-For exact resampling the intermediate samplerate needs to be 42293.706293
-which if rounded to 42294 would causes about 30ms per hour variation.
+ In the example above, the intermediate sample rate needs to be:
 
-+-----------+----------------------------------------------------+
-| Changelog |                                                    |
-+===========+====================================================+
-| v2.53     | ``ResampleAudio`` accepts any number of channels.  |
-+-----------+----------------------------------------------------+
-| v2.56     || ``ResampleAudio`` process float samples directly. |
-|           || Support fractional resampling.                    |
-+-----------+----------------------------------------------------+
+    | ``(AudioRate*FramerateNumerator*nfr_den=1)/(FramerateDenominator*nfr_num=25)``
+    | or (44100 * 24000 * 1) / (1001 * 25) = 42293.706294... 
 
-$Date: 2005/01/18 11:10:51 $
+ But because audio sample rates are always integers, 42293.706294 must be 
+ rounded to 42294, which results in a time slippage of about 30ms per hour.
+
+
+Changelog
+---------
+
++----------------+----------------------------------------------------------+
+| Version        | Changes                                                  |
++================+==========================================================+
+| AviSynth 2.5.6 || Added Float support in ResampleAudio().                 |
+|                || Added Fractional resampling support in ResampleAudio(). |
++----------------+----------------------------------------------------------+
+| AviSynth 2.5.3 | ResampleAudio now accepts any number of channels.        |
++----------------+----------------------------------------------------------+
+
+$Date: 2022/02/13 11:10:51 $
+
+.. _Sample-rate conversion:
+    https://en.wikipedia.org/wiki/Sample-rate_conversion
