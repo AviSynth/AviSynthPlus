@@ -2,55 +2,121 @@
 Compare
 =======
 
-``Compare`` (clip_filtered, clip_original, string "channels",
-string "logfile", bool "show_graph")
+Compares two clips (the "filtered" clip and the "original" clip) and returns the 
+following data for each frame: 
 
-This filter compares the original clip clip_original and its filtered version
-clip_filtered. The filtered version will be returned with the results of the
-comparison. Per frame the Mean Absolute Difference, Mean Difference and Peak
-signal-to-noise ratio (PSNR) is given, as well as the min (minimum), avg
-(average) and max (maximum) PSNR up to that frame (calculated frame-wise).
-Starting from *v2.53*, the 'Overall PSNR' (calculated over all pixels in all
-frames) is also shown on the output clip.
+    | **Mean Absolute Deviation** `[1]`_
+    |     *(minimum, average, maximum)*
+    | **Mean Deviation**
+    |     *(minimum, average, maximum)*
+    | **Max. Positive Deviation**
+    | **Max. Negative Deviation**
+    | **Peak Signal-to-Noise Ratio (PSNR)** `[2]`_
+    |     (minimum, average, maximum)
+    | **PSNR**
+    |     *(minimum, average, maximum)*
+    | **Overall PSNR**
 
-The channels (default "") string is a combination of R,G,B [,A] or Y,U,V,
-depending on the source clips. If it is empty, it means either "YUV" when the
-input clips are YCbCr or "RGB" when in the input clips are RGB.
+This data is displayed on screen by default (see `Examples`_), or can 
+optionally be written to a *logfile*.
 
-If show_graph (default false) is true then Marc's PSNR graph is also drawn on
-it.
+By default a *PSNR graph* is displayed; this graph shows overall PSNR visually 
+as a timeline that grows left-to-right along the bottom of the screen as the 
+clip plays. 
 
-If a logfile is specified, the results will be written to a file by this name
-and not drawn on the clip. It is much faster if you need to compare a lot of
-frames.
 
-**Examples:**
+Syntax and Parameters
+----------------------
+
 ::
 
-    # Displays differences on screen
-    Compare(clip1, clip2)
-    # for creating a log file:
-    Compare(clip1, clip2, "", "compare.log")
-    # will only compare chroma channels of YUY2 clips.
-    Compare(clip1, clip2, "UV")
+    Compare (clip filtered, clip original, string "channels", string "logfile", bool "show_graph")
 
-The `PSNR`_ is measured in decibels. It's defined as
+.. describe:: filtered, original
 
-PSNR(I,K) = 20 * log_10 ( 255/sqrt(MSE(I,K)) )
+    | Source clips; the "filtered" clip and the "original" clip. Size and color 
+      formats must match. 
+    | All color formats supported except 32-bit float.
+    | The "filtered" clip is returned. 
 
-with
+.. describe:: channels
 
-MSE(I,K) = 1/M * sum_{j,k} | I(j,k) - K(j,k) | ^2
+    | Define which color channels to be compared by their initial letters, e.g. 
+      "R" (=red).
+    | Valid channel letters are:
 
-and (j,k) runs over all pixels in a frame, and M is the number of pixels in a
-frame.
+    * R, G, B, A for RGB(A) clips.
+    * Y, U, V, A for YUV(A) clips.
+    * Y for single channel greyscale clips.
 
-+----------+---------------+
-| Changes: |               |
-+==========+===============+
-| v2.58    | YV12 support. |
-+----------+---------------+
+    | Letters are not case sensitive and may be given in any order. 
+    | By default, all channels are compared (except for the alpha (A) channel).
 
-$Date: 2008/06/16 19:42:53 $
+    Default: ""
 
-.. _PSNR: http://en.wikipedia.org/wiki/PSNR
+.. describe:: logfile
+
+    | If specified, the results will be written to a file, and not drawn on the 
+      clip. 
+    | Using a logfile is much faster if you need to compare a lot of frames. 
+
+    Default: ""
+
+.. describe:: show_graph
+
+    If true, the PSNR graph is drawn on the clip.
+
+    Default: true
+
+
+Examples
+--------
+
+* Basic usage – display differences on screen::
+
+    LSMASHVideoSource("sintel-2048-surround.mp4")
+    A = BicubicResize(640, 272).Crop(80, 0, -80, 0)
+    B = A.Sharpen(1.0) ## Sharpen is our filter under test
+    return Compare(B, A)
+
+ .. figure:: pictures/compare-sintel-9507.jpg
+    :align: left
+
+
+* Create a log file::
+
+    Compare(clip1, clip2, log="compare.log")
+
+* Compare chroma channels only::
+
+    Compare(clip1, clip2, channels="UV")
+
+* See also the `Doom9 discussion`_.
+
+
+Changelog
+---------
+
++-----------------+-------------------------------------------------------------+
+| Version         | Changes                                                     |
++=================+=============================================================+
+| AviSynth+ 3.7.2 || Fix: ``channels`` now defaults to "Y" instead of "YUV" for |
+|                 |  greyscale input.                                           |
+|                 || Compare: fix 10-14 bit support (graph, PSNR).              |
++-----------------+-------------------------------------------------------------+
+| AviSynth+ r2150 || Compare: port to 16 bits (RGB48/64, Planar YUV(A)/RGB(A)). |
+|                 || Fix:  Negative SAD in 8 bit SSE branches.                  |
++-----------------+-------------------------------------------------------------+
+| AviSynth 2.5.8  | YV12 support.                                               |
++-----------------+-------------------------------------------------------------+
+
+$Date: 2022/02/18 19:42:53 $
+
+.. _[1]:
+    https://en.wikipedia.org/wiki/Statistical_dispersion
+.. _[2]:
+    http://avisynth.nl/index.php/PSNR
+.. _Sintel:
+    https://durian.blender.org/download/
+.. _Doom9 discussion:
+    https://forum.doom9.org/showthread.php?t=29538
