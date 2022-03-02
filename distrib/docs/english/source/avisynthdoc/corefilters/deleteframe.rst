@@ -2,9 +2,10 @@
 DeleteFrame
 ===========
 
-**DeleteFrame** deletes a set of frames, given as a number of arguments. The
-sound track is not modified, so if you use this filter to delete many frames
-you may get noticeable desynchronization.
+**DeleteFrame** is the opposite of :doc:`DuplicateFrame <duplicateframe>`.
+It deletes a set of frames, given as a number of arguments. The soundtrack is
+not modified, so if you use this filter to delete many frames you may get
+noticeable desynchronization.
 
 Syntax and Parameters
 ----------------------
@@ -15,11 +16,13 @@ Syntax and Parameters
 
 .. describe:: clip
 
-    Source clip.
+    Source clip; all color formats supported.
 
 .. describe:: frame
 
-    Frame number(s) to delete.
+    Frame number(s) to delete. Note that frames are numbered starting from zero.
+    If needed, use :ref:`ShowFrameNumber` before **DeleteFrame** to make sure
+    the right frames are selected.
 
 
 Examples
@@ -32,7 +35,7 @@ Delete frames 3, 9, 21 and 42:
     DeleteFrame(3, 9, 21, 42)
 
 If you want to delete a range of frames (*a* to *b*, say) along with the
-corresponding portion of the soundtrack, you can do it with :doc:`Trim <trim>`, 
+corresponding portion of the soundtrack, you can do it with :doc:`Trim <trim>`,
 like this:
 
 ::
@@ -55,4 +58,4 @@ Changelog
 | AviSynth 2.5.8 | Added support for multiple arguments |
 +----------------+--------------------------------------+
 
-$Date: 2022/02/04 19:42:53 $
+$Date: 2022/03/02 19:42:53 $
