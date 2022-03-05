@@ -1,9 +1,11 @@
-
+==========
 GetChannel
 ==========
 
+Set of filters to extract audio channels:
+
 * **GetChannel** returns one or more channels of a multichannel signal.
-* **GetLeftChannel** returns the left channel from a stereo signal, and 
+* **GetLeftChannel** returns the left channel from a stereo signal, and
   **GetRightChannel** returns the right.
 * **GetChannels** is an alias for **GetChannel** and can be used interchangeably.
 
@@ -15,19 +17,19 @@ Syntax and Parameters
 
     GetChannel (clip, int ch1 [, int ch2, ...])
     GetChannels (clip, int ch1 [, int ch2, ...])
-    
+
     GetLeftChannel(clip clip)
     GetRightChannel(clip clip)
 
 .. describe:: clip
 
-    Source clip.
+    Source clip; all audio sample types supported.
 
 .. describe:: ch1, ch2, ...
 
     Specify what channel(s) to return.
-    
-    The ordering of the channels is determined by the ordering of the input 
+
+    The ordering of the channels is determined by the ordering of the input
     file, because AviSynth doesn't assume any ordering (see `Remarks`_).
 
     In case of WAV files, the ordering should be as follows:
@@ -59,10 +61,10 @@ Syntax and Parameters
 Remarks
 ^^^^^^^
 
-Every file format has a different internal channel ordering. The following table 
-gives this internal ordering for some formats (useful for plugin writers), but 
-it is the decoder's task to return the expected channel order. If you use 
-decoders like `NicAudio`_/\ `BassAudio`_ or `ffdshow`_/\ `AC3Filter`_ you don't 
+Every file format has a different internal channel ordering. The following table
+gives this internal ordering for some formats (useful for plugin writers), but
+it is the decoder's task to return the expected channel order. If you use
+decoders like `NicAudio`_/\ `BassAudio`_ or `ffdshow`_/\ `AC3Filter`_ you don't
 need to worry about this.
 
     +-------------+--------------+--------------+--------------+-------------+------------+------------+
@@ -111,7 +113,7 @@ Examples
 
 * | Convert AVI with 5.1 audio to stereo (copy *front left* and *front right*)
   | (But see `Remarks`_ for channel ordering, and examples below and `here`_ for
-    more complex downmix functions.) 
+    more complex downmix functions.)
 
   ::
 
@@ -138,12 +140,11 @@ Examples
     Normalize()
     ConvertAudioTo16bit()
     return Last
-    
-    function DownMix(clip a, 
-    \     float "centergain", float "surroundgain")
+
+    function DownMix(clip a, float "centergain", float "surroundgain")
     {
         a.ConvertAudioToFloat()
-        
+
         ## 5.1 WAV channel layout:
         fl = GetChannel(1)
         fr = GetChannel(2)
@@ -151,22 +152,33 @@ Examples
         lf = GetChannel(4) ## (LFE not used)
         sl = GetChannel(5)
         sr = GetChannel(6)
-        
+
         ## add center
         gc = Default(centergain, 1.0) * 0.7071
         fl = MixAudio(fl, fc, 1.0, gc)
         fr = MixAudio(fr, fc, 1.0, gc)
-        
+
         ## add surround
         gs = Default(surroundgain, 1.0) * 0.7071
         fl = MixAudio(fl, sl, 1.0, gs)
         fr = MixAudio(fr, sr, 1.0, gs)
-        
+
         return AudioDub(a, MergeChannels(fl, fr))
     }
 
 
-$Date: 2022/02/07 18:47:07 $
+Changelog
+----------
+
++-----------------+---------------------------------------------------+
+| Version         | Changes                                           |
++=================+===================================================+
+| AviSynth 2.5.0  | Added GetChannel and GetChannels filters.         |
++-----------------+---------------------------------------------------+
+| AviSynth 2.0.3  | Added GetLeftChannel and GetRightChannel filters. |
++-----------------+---------------------------------------------------+
+
+$Date: 2022/03/05 18:47:07 $
 
 .. _5.1 WAV:
     https://web.archive.org/web/20210117100754/http://www.cs.bath.ac.uk/~jpff/NOS-DREAM/researchdev/wave-ex/wave_ex.html
