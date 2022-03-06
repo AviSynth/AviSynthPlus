@@ -1,73 +1,148 @@
-
+======
 MaskHS
 ======
 
-``MaskHS`` (clip, float "startHue", float "endHue", float "maxSat", float
-"minSat", bool "coring")
+Returns a mask (as greyscale Y) of clip using a given hue and saturation range.
 
-Added in *v2.6*. This filter returns a mask (as Y8) of clip using a given hue
-and saturation range.
 
-*startHue* (default 0), *endHue* (default 360): (both from 0 to 360; given in
-degrees.). The hue and saturation will be adjusted for values in the range
-[startHue, endHue] when startHue<endHue. Note that the hue is periodic, thus
-a hue of 360 degrees corresponds with a hue of zero degrees. If
-endHue<startHue then the range [endHue, 360] and [0, startHue] will be
-selected (thus anti-clockwise). If you need to select a range of [350, 370]
-for example, you need to specify startHue=370 and endHue=350. Thus when using
-the default values all pixels will be processed.
-
-*maxSat* (default 150), *minSat* (default 0): (both from 0 to 150 with
-minSat<maxSat; given in percentages). The hue and saturation will be adjusted
-for values in the range [minSat, maxSat]. Practically the saturation of a
-pixel will be in the range [0,100] (thus 0-100%), since these correspond to
-valid RGB pixels (100% corresponds to R=255, G=B=0, which has a saturation of
-119). An overshoot (up to 150%) is allowed for non-valid RGB pixels (150%
-corresponds to U=V=255, which has a saturation of sqrt(127^2+127^2) = 180).
-Thus when using the default values all pixels will be processed.
-
-*coring* = true/false (default false). When set to true, the luma (Y) is
-clipped to [16,235]; when set to false, the luma is left untouched.
-
-Suppose we want to create a mask of the skin of the girl. The proper way to
-do this is to use look at the vectorscope of :doc:`Histogram <histogram>`:
+Syntax and Parameters
+----------------------
 
 ::
 
-    clip = ...
-    Histogram(clip, mode="color2")
+    MaskHS (clip, float "startHue", float "endHue", float "maxSat", float "minSat", bool "coring", bool "realcalc")
+
+.. describe:: clip
+
+    Source clip. All YUV(A) color formats supported.
+
+    Note that the output size of the mask depends on the color format of the
+    source clip. For example, if the clip is YUV420, the mask will be half the
+    size. If needed, use :doc:`ConvertToYUV444 <convert>` beforehand to output
+    a full size mask.
+
+.. describe:: startHue, endHue
+
+    The resulting mask will contain source values in the range [``startHue``,
+    ``endHue``] when ``startHue``\ <\ ``endHue``. Note that the hue is periodic,
+    thus a hue of 360 degrees corresponds with a hue of zero degrees.
+
+    If ``endHue``\ <\ ``startHue`` then the range [``endHue``, 360] and
+    [0, ``startHue``] will be selected (thus anti-clockwise). If you need to
+    select a range of [350, 370] for example, you need to specify
+    ``startHue``\ =370, ``endHue``\ =350.
+
+    | Range: 0 to 360 (degrees)
+    | Default: 0, 360; thus, when using the default values, all pixels will be
+      processed.
+
+    The following shows some arbitrary ``startHue`` and ``endHue`` values for
+    the basic colors, with a Histogram vectorscope to illustrate the color circle:
+
+    .. image::  pictures/maskhs-table.png
+
+.. describe:: maxSat, minSat
+
+    The resulting mask will contain source values in the range
+    [``minSat``, ``maxSat``].
+
+    Practically the saturation of a pixel will be in the range [0,100]
+    (thus 0-100%), since these correspond to valid RGB pixels (100% corresponds
+    to R=255, G=B=0, which has a saturation of 119). An overshoot (up to 150%)
+    is allowed for non-valid RGB pixels (150% corresponds to U=V=255, which has
+    a saturation of sqrt(127\ :sup:`2` \+127\ :sup:`2`) = 180).
+    **TODO** needs documentation of behavior with Deep Color formats.
+
+    Default: 150, 0
+
+.. describe:: coring
+
+    When set to true, the luma (Y) is clipped to limited range (TV); when set
+    to false, the luma is left untouched.
+
+    Default: true
+
+.. describe:: realcalc
+
+    By default, **MaskHS** uses a `LUT`_ for 10/12 bits. For bit depths greater
+    than 12, the calculation for each pixel is always done in realtime. When
+    ``realcalc=true``, it overrides using a LUT for 10-12 bits and calculates
+    each pixel on-the-fly.
+
+    Default: false
+
+
+Examples
+--------
+
+Suppose we want to create a mask of the skin of the girl below. The proper way
+to do this is to look at the vectorscope of :doc:`Histogram <histogram>`:
+
+.. list-table::
+
+    * - .. figure:: pictures/tweak_original2_plus_hist.jpg
+
+        ::
+
+            clip = FFImageSource("tweak_original2.jpg")
+            Histogram(clip, mode="color2")
+
 
 and estimate the hue range you want to select. As can be seen, the orange hue
 is between (about) 105 and 165 degrees.
 
-lower the hue range till you found the correct hue range which should be
-processed. Use the values in ``MaskHS`` and make the interval smaller till
-the correct one is selected. You can also use :doc:`Tweak <tweak>` for this (with
-sat=0). Using the example in Tweak, the following mask is obtained:
+*Note: axis labels have been added to the vectorscope as a guide – they are
+not generated by the above script.*
 
-.. image:: pictures/tweak_original2.jpg
-.. image:: pictures/maskhs.jpg
+Start with a wide hue range and narrow it until the output of **MaskHS**
+isolates the range of interest. You can also use :doc:`Tweak <tweak>` to preview
+the affected range (with *sat* \=0), as the arguments are compatible.
 
-original MaskHS(startHue=105, endHue=138)
+In our example we end at ``startHue=105, endHue=138``, and the following mask
+is obtained:
 
-Looking at the blue screen example in :doc:`Overlay <overlay>` the following can be used
-::
+.. list-table::
+
+    * - .. figure::  pictures/tweak_original2.jpg
+
+           Original: *tweak_original2.jpg*
+
+      - .. figure:: pictures/maskhs-mask.png
+
+           ``MaskHS(startHue=105, endHue=138)``
+
+.. rubric:: Another example:
+
+Looking at the blue screen example in :doc:`Overlay <overlay>`, the following
+can be used::
 
     testcard = ColorBars()
 
     # example subtitle file with blue background:
-    subs = ImageSource("F:\TestClips\blue.jpg").ConvertToYV24
+    subs = FFImageSource("overlay_blue.jpg").ConvertToYV24()
 
-    # subs.Histogram(mode="color2").ConvertToRGB
-    # blue in [345,359]
-    mask_hs = subs.MaskHS(startHue=340, endHue=359).Levels(0, 1, 255, 255, 0)
+    # subs.Histogram(mode="color2").ConvertToRGB # blue in [345,359]
+    mask_hs = subs.MaskHS(startHue=340, endHue=359).Invert()
 
     Overlay(testcard, subs, mask=mask_hs, mode="blend", opacity=1)
 
-+-----------+-----------------+
-| Changelog |                 |
-+===========+=================+
-| v2.60     | Initial Release |
-+-----------+-----------------+
 
-$Date: 2011/04/29 20:09:50 $
+Changelog
+---------
+
+.. table::
+    :widths: auto
+
+    +-----------------+-------------------------------------------------------------+
+    | Version         | Changes                                                     |
+    +=================+=============================================================+
+    | AviSynth+ r2487 || Added support for 10-16bit and float YUV(A) color formats. |
+    |                 || Added ``realcalc`` parameter.                              |
+    +-----------------+-------------------------------------------------------------+
+    | AviSynth 2.6.0  | Initial Release.                                            |
+    +-----------------+-------------------------------------------------------------+
+
+$Date: 2022/03/06 20:09:50 $
+
+.. _LUT:
+    https://en.wikipedia.org/wiki/Lookup_table
