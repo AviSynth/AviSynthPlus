@@ -51,7 +51,6 @@ Syntax and Parameters
     to R=255, G=B=0, which has a saturation of 119). An overshoot (up to 150%)
     is allowed for non-valid RGB pixels (150% corresponds to U=V=255, which has
     a saturation of sqrt(127\ :sup:`2` \+127\ :sup:`2`) = 180).
-    **TODO** needs documentation of behavior with Deep Color formats.
 
     Default: 150, 0
 
@@ -64,7 +63,7 @@ Syntax and Parameters
 
 .. describe:: realcalc
 
-    By default, **MaskHS** uses a `LUT`_ for 10/12 bits. For bit depths greater
+    By default, **MaskHS** uses a `LUT`_ for 8/10/12 bits. For bit depths greater
     than 12, the calculation for each pixel is always done in realtime. When
     ``realcalc=true``, it overrides using a LUT for 10-12 bits and calculates
     each pixel on-the-fly.
