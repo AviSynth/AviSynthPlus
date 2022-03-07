@@ -145,8 +145,8 @@ Changelog
 +-----------------+------------------------------------------------------------+
 | Version         | Changes                                                    |
 +=================+============================================================+
-| AviSynth+ r2150 | Added 10/12/14 bit support to ConvertFrom* functions.      |
-|                 | Added ``bits`` parameter to ConvertFrom* functions.        |
+| AviSynth+ r2150 || Added 10/12/14 bit support to ConvertFrom* functions.     |
+|                 || Added ``bits`` parameter to ConvertFrom* functions.       |
 +-----------------+------------------------------------------------------------+
 | AviSynth+ r2043 || ConvertTo/From* functions moved to their own plugin.      |
 |                 || Added the ConvertTo/FromDoubleWidth functions.            |
