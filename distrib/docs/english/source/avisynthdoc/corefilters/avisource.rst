@@ -2,139 +2,347 @@
 AVISource / OpenDMLSource / AVIFileSource / WAVSource
 =====================================================
 
-| ``AVISource`` (string filename [, ...], bool "audio" = true, string
-  "pixel_type" = "FULL", [string fourCC])
-| ``OpenDMLSource`` (string filename [, ...], bool "audio" = true, string
-  "pixel_type" = "FULL", [string fourCC])
-| ``AVIFileSource`` (string filename [, ...], bool "audio" = true, string
-  "pixel_type" = "FULL", [string fourCC])
-| ``WAVSource`` (string filename [, ...])
+**AviSource** takes one or more files - not only `AVI`_ but also `WAV`_ (audio),
+`AVS`_ (AviSynth scripts), and `VDR`_ (`VirtualDub`_ frameserver) files. There
+is built-in `Audio Compression Manager`_ support for decoding compressed audio
+tracks (MP3, AAC, AC3, etc). If more than one file name is given, **AviSource**
+returns a clip with all files joined end to end. For the files to be joined, the
+media properties must be compatible - see `Notes`_ below.
 
-``AVISource`` takes as argument one or more file name in quotes, and reads in
-the file(s) using either the Video-for-Windows "AVIFile" interface, or
-AviSynth's built-in OpenDML code (taken from VirtualDub). This filter can
-read any file for which there's an AVIFile handler. This includes not only
-AVI files but also WAV files, AVS (AviSynth script) files, and VDR
-(VirtualDub frameserver) files. If you give multiples filenames as arguments,
-the clips will be spliced together with :doc:`UnalignedSplice <splice>`. The bool
-argument is optional and defaults to ``true``.
+    **AviSource** tries to read the file(s) using AviSynth's built-in `OpenDML`_
+    interface (derived from VirtualDub code) where possible; if the file(s) are
+    not in OpenDML format, it uses the Video for Windows `AVIFile`_ interface.
 
-The ``AVISource`` filter examines the file to determine its type and passes
-it to either the AVIFile handler or the OpenDML handler as appropriate. In
-case you have trouble with one or the other handler, you can also use the
-``OpenDMLSource`` and ``AVIFileSource`` filters, which force the use of one
-or the other handler. Either handler can read ordinary (< 2GB) AVI files, but
-only the OpenDML handler can read larger AVI files, and only the AVIFile
-handler can read other file types like WAV, VDR and AVS. There is built-in
-support for ACM (Audio Compression Manager) audio (e.g. mp3-AVIs).
+    If **AviSource** has trouble with one or the other interface, **OpenDMLSource**
+    and **AviFileSource** will force the use of *OpenDML* or *AVIFile*,
+    respectively. Only *OpenDML* can read files larger than 2 GB, but only
+    *AVIFile* can read non-AVI files (odd, given its name) like the ones listed
+    in the opening paragraph. It can read any file (under 2 GB) for which there
+    exist appropriate *stream handlers*.
 
-``WAVSource`` can be used to open a WAV file, or the audio stream from an AVI
-file. This can be used, for example, if your video stream is damaged or its
-compression method is not supported on your system.
+**WavSource** will open a `WAV`_ file, or an audio-only AVI file. It will also
+return the audio stream from a normal video+audio AVI. This might be useful if
+your video stream is damaged or unreadable, or simply as a shortcut for
+``AviSource(...).KillVideo()`` (:doc:`KillVideo <killaudio>`).
 
-The pixel_type parameter (default "YV12" allows you to choose the output
-format of the decompressor. Valid values are "YV12", "YV411", "YV16", "YV24",
-"YUY2", "Y8", "RGB32" and "RGB24". If omitted, AviSynth will use the first
-format supported by the decompressor (in the following order: YV12, YV411,
-YV16, YV24, YUY2, Y8, RGB32 and RGB24). This parameter has no effect if the
-video is in an uncompressed format, because no decompressor will be used in
-that case. To put it in different words: if you don't specify something it
-will try to output the AVI as YV12, if that isn't possible it tries YV411 and
-if that isn't possible it tries YV16, etc ...
 
-The pixel_type parameter allows you to choose the output format of the
-decompressor. Valid values are "YV24", "YV16", "YV12", "YV411", "YUY2",
-"RGB32", "RGB24", "Y8", "AUTO" and "FULL" (default value). If omitted or set
-to "FULL", AviSynth will use the first format supported by the decompressor
-(in the following order: YV24, YV16, YV12, YV411, YUY2, RGB32, RGB24 and Y8).
-If set to "AUTO", AviSynth will use the old ordering: YV12, YUY2, RGB32,
-RGB24 and Y8. This parameter has no effect if the video is in an uncompressed
-format, because no decompressor will be used in that case. To put it in
-different words: if you don't specify something it will try to output the AVI
-as YV24, if that isn't possible it tries YV16 and if that isn't possible it
-tries YV12, etc ...
-
-Sometimes the colors will be distorted when loading a DivX clip in AviSynth
-v2.5 (the chroma channels U and V are swapped), due to a bug in DivX (5.02
-and older). You can use :doc:`SwapUV <swap>` to correct it.
-
-From *v2.53* ``AVISource`` can also open DV type 1 video input (only video,
-not audio).
-
-From *v2.55*, an option  fourCC is added. FourCC, is a FOUR Character Code in
-the beginning of media file, mostly associated with avi, that tells what
-codec your system should use for decoding the file. You can use this to force
-AviSource to open the avi file using a different codec. A list of FOURCCs can
-be found `here`_. By default, the fourCC of the avi is used.
-
-Some MJPEG/DV codecs do not give correct CCIR 601 compliant output when using
-``AVISource``. The problem could arise if the input and output colorformat of
-the codec are different. For example if the input colorformat is YUY2, while
-the output colorformat is RGB, or vice versa. There are two ways to resolve
-it:
-
-1) Force the same output as the input colorformat. Thus for example (if
-   the input is RGB):
+Syntax and Parameters
+----------------------
 
 ::
 
-    AVISource("file.avi", pixel_type="RGB32")
+    AVISource (string filename [, ...], bool "audio", string "pixel_type", string "fourCC", int "vtrack", int "atrack", bool "utf8")
 
-2) Correct it with the filter :doc:`ColorYUV <coloryuv>`:
+    OpenDMLSource (string filename [, ...], bool "audio", string "pixel_type", string "fourCC", int "vtrack", int "atrack", bool "utf8")
+
+    AVIFileSource (string filename [, ...], bool "audio", string "pixel_type", string "fourCC", int "vtrack", int "atrack", bool "utf8")
+
+    WAVSource (string filename [, ...], bool "utf8")
+
+.. describe:: filename
+
+    One or more file names. The files will be joined into a single clip with
+    :doc:`UnalignedSplice <splice>`. To join files, the media properties must
+    be compatible. See `Notes`_ below. `UTF-8`_ file names are supported when
+    ``utf8=true``.
+
+.. describe:: audio
+
+    If true, load the first audio stream, or the stream specified by ``atrack``
+    if present. If false, audio is disabled.
+
+    Default: true
+
+.. describe:: pixel_type
+
+    Chooses the output color format of the decompressor. Valid values are listed
+    in the table below. This argument has no effect if the video is uncompressed,
+    as no decompressor will be used in that case. See the `10+ bit inputs`_
+    section for a full list of pixel types.
+
+    * If omitted or "FULL", AviSynth will use the first format supported by the
+      decompressor, in the order shown in the table below.
+    * If "AUTO", AviSynth will use the alternate (older) order as shown.
+
+      .. table::
+          :widths: auto
+
+          +------------+-------+-------+-------+--------+-------+--------+--------+
+          | pixel_type | Color formats, listed by decoding priority (high to low) |
+          +============+=======+=======+=======+========+=======+========+========+
+          | FULL       | YV24  | YV16  | YV12  | YV411  | YUY2  | RGB32  | RGB24  |
+          +------------+-------+-------+-------+--------+-------+--------+--------+
+          | AUTO       |       |       | YV12  |        | YUY2  | RGB32  | RGB24  |
+          +------------+-------+-------+-------+--------+-------+--------+--------+
+
+
+    In other words, if you don't specify anything, it will try to output YV24;
+    if that isn't possible it tries YV16, and if that isn't possible it tries
+    YV12, etc ...
+
+    For `planar`_ color formats, adding a '+' prefix, e.g.
+    ``AviSource(..., pixel_type="+YV12")``, tells AviSynth the video rows are
+    DWORD aligned in memory instead of packed. **This can fix skew or tearing of
+    the decoded video** with bad codecs when the width of the picture is not
+    divisible by 4.
+
+    Default: "FULL"
+
+.. describe:: fourCC
+
+    Forces AviSynth to use a specific decoder instead of the one specified in
+    the source file. See `FourCC`_ for more information.
+
+    Default: auto from source
+
+.. describe:: vtrack
+
+    Specifies a numbered video track. Track numbers start from zero, and are
+    guaranteed to be continuous (i.e. there must be a track 1 if there is a
+    track 0 and a track 2). If no video stream numbered ``vtrack`` exists, an
+    error will be raised.
+
+    Default: 0
+
+.. describe:: atrack
+
+    Specifies a numbered audio track. Track numbers start from zero, and are
+    guaranteed to be continuous (i.e. there must be a track 1 if there is a
+    track 0 and a track 2). If no audio stream numbered ``atrack`` exists, no
+    error will be raised, and no audio will be returned.
+
+    Default: 0
+
+.. describe:: utf8
+
+    If true, file name is treated as `UTF-8`_.
+
+    Default: false
+
+
+Notes
+-----
+
+Joining clips
+^^^^^^^^^^^^^
+
+* There is a limit (of about 50, sometimes fewer) **AviSource** calls in script
+  - see `discussion`_. If the limit is exceeded, you will see the error message:
+
+    *AVISource: couldn't locate a decompressor for fourcc ....*
+
+ If you need to join more AVIs, try `VirtualDub`_ (limit > 700).
+
+* :doc:`Media properties <../syntax/syntax_clip_properties>` must be
+  compatible, meaning they must have:
+
+ #. the same height and width;
+ #. the same color format (as presented by the decoder);
+ #. the same frame rate (precisely the same, not approximately); and
+ #. the same audio sample rate, bit depth and number of channels.
+
+* See the VirtualDub blog post `Appending streams and mismatch errors`_ for a
+  more in-depth explanation.
+
+Windows 7 users
+^^^^^^^^^^^^^^^
+
+**WavSource** under Windows 7 is unable to load WAV files with 32-bit IEEE Float
+samples having the `WAVEFORMAT structure`_. You can use `FFmpeg`_ to rewrite the
+header to an extensible format (just do a stream copy; it always writes
+extensible headers) ::
+
+    ffmpeg -i "bad.wav" -c copy "good.wav"
+
+Helpful hints
+^^^^^^^^^^^^^
+
+* Sometimes the colors will be distorted when loading a `DivX`_ clip in AviSynth
+  v2.5 (the chroma channels U and V are swapped), due to a bug in DivX (5.02 and
+  older). You can use :ref:`SwapUV` to correct it.
+
+* **AVISource** can also open DV type 1 video input (only video, not audio).
+
+* Some video files get decoded with the wrong color standard ('Rec601'/'Rec709')
+  or luma range ('Full'/'TV'). This problem can arise if the input and output
+  color formats are different, forcing a :doc:`conversion <convert>`. To avoid
+  this conversion, try to specify another, compatible output format - for example:
+
+   * If the video was encoded as RGB, try ``pixel_type="RGB24"`` or "RGB32";
+   * If the video was encoded as YUV, try ``pixel_type="YV12"``, "YUY2" or "YV24".
+
+ If that does not work, try `FFmpegSource`_, `LSMASHSource`_ or (if absolutely
+ necessary) :doc:`DirectShowSource <directshowsource>`.
+
+10+ bit inputs
+^^^^^^^^^^^^^^
+
+When a classic 'pixel_type' shares more internal formats (such as YUV422P10
+first tries to request the v210 then P210 format) you can specify one of the
+specific format directly. Note that high bit-depth RGBP (Planar RGB) is
+prioritized against packed RGB48/64.
+
+The 'FourCCs for ICDecompressQuery' column means that when a codec supports the
+format, it will serve the frame in that one, AviSource then will convert it to
+the proper colorspace.
 
 ::
 
-    AVISource("file.avi").ColorYUV(levels="PC->TV")
+    Full support list.
+    Non *-marked formats (FourCC column) are supported since r2724.
+
+    'pixel_type' Avs+ Format   FourCC(s) for ICDecompressQuery
+    YV24         YV24          *YV24
+    YV16         YV16          *YV16
+    YV12         YV12          *YV12
+    YV411        YV411         *Y41B
+    YUY2         YUY2          *YUY2
+    RGBP10       RGBP10        G3[0][10]  r210  R10k
+    r210         RGBP10        r210
+    R10k         RGBP10        R10k
+    RGBP         RGBP10        G3[0][10]  r210  R10k
+                 RGBP12        G3[0][12]
+                 RGBP14        G3[0][14]
+                 RGBP16        G3[0][16]
+                 RGBAP10       G4[0][10]
+                 RGBAP12       G4[0][12]
+                 RGBAP14       G4[0][14]
+                 RGBAP16       G4[0][16]
+    RGB32        RGB32         *BI_RGB internal constant (0) with bitcount=32
+    RGB24        RGB24         *BI_RGB internal constant (0) with bitcount=24
+    RGB48        RGB48         BGR[48]    b48r
+    RGB64        RGB64         *BRA[64]   b64a
+    Y8           Y8            Y800       Y8[32][32]   GREY
+    Y            Y8            Y800       Y8[32][32]   GREY
+                 Y10           Y1[0][10]
+                 Y12           Y1[0][12]
+                 Y14           Y1[0][14]
+                 Y16           Y1[0][16]
+    YUV422P10    YUV422P10     v210       P210
+    v210         YUV422P10     v210
+    P210         YUV422P10     P210
+    YUV422P16    YUV422P16     P216
+    P216         YUV422P16     P216
+    YUV420P10    YUV420P10     P010
+    P010         YUV422P10     P010
+    YUV420P16    YUV420P16     P016
+    P016         YUV422P16     P016
+    YUV444P10    YUV444P10     v410
+    v410         YUV444P10     v410
+
+More on codecs
+^^^^^^^^^^^^^^
 
 Some reference threads:
-`MJPEG codecs`_
-`DV codecs`_
 
-**Examples:**
+* `MJPEG codecs`_
+* `DV codecs`_
 
-::
 
-    # C programmers note: backslashes are not doubled; forward slashes work too
+Examples
+--------
+
+* C programmers note: backslashes are not doubled; forward slashes work too::
+
     AVISource("d:\capture.avi")
-    AVISource("c:/capture/00.avi")
-    WAVSource("f:\soundtrack.wav")
     WAVSource("f:/soundtrack.wav")
 
-    # the following is the same as AVISource("cap1.avi") +
-    AVISource("cap2.avi"):
+* Splice two clips together; the following statements do the same thing::
+
+    AviSource("cap1.avi") + AviSource("cap2.avi")
     AVISource("cap1.avi", "cap2.avi")
 
-    # disables audio and request RGB32 decompression
-    AVISource("cap.avi", false, "RGB32")
+* Splice two clips together where frame rates do not match::
 
-    # opens a DV using the Canopus DV Codec
-    AviSource("cap.avi", false, fourCC="CDVC")
+    A = AviSource("FileA.avi") # "29.97" fps (30000/1001)
+    B = AviSource("FileB.avi") # 30.0000 fps
+    A ++ B.AssumeFPS(A)
 
-    # opens an avi (for example DivX3) using the XviD Codec
-    AviSource("cap.avi", false, fourCC="XVID")
+* Splice two clips together where one of them contains no audio::
 
-    # splicing two clips where one of them contains no audio.
-    # when splicing the clips must be compatible (have the same video and
-    audio properties):
-    A = AviSource("FileA.avi")
-    B = AviSource("FileB.avi") # No audio stream
-    A ++ AudioDub(B, BlankClip(A))
+    A = AviSource("FileA.avi") # with audio
+    B = AviSource("FileB.avi") # no audio stream
+    A ++ AudioDub(B, BlankClip(A)) # insert silent audio with same format
 
-Some compression formats impose a limit to the number of AviSource() calls
-that can be placed in a script. Some people have experienced this limit with
-fewer than 50 AviSource() statements. See `discussion`_.
+* Disable audio and request RGB32 decompression::
 
-+----------+---------------------------------------------+
-| Changes: |                                             |
-+==========+=============================================+
-| v2.60    | Added new color formats, "AUTO" and "FULL". |
-+----------+---------------------------------------------+
-| v2.55    | Added fourCC option.                        |
-+----------+---------------------------------------------+
+    AVISource("cap.avi", audio=false, pixel_type="RGB32")
 
-$Date: 2012/05/03 07:32:20 $
+* Open a DV, forcing the Canopus DV Codec::
 
-.. _here: http://www.fourcc.org/index.php?http%3A//www.fourcc.org/codecs.php
-.. _MJPEG codecs: http://forum.doom9.org/showthread.php?s=&postid=330657
-.. _DV codecs: http://forum.doom9.org/showthread.php?s=&threadid=58110
-.. _discussion: http://forum.doom9.org/showthread.php?t=131687
+    AviSource("cap.avi", fourCC="CDVC")
+
+* Open a file, forcing the `XviD`_ Codec::
+
+    AviSource("cap.avi", fourCC="XVID")
+
+* Open a YV12 video with a bad codec where the width is not a multiple of four::
+
+    AviSource("test.avi", pixel_type="+YV12")
+
+* Opens the first video and second audio stream of a clip::
+
+    AviSource("test_multi10.avi", vtrack=0, atrack=1)
+
+
+Changelog
+---------
+
++-----------------+----------------------------------------------------+
+| Version         | Changes                                            |
++=================+====================================================+
+| AviSynth+ r2768 | Added utf8 filename support.                       |
++-----------------+----------------------------------------------------+
+| AviSynth+ r2724 || Added 10+ bits new color formats.                 |
++-----------------+----------------------------------------------------+
+| AviSynth 2.6.0  || Added new color formats, "AUTO" and "FULL".       |
+|                 || Added multiple video and audio stream support.    |
+|                 || Add '+' to pixel_type for padded planar support.  |
++-----------------+----------------------------------------------------+
+| AviSynth 2.5.5  | Added fourCC option.                               |
++-----------------+----------------------------------------------------+
+
+$Date: 2022/03/14 07:32:20 $
+
+.. _AVI:
+    http://avisynth.nl/index.php/AVI
+.. _WAV:
+    http://avisynth.nl/index.php/WAV
+.. _AVS:
+    http://avisynth.nl/index.php/AVS
+.. _VDR:
+    https://www.virtualdub.org/docs_frameserver.html
+.. _VirtualDub:
+    http://avisynth.nl/index.php/VirtualDub
+.. _Audio Compression Manager:
+    https://en.wikipedia.org/wiki/Windows_legacy_audio_components#Audio_Compression_Manager
+.. _OpenDML:
+    http://www.jmcgowan.com/avitech.html#OpenDML
+.. _AVIFile:
+    http://www.jmcgowan.com/avitech.html#VFW
+.. _planar:
+    http://avisynth.nl/index.php/Planar
+.. _FourCC:
+    http://avisynth.nl/index.php/FourCC
+.. _UTF-8:
+    https://en.wikipedia.org/wiki/UTF-8
+.. _discussion:
+    https://forum.doom9.org/showthread.php?t=131687
+.. _Appending streams and mismatch errors:
+    https://www.virtualdub.org/blog2/entry_073.html
+.. _WAVEFORMAT structure:
+    https://forum.doom9.org/showthread.php?t=170444
+.. _FFmpeg:
+    https://ffmpeg.org/
+.. _DivX:
+    http://avisynth.nl/index.php/DivX
+.. _FFmpegSource:
+    http://avisynth.nl/index.php/FFmpegSource
+.. _LSMASHSource:
+    http://avisynth.nl/index.php/LSMASHSource
+.. _MJPEG codecs:
+    https://forum.doom9.org/showthread.php?s=&postid=330657
+.. _DV codecs:
+    https://forum.doom9.org/showthread.php?s=&threadid=58110
+.. _XviD:
+    http://avisynth.nl/index.php/Xvid
