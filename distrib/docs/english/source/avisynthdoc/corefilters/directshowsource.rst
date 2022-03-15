@@ -351,7 +351,7 @@ The following section covers how to downmix a 5.1 AC3 file to stereo using
 #. Install AC3Filter (see warning below).
 
     a.) Open **AC3Filter Config**. In the "Main" tab on the "Output format"
-    sectionand select "Stereo" and set the format to "PCM Float". [Nothing else
+    section and select "Stereo" and set the format to "PCM Float". [Nothing else
     is needed.]
 
     **-OR-**
