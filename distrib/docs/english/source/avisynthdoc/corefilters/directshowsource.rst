@@ -345,65 +345,57 @@ This single stream restriction is enforced.
 Downmixing AC3 to stereo
 ~~~~~~~~~~~~~~~~~~~~~~~~
 
-There are essentially two ways to do this. The first is to set the downmixing
-in the configuration of your AC3 decoder itself, and the second one is to use
-the external downmixer of "Trombettworks":
+The following section covers how to downmix a 5.1 AC3 file to stereo using
+`AC3Filter`_ and then load the result with **DirectShowSource**.
 
-1\ ) Install AC3filter.
+#. Install AC3Filter (see warning below).
 
-a) Open **AC3Filter Config**. On tab "Main" in section "Output format" select
-"2/0 - stereo". [Nothing else is needed.]
+    a.) Open **AC3Filter Config**. In the "Main" tab on the "Output format"
+    sectionand select "Stereo" and set the format to "PCM Float". [Nothing else
+    is needed.]
 
-**-OR-**
+    **-OR-**
 
-b) Open the AC3 file in WMP6.4 and select the file properties. Set the output
-of AC3Filter on **2/0 - stereo**. If you want the best possible quality,
-select PCM Float as Sample format.
+    b.) Open the AC3 file in a media player. For example, in `MPC-HC`_ (v1.9.19)
+    go to the "Play" tab and then scroll down to "Filters" and select AC3Filter.
+    The **AC3Filter Config** window will open, from there set the output format
+    to **Stereo** and for maximum quality set the format to **PCM Float**.
 
-.. image:: pictures/ac3downmix1a.jpg
-.. image:: pictures/ac3downmix1b.jpg
+    .. list-table::
 
+        * - .. figure:: pictures/ac3filter-downmix.png
 
-Make the following script:
-::
+               **AC3Filter Config**
 
-    v = Mpeg2Source("e:\movie.d2v")
-    a = DirectShowSource("e:\test.ac3")
-    AudioDub(v,a)
+    Any changes made within AC3Filter will also be applied to the AC3 file when
+    decoded via **DirectShowSource**. For example, if Gain and/or DRC are used
+    or any other settings in the Mixer, Gains and Equalizer tabs.
 
-Finally, open the script in VDub and convert the audio stream to MP3
-(of course you can also demux the downmixed WAV stream if needed).
+    .. warning::
 
-2) Register the directshow filter `Channel Downmixer by Trombettworks`_
-   (under start -> run):
+        The `lastest AC3Filter`_ version is 2.6.0b and x64 is only available in
+        the "full" version. Note that the full version comes bundled with the
+        (now-defunct) OpenCandy adware module that included unwanted third-party
+        offers during the setup process. More information in the archived
+        `AC3Filter wiki`_ and the `"Is AC3Filter Safe?"`_ VideoHelp thread. The
+        "lite" version does not contain OpenCandy but does not include a 64-bit
+        AC3Filter.
 
-    *regsvr32 ChannelDownmixer.ax*
-
-Open the AC3 file in WMP6.4 and select the file properties. Set the output of
-AC3Filter on **3/2+SW 5.1 channels** (this downmixer can't handle PCM Float,
-thus PCM 16 bit is selected here). In the properties of the downmixer, the
-number of input and output channels should be detected automatically. Check
-whether this is indeed correct.
-
-.. image:: pictures/ac3downmix2a.jpg
-.. image:: pictures/ac3downmix2b.jpg
-
-
-.. image:: pictures/ac3downmix2c.jpg
-
-
-Make the following script:
-::
+#. Write the following script::
 
     v = Mpeg2Source("e:\movie.d2v")
     a = DirectShowSource("e:\test.ac3")
     AudioDub(v,a)
 
-Finally, open the script in VDub and convert the audio stream to MP3
-(of course you can also demux the downmixed WAV stream if needed).
+#. Finally, load the script in VDub or FFmpeg and save the audio stream to the
+   desired format.
 
-For some reason, I can't get this to work with DTS streams :(
-
+Note that this method is not only limited to AC3 files but since AC3Filter is no
+longer developed, some *modern* formats may not be compatible. However, there are
+other alternatives. For example, ``LWLibavAudioSource("test.ac3", layout="DL+DR")``
+from `LSMASHSource`_ will also downmix to stereo. And of course, for more control
+there are a handful of AviSynth scripts that use the core filters for downmixing.
+See the examples section in the :doc:`GetChannels <getchannel>` filter page.
 
 See also
 --------
@@ -455,6 +447,16 @@ $Date: 2022/03/14 02:45:53 $
     http://avisynth.nl/index.php/Planar
 .. _"Win7DSFilterTweaker":
     https://forum.doom9.org/showthread.php?t=146910
+.. _AC3Filter:
+    https://web.archive.org/web/20191212120549/http://www.ac3filter.net/wiki/AC3Filter
+.. _MPC-HC:
+    https://github.com/clsid2/mpc-hc
+.. _lastest AC3Filter:
+    https://code.google.com/archive/p/ac3filter/downloads
+.. _AC3Filter wiki:
+    https://web.archive.org/web/20200428203226/http://ac3filter.net/wiki/OpenCandy
+.. _"Is AC3Filter Safe?":
+    https://forum.videohelp.com/threads/379482-Is-AC3Filter-Safe
 .. _Channel Downmixer by Trombettworks:
     https://web.archive.org/web/20190907051617/http://www.trombettworks.com/directshow.php
 .. _DirectShowSource2:
