@@ -1,43 +1,77 @@
-
+========
 SkewRows
 ========
 
-``SkewRows`` (int skew)
+Skews the rows of a clip. It can be used to correct (deskew) problem clips such
+as the :doc:`error message <message>` shown below.
 
-``SkewRows`` (added in *v2.60*) skews the rows of a clip by an amount of
-*skew*. The skewing is memory layout based, so RGB images are skewed from the
-bottom up, YUV images are skewed from the top down.
 
-It can be used to read those skewed error messages that some media player
-users are submitting.
+Syntax and Parameters
+----------------------
 
-The effect of the algorithm is to paste all of the input rows together as one
-single very long row, then slice them up based on the new width (= input
-width + skew). Skew can also be negative in which case the last skew pixels
-of each line are added to the beginning of the next line and you get some
-extra lines at the end. The last line is padded with grey pixels when
-required.
+::
 
-The geometry of the output is calculated as follows:
+    SkewRows (clip, int skew)
 
--   OutWidth = InWidth + skew // signed skew values acceptable
--   OutHeight = (InHeight*InWidth + OutWidth-1) / OutWidth // rounded up
-    to nearest integer
+.. describe:: clip
 
-All interleaved pixel formats are supported (including Y8), though *skew*
-should be even for YUY2.
+    Source clip. All :doc:`interleaved <../FilterSDK/InterleavedImageFormat>`
+    pixel formats are supported (including Y8).
 
-**examples:**
+.. describe:: skew
 
-.. image:: pictures/skewrows_before.png
-.. image:: pictures/skewrows_after.png
+    Skew amount, can be positive or negative. For YUY2 sources, ``skew`` should
+    be even (divisible by 2). The skewing is memory layout based, so RGB images
+    are skewed from the bottom up, YUV images are skewed from the top down.
 
-Original SkewRows(1)
+    The effect of the algorithm is to paste all of the input rows together as
+    one single very long row, then slice them up based on the new width (= input
+    width + ``skew``). When the skew amount is negative, the last skew pixels of
+    each line are added to the beginning of the next line and you get some extra
+    lines at the end. The last line is padded with grey pixels when required.
 
-+-----------+-----------------+
-| Changelog |                 |
-+===========+=================+
-| v2.60     | Initial release |
-+-----------+-----------------+
+    The geometry of the output is calculated as follows:
 
-$Date: 2011/01/16 12:22:43 $
+    * ``OutWidth = InWidth + skew`` // signed skew values acceptable
+    * ``OutHeight = (InHeight*InWidth + OutWidth-1) / OutWidth`` // rounded up
+      to nearest integer
+
+    In other words, the width and height of the output clip are therefore
+    altered slightly.
+
+Examples
+---------
+
+.. list-table::
+
+    * - .. figure:: pictures/skewrows_before.png
+
+           (original with skew problem)
+
+    * - .. figure:: pictures/skewrows_after.png
+
+           ``SkewRows(1)``
+
+
+See also
+--------
+
+:doc:`AviSource <avisource>` and :doc:`DirectShowSource <directshowsource>`
+pixel_type:
+
+    For planar color formats, adding a '+' prefix, e.g.
+    DirectShowSource(..., pixel_type="+YV12"), tells AviSynth the video rows are
+    DWORD aligned in memory instead of packed. **This can fix skew or tearing of
+    the decoded video when the width of the picture is not divisible by 4.**
+
+
+Changelog
+----------
+
++----------------+-----------------+
+| Version        | Changes         |
++================+=================+
+| AviSynth 2.6.0 | Initial release |
++----------------+-----------------+
+
+$Date: 2022/03/17 12:22:43 $
