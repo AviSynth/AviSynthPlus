@@ -1,25 +1,46 @@
-
+===============================
 StackHorizontal / StackVertical
 ===============================
 
-| ``StackHorizontal`` (clip1, clip2 [, ...])
-| ``StackVertical`` (clip1, clip2 [, ...])
+**StackHorizontal** takes two or more video clips and displays them together
+in left-to-right order.
 
-``StackHorizontal`` takes two or more video clips and displays them together
-in left-to-right order. The heights of the images and their color formats
-must be the same. Most other information (sound track, frame rate, etc) is
-taken from the first clip - see :ref:`here <multiclip>` for the resulting clip properties.
-``StackVertical`` does the same, except from top to bottom.
+**StackVertical** is similar, working top-to-bottom.
 
 
+Syntax and Parameters
+----------------------
 
 ::
 
-    # Compare frames with and without noise reduction
+    StackHorizontal (clip1, clip2 [, ...])
+    StackVertical (clip1, clip2 [, ...])
+
+.. describe:: clip1, clip2, ...
+
+    Source clips; all color formats supported.
+
+    * The color formats must be the same for all clips.
+    * **StackHorizontal**: the height must be the same for all clips.
+    * **StackVertical**: the width must be the same for all clips.
+
+    See :doc:`filters with multiple input clips <../filters_mult_input_clips>`
+    for the resulting :doc:`clip properties <../syntax/syntax_clip_properties>`.
+
+
+Examples
+--------
+
+Compare frames with and without noise reduction::
+
     StackVertical(last, last.SpatialSoften(2,3,6))
 
-    #                                                      a b
-    # Show clips in variables a,b,c,d in a box like this:  c d
+
+Show clips in variables a,b,c,d in a box like this::
+
+    # a b
+    # c d
     StackVertical(StackHorizontal(a,b),StackHorizontal(c,d))
 
-$Date: 2004/03/09 21:28:07 $
+
+$Date: 2022/03/24 21:28:07 $
