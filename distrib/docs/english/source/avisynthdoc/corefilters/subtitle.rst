@@ -294,6 +294,8 @@ It results in: ::
     Subtitle("ROYGBIV", x=-1, y=200, spc=10, font_width=10)
     Subtitle("ROYGBIV", x=-1, y=250, spc=20, font_width=20)
 
+.. _Subtitle-animated-demo:
+
 **Animated parameter demonstration** ::
 
     ColorbarsHD(width=640, height=360)
