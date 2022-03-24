@@ -1,53 +1,193 @@
+============
+Swap Filters
+============
 
-SwapUV / UToY / VToY / YToUV / UToY8 / VToY8
-============================================
+Set of filters to combine, extract and manipulate the order of channels in
+YUV(A) clips:
 
-| ``SwapUV`` (clip)
-| ``UToY`` (clip)
-| ``VToY`` (clip)
-| ``YToUV`` (clipU, clipV [, clipY])
-| ``UToY8`` (clip)
-| ``VToY8`` (clip)
+* `SwapUV`_ swaps the order of the U/V channels.
+* `UToY / VToY`_ copies the U/V channel onto the Y (luma) channel and keeps the
+  same color format.
+* `UToY8 / VToY8`_ extract the U/V chroma channel to a Y-only greyscale clip.
+* `YToUV`_ combines individual YUV(A) planes into a new YUV(A) clip.
 
-These four filters are available starting from *v2.5*. The last two from
-*v2.60*.
+These filters provide similar functionality to the :doc:`CombinePlanes <combineplanes>`,
+:doc:`Extract <extract>` and :doc:`ShowU/V <showalpha>` filters.
 
-``SwapUV`` swaps chroma channels (U and V) of a clip. Sometimes the colors
-are distorted (faces blue instead of red, etc) when loading a `DivX`_ or
-`MJPEG`_ clip in AviSynth v2.5, due to a bug in the decoders. You can use
-this filter to correct it.
+.. _SwapUV:
 
-``UToY`` copies chroma U plane to Y plane. All color (chroma) information is
-removed, so the image is now greyscale. Depending on the YUV format, the
-image resolution can be changed.
+SwapUV
+------
 
-``VToY`` copies chroma V plane to Y plane. All color (chroma) information is
-removed, so the image is now greyscale. Depending on the YUV format, the
-image resolution can be changed.
+Swaps the U and V (chroma) channels. Corrects certain decoding errors – faces
+blue instead of red, etc.
 
-``YToUV`` puts the luma channels of the two clips as U and V channels. Luma
-is now 50% grey. Starting from v2.51 there is an optional argument clipY
-which puts the luma channel of this clip as the Y channel. Depending on the
-YUV format, the image resolution can be changed.
 
-Starting from *v2.53* they also work in YUY2.
+.. rubric:: Syntax and Parameters
 
-| ``UToY8`` (added in v2.60) is a shorthand for UToY.ConvertToY8, and
-| ``VToY8`` (added in v2.60) is a shorthand for VToY.ConvertToY8, but faster.
-
-| Starting from v2.53, YUY2 is supported.
-| Starting from v2.60, Y8, YV411, YV16, YV24 are supported.
-
-**Example:**
 ::
 
-    # Blurs the U chroma channel
-    video = Colorbars(512, 512).ConvertToYV12
-    u_chroma = UToY(video).blur(1.5)
-    YtoUV(u_chroma, video.VToY)
-    MergeLuma(video)
+    SwapUV (clip)
 
-$Date: 2012/04/15 14:12:41 $
+.. describe:: clip
 
-.. _DivX: http://avisynth.org/mediawiki/DivX
-.. _MJPEG: http://avisynth.org/mediawiki/MJPEG
+    Source clip. All YUV(A) color formats supported.
+
+.. _UToY:
+.. _VToY:
+
+UToY / VToY
+-----------
+
+**UToY** and **VToY** copy the U or V chroma plane to the Y luma plane and
+keeps the same color format as the source clip. All color (chroma) information
+is removed and set to neutral (greyscale). Depending on the color format, the
+image resolution can be changed – i.e.,
+
+* with a YUV444 source, the output clip will be the same width and height as
+  input clip, but
+* with a YUV420 source, the output clip will be half the input clip's width and
+  height.
+
+.. rubric:: Syntax and Parameters
+
+::
+
+    UToY (clip)
+    VToY (clip)
+
+.. describe:: clip
+
+    Source clip; all YUV(A) color formats supported.
+
+.. _UToY8:
+.. _VToY8:
+
+UToY8 / VToY8
+-------------
+
+**UToY8** and **VToY8** extract the U or V chroma channel to a Y-only greyscale
+clip. Despite the names, all bit depths are supported. Resulting clip will be Y8,
+Y10 etc. as appropriate.
+
+.. rubric:: Syntax and Parameters
+
+::
+
+    UToY8 (clip)
+    VToY8 (clip)
+
+.. describe:: clip
+
+    Source clip; all YUV(A) color formats supported.
+
+.. _YToUV:
+
+YToUV
+-----
+
+**YToUV** combines up to 4 independent clips to create a new YUV(A) clip.
+The Y channel of each of the supplied clips are then copied onto the respective
+channel of the output clip. Note that all of the parameters are unnamed, however,
+only the first two clips are mandatory. Only Y or YUV(A) color formats are
+accepted.
+
+.. rubric:: Syntax and Parameters
+
+::
+
+    YToUV (clip clipU, clip clipV, clip clipY, clip clipA)
+
+.. describe:: clipU, clipV
+
+    | Source clips; dimensions of both clips must be identical.
+    | The first clip is used for the U channel and the second clip for the V
+      channel.
+
+    | ``clipU`` determines the color format of the output clip unless ``clipY``
+      is defined.
+
+.. describe:: clipY
+
+    Source clip; If ``clipY`` is given, the Y channel is copied onto the Y
+    channel of the output clip. The dimensions of this clip determines the
+    color format of the output clip, for example:
+
+    * If the width and height of ``clipY`` are the same as the U/V channels, the
+      output clip will be YUV444.
+    * If the width and height of ``clipY`` are double the size of the U/V
+      channels, the output clip will be YUV420.
+    * Due to `chroma subsampling`_ restrictions, some dimensions are not
+      compatible with YUV420 and YUV422 color formats.
+
+    If a ``clipY`` is not given, the Y channel of the output clip will be set to
+    grey (0x7e).
+
+.. describe:: clipA
+
+    Source clip; if ``clipA`` is given, the Y channel is copied onto the A
+    channel of the output clip. Dimensions must be identical to ``clipY``.
+
+
+Examples
+--------
+
+Blur the U and V chroma channels different amounts::
+
+    video = ColorBars(512, 512, pixel_type="YUV420P8")
+    u = UToY8(video).Blur(1.5)
+    v = VToY8(video).Blur(0.5)
+    YtoUV(u, v, video)
+
+Show *U* and V channels stacked side by side for illustration purposes.
+
+* Note that with a YUV420 source (like the image below), the *U* and *V* images
+  will be half the size of the original.
+* In the *U* and *V* images, grey will be "neutral" (for example, 128 for 8-bit)
+  and saturated colors will appear brighter or darker.
+
+ .. list-table::
+
+    * - .. figure:: pictures/swap-peppers.jpg
+
+           *swap-peppers.jpg*
+
+    * - .. figure:: pictures/swap-peppers-uv.jpg
+
+        .. code::
+
+            src   = FFImageSource("swap-peppers.jpg")
+            srcU  = src.UToY().Subtitle("UtoY", align=2)
+            srcV  = src.VToY().Subtitle("VtoY", align=2)
+            srcUV = StackHorizontal(srcU, srcV)
+
+            StackVertical(src, srcUV)
+
+
+Changelog
+---------
+
+.. table::
+    :widths: auto
+
+    +-----------------+----------------------------------------------+
+    | Version         | Changes                                      |
+    +=================+==============================================+
+    | AviSynth+ r2487 || Added parameter ``clipA`` to YToUV.         |
+    |                 || Added YUVA support to SwapUV.               |
+    |                 || Added support for 10-16 bits and float.     |
+    +-----------------+----------------------------------------------+
+    | AviSynth 2.6.0  || Added UToY8 and VToY8.                      |
+    |                 || Added support for Y8, YV411, YV16, YV24.    |
+    +-----------------+----------------------------------------------+
+    | AviSynth 2.5.3  | Added support for YUY2.                      |
+    +-----------------+----------------------------------------------+
+    | AviSynth 2.5.1  | Added parameter ``clipY`` to YToUV.          |
+    +-----------------+----------------------------------------------+
+    | AviSynth 2.5.0  | Added UToY, VToY, YToUV.                     |
+    +-----------------+----------------------------------------------+
+
+$Date: 2022/03/24 14:12:41 $
+
+.. _chroma subsampling:
+    https://en.wikipedia.org/wiki/Chroma_subsampling
