@@ -1,4 +1,4 @@
-
+=====================================================
 AVISource / OpenDMLSource / AVIFileSource / WAVSource
 =====================================================
 
@@ -173,6 +173,8 @@ Helpful hints
 
  If that does not work, try `FFmpegSource`_, `LSMASHSource`_ or (if absolutely
  necessary) :doc:`DirectShowSource <directshowsource>`.
+
+.. _AVISource-hbd:
 
 10+ bit inputs
 ^^^^^^^^^^^^^^
