@@ -74,13 +74,13 @@ Syntax and Parameters
 
 .. describe:: color_yuv
 
-    Specifies the color of the clip using YUV values. Input clip must be YUV;
+    Specifies the start/end color using YUV values. Input clip must be YUV;
     otherwise an error is raised. See the :ref:`YUV colors <yuv-colors>` for
     more information.
 
 .. describe:: colors
 
-    Specify the color of the clip using an array. Use this to pass exact,
+    Specifies the start/end color using an array. Use this to pass exact,
     unscaled color values. If the array is larger, further values are simply
     ignored.
 
