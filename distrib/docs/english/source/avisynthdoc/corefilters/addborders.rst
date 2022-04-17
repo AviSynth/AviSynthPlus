@@ -1,34 +1,118 @@
-
+==========
 AddBorders
 ==========
 
-``AddBorders`` (clip, int left, int top, int right, int bottom, int "color")
+Add black or colored borders, increasing frame size. This has several common uses:
 
-``AddBorders`` adds black borders around the image, with the specified widths
-(in pixels).
+* Adjust the `aspect ratio`_ (make a 4:3 clip into 16:9 without stretching)
+* :doc:`Splice <splice>` a smaller resolution clip to a larger one without resizing
+* Together with :doc:`Crop <crop>`, shift a clip horizontally or vertically – see below.
 
-See :doc:`colorspace conversion filters <convert>` for constraints when using the different
-color formats.
+See also: :doc:`letterbox`, which adds borders without changing frame size.
 
-The color parameter is optional (added in v2.07), default=0 <black>, and is
-specified as an RGB value regardless of whether the clip format is RGB or YUV
-based. Color presets can be found in the file colors_rgb.avsi, which should
-be present in your plugin folder. See :doc:`here <../syntax/syntax_colors>` for more information on
-specifying colors.
 
-Be aware that many lossy compression algorithms don't deal well with solid-
-color borders, unless the border width happens to be a multiple of the block
-size (16 pixels for MPEG).
+Syntax and Parameters
+---------------------
 
-You can use this filter in combination with :doc:`Crop <crop>` to shift an image
-around without changing the frame size. For example:
 ::
 
-    # Shift a 352x240 image 2 pixels to the right
-    Crop(0,0,350,240).AddBorders(2,0,0,0)
+    AddBorders (clip clip, int left, int top, int right, int bottom, int "color", int "color_yuv")
 
-    # Add letterbox borders that are Black making a 720x308 image 720x480
-    # For YUV colorspace it will be correct (for CCIR-601) color (luma=16)
-    AddBorders(0, 86, 0, 86, $000000)
+.. describe:: clip
 
-$Date: 2008/06/06 11:37:04 $
+    Source clip; all color formats supported.
+
+.. describe:: left, top, right, bottom
+
+    Border width in pixels.
+
+    * For YUV411 sources, left and right must be `mod4`_ (divisible by 4).
+    * For YUV420 sources, all four border widths must be `mod2`_ (divisible by 2).
+    * For YUV422 sources, left and right must be mod2.
+
+.. describe:: color
+
+    | Specifies the border color; black by default.
+    | Color is specified as an RGB value in either hexadecimal or decimal notation.
+    | Hex numbers must be preceded with a $. See the
+      :doc:`colors <../syntax/syntax_colors>` page for more information on
+      specifying colors.
+
+    * For YUV clips, colors are converted from full range to limited range
+      `Rec.601`_.
+
+    * Use ``color_yuv`` to specify full range YUV values or a color with a
+      different matrix.
+
+    Default: $000000
+
+.. describe:: color_yuv
+
+    Specifies the border color using YUV values. Input clip must be YUV;
+    otherwise an error is raised. See the :ref:`YUV colors <yuv-colors>` for
+    more information.
+
+
+Examples
+--------
+
+* Add letterbox (top and bottom) borders:
+
+  .. code-block:: c++
+
+    # add dark blue borders, using hex color notation
+    AddBorders(0, 86, 0, 86, color=$00008B)
+
+    # same as above, using named preset color
+    AddBorders(0, 86, 0, 86, color=color_darkblue)
+
+    # full scale black border using color_yuv hex color notation
+    AddBorders(0, 86, 0, 86, color_yuv=$008080)
+
+* Be aware that many older lossy compression algorithms don't deal well with
+  solid-color borders, unless the border happens to fall on a `macroblock`_
+  boundary (16 pixels for MPEG).
+
+* Use **AddBorders** in combination with **Crop** to *shift* an image without
+  changing the frame size:
+
+  .. code-block:: c++
+
+    # Shift an image 2 pixels to the right
+    Crop(0, 0, Width-2, Height)
+    AddBorders(2, 0, 0, 0)
+
+  * Note, shifting this way must be done in 1- or 2-pixel increments, depending
+    on color format.
+  * You can shift in sub-pixel increments with :doc:`Resize <resize>`.
+
+
+Changelog
+----------
+
++-----------------+------------------------------------------------------------------+
+| Version         | Changes                                                          |
++=================+==================================================================+
+| AviSynth+ 3.6.2 | Fix: AddBorders did not pass frame properties                    |
++-----------------+------------------------------------------------------------------+
+| AviSynth+ 3.5.0 | New ``color_yuv`` parameter like in BlankClip                    |
++-----------------+------------------------------------------------------------------+
+| AviSynth+ r2397 | AddBorders missing l/r/top/bottom vs. subsampling check for YUVA |
++-----------------+------------------------------------------------------------------+
+| AviSynth 2.6.0  | Bugfix: Fixed RGB24 AddBorders with ``right=0``                  |
++-----------------+------------------------------------------------------------------+
+| AviSynth 2.0.7  | New ``color`` parameter                                          |
++-----------------+------------------------------------------------------------------+
+
+$Date: 2022/04/17 11:37:04 $
+
+.. _aspect ratio:
+    http://avisynth.nl/index.php/Aspect_ratios
+.. _mod2:
+    http://avisynth.nl/index.php/Modulo
+.. _mod4:
+    http://avisynth.nl/index.php/Modulo
+.. _Rec.601:
+    https://en.wikipedia.org/wiki/Rec._601
+.. _macroblock:
+    https://en.wikipedia.org/wiki/Macroblock
