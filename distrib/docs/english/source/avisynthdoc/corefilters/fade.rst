@@ -1,70 +1,157 @@
+============
+Fade Filters
+============
 
-FadeIn / FadeIn0 / FadeIn2 / FadeIO0 / FadeIO / FadeIO2 / FadeOut / FadeOut0 / FadeOut2
-=======================================================================================
+| **FadeIn** blends progressively *from* ``color`` at the beginning.
+| **FadeOut** blends progressively *to* ``color`` at the end.
+| **FadeIO** blends progressively *from/to* ``color`` at both ends.
 
-| ``FadeIn`` (clip clip, int num_frames, int "color", float "fps")
-| ``FadeIO`` (clip clip, int num_frames, int "color", float "fps")
-| ``FadeOut`` (clip clip, int num_frames, int "color", float "fps")
+* The sound track (if present) also fades linearly to and/or from silence.
 
-| ``FadeIn0`` (clip clip, int num_frames, int "color", float "fps")
-| ``FadeIO0`` (clip clip, int num_frames, int "color", float "fps")
-| ``FadeOut0`` (clip clip, int num_frames, int "color", float "fps")
+* The fading affects only the first/last ``num_frames`` frames of the video.
 
-| ``FadeIn2`` (clip clip, int num_frames, int "color", float "fps")
-| ``FadeIO2`` (clip clip, int num_frames, int "color", float "fps")
-| ``FadeOut2`` (clip clip, int num_frames, int "color", float "fps")
+* The first/last frame of the video becomes almost-but-not-quite color. |br|
+  An additional ``color`` frame is added at the start/end, thus increasing the
+  total frame count by one (or for **FadeIO**, by two).
 
-``FadeOut`` cause the video stream to fade linearly to black or the specified
-RGB color at the end. Similarly ``FadeIn`` cause the video stream to fade
-linearly from black or the specified RGB color at the start. ``FadeIO``
-is a combination of the respective ``FadeIn`` and ``FadeOut`` functions. The
-sound track (if present) also fades linearly to or from silence. The fading
-affects only the last num_frames frames of the video. The last frame of the
-video becomes almost-but-not-quite black (or the specified color). An
-additional perfectly black (or the specified color) frame is added at the
-end, thus increasing the total frame count by one.
 
-``FadeIn0`` / ``FadeOut0`` do not include the extra frame. It is useful when
-processing Audio only clips or chaining two or more fades to get a square law
-or a cube law fading effects. e.g Clip.FadeOut0(60).FadeOut0(60).FadeOut(60)
-gives a much sharper attack and gentler tailoff. The 50% point is at frame 12
-of the fade, at frame 30 the fade is 12.5%, at frame 45, 1.6% the
-effectiveness is more pronounced with audio.
+| **FadeIn0** / **FadeOut0** / **FadeIO0** do not add the extra ``color`` frames,
+  leaving the end(s) almost-but-not-quite color.
+| **FadeIn2** / **FadeOut2** / **FadeIO2** add two extra ``color`` frames at the
+  start/end instead of one.
 
-``FadeIn2`` / ``FadeOut2`` works similarly, except that two black (or color)
-frames are added at the end instead of one. The main purpose of this is to
-work around a bug in Windows Media Player. All the WMP versions that I've
-tested fail to play the last frame of an MPEG file - instead, they stop on
-the next-to-last frame when playback ends. This leaves an unsightly almost-
-but-not-quite-black frame showing on the screen when the movie ends if you
-use ``FadeOut``. ``FadeOut2`` avoids this problem.
 
-The *color* parameter is optional, default=0 <black>, and is specified as an
-RGB value regardless of whether the clip format is RGB or YUV based. See
-:doc:`here <../syntax/syntax_colors>` for more information on specifying colors.
+Syntax and Parameters
+----------------------
 
-The *fps* parameter is optional, default=24.0, and provides a reference for
-num_frames in audio only clips. It is ignored if a video stream is present.
-Set fps=AudioRate() if sample exact audio positioning is required.
-
-``FadeOut`` (clip, n) is just a shorthand for
 ::
 
-    Dissolve(clip, Blackness(clip, n+1, color=$000000), n)
-    # (or instead of n+1, n+2 for FadeOut2 and n for FadeOut0).
+    FadeIn (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
+    FadeIO (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
+    FadeOut (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
 
-+---------------+---------------------------------------------------------------------+
-| Changelog:    |                                                                     |
-+===============+=====================================================================+
-| Until *v2.06* || The ``FadeIn`` / ``FadeIn2`` commands do not exist, but you        |
-|               |  can get the same effect by reversing the arguments to Dissolve:    |
-|               || Dissolve(Blackness(clip, n+1, color=$000000), clip, n).            |
-+---------------+---------------------------------------------------------------------+
-| *v2.07*       | ``FadeIO`` / ``FadeIO2`` commands are added and the color parameter |
-|               | is added to all fade functions.                                     |
-+---------------+---------------------------------------------------------------------+
-| *v2.56*       | ``FadeIn0`` / ``FadeIO0`` / ``FadeOut0`` commands are added and     |
-|               | the fps parameter is added to all fade functions.                   |
-+---------------+---------------------------------------------------------------------+
+    FadeIn0 (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
+    FadeIO0 (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
+    FadeOut0 (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
 
-$Date: 2009/10/11 11:43:32 $
+    FadeIn2 (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
+    FadeIO2 (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
+    FadeOut2 (clip clip, int num_frames, int "color", float "fps", int "color_yuv", float+ "colors")
+
+
+.. describe:: clip
+
+    Source clip; all color formats supported.
+
+.. describe:: num_frames
+
+    Fade duration, in frames.
+
+.. describe:: color
+
+    | Specifies the start/end color; black by default.
+    | Color is specified as an RGB value in either hexadecimal or decimal notation.
+    | Hex numbers must be preceded with a $. See the
+      :doc:`colors <../syntax/syntax_colors>` page for more information on
+      specifying colors.
+
+    * For YUV clips, colors are converted from full range to limited range
+      `Rec.601`_.
+
+    * Use ``color_yuv`` or ``colors`` to specify full range YUV values or a
+      color with a different matrix.
+
+    Default: $000000
+
+.. describe:: fps
+
+    Provides a reference for num_frames in audio only clips. It is ignored if a
+    video stream is present.
+
+    * Set ``fps=AudioRate`` if sample exact audio positioning is required.
+
+    Default: 24.0
+
+.. describe:: color_yuv
+
+    Specifies the color of the clip using YUV values. Input clip must be YUV;
+    otherwise an error is raised. See the :ref:`YUV colors <yuv-colors>` for
+    more information.
+
+.. describe:: colors
+
+    Specify the color of the clip using an array. Use this to pass exact,
+    unscaled color values. If the array is larger, further values are simply
+    ignored.
+
+    Color order: Y,U,V,A or R,G,B,A
+
+
+Notes
+-----
+
+::
+
+    FadeOut(clip, num_frames)
+
+is just a shorthand for ::
+
+    Dissolve(clip, BlankClip(clip, num_frames+1, color=color), num_frames)
+
+(with num_frames+2 instead of num_frames+1 for ``FadeOut2``, and num_frames+0
+for ``FadeOut0``).
+
+
+Examples
+--------
+
+Fade in the first 15 frames from black on a 8-bit clip (either RGB or YUV)::
+
+    # RGB
+    Fade(15, color=$000000)
+    Fade(15, colors=[0,0,0]
+
+    # YUV
+    Fade(15, color=$000000)       # limited range
+    Fade(15, color_yuv=$108080)   # limited range
+    Fade(15, colors=[16,128,128]  # limited range
+    Fade(15, colors=[0,128,128]   # full range
+    Fade(15, color_yuv=$008080)   # full range
+
+Fade out the last 15 frames to white on a 8-bit clip (either RGB or YUV)::
+
+    # RGB
+    Fade(15, color=$FFFFFF)
+    Fade(15, colors=[255,255,255]
+
+    # YUV
+    Fade(15, color=$FFFFFF)       # limited range
+    Fade(15, color_yuv=$EB8080)   # limited range
+    Fade(15, colors=[235,128,128] # limited range
+    Fade(15, colors=[255,128,128) # full range
+    Fade(15, color_yuv=$FF8080)   # full range
+
+
+Changelog
+---------
+
++-----------------+---------------------------------------------------------------------+
+| Version         | Changes                                                             |
++=================+=====================================================================+
+| AviSynth+ 3.7.2 | Added parameters ``color_yuv`` and ``colors`` for all fade filters. |
++-----------------+---------------------------------------------------------------------+
+| AviSynth 2.5.6  || Added FadeIn0, FadeOut0, and FadeIO0 filters.                      |
+|                 || Added optional ``fps`` parameter for processing audio only clips.  |
++-----------------+---------------------------------------------------------------------+
+| AviSynth 2.0.7  || Added FadeIn, FadeIn2, FadeIO and FadeIO2 filters.                 |
+|                 || Added the ``color`` parameter to all fade functions.               |
++-----------------+---------------------------------------------------------------------+
+
+$Date: 2022/04/17 11:43:32 $
+
+.. _Rec.601:
+    https://en.wikipedia.org/wiki/Rec._601
+
+.. |br| raw:: html
+
+      <br>
