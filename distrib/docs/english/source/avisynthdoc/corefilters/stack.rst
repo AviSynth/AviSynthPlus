@@ -24,7 +24,8 @@ Syntax and Parameters
     * **StackHorizontal**: the height must be the same for all clips.
     * **StackVertical**: the width must be the same for all clips.
 
-    See :doc:`filters with multiple input clips <../filters_mult_input_clips>`
+    Most properties (soundtrack, frame rate, etc) are taken from the first clip,
+    see :doc:`filters with multiple input clips <../filters_mult_input_clips>`
     for the resulting :doc:`clip properties <../syntax/syntax_clip_properties>`.
 
 
@@ -43,4 +44,4 @@ Show clips in variables a,b,c,d in a box like this::
     StackVertical(StackHorizontal(a,b),StackHorizontal(c,d))
 
 
-$Date: 2022/03/24 21:28:07 $
+$Date: 2022/04/29 21:28:07 $
