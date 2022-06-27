@@ -55,7 +55,7 @@
 [Setup]
 AppId={{#AppId}
 AppName={#AvsName}
-AppVersion={#Version}.{#RevisionNumber}
+AppVersion={#Version}
 #if IsRelease == "True"
   AppVerName={#AvsName} {#Version}
   OutputBaseFilename={#AvsFriendlyName}_{#Version}
