@@ -78,19 +78,21 @@ extern const AVSFunction Conditional_filters[] = {
   { "propSetFloat", BUILTIN_FUNC_PREFIX, "csn[mode]i", SetProperty::Create, (void*)2 }, // forced check for float
   { "propSetString", BUILTIN_FUNC_PREFIX, "csn[mode]i", SetProperty::Create, (void*)3 }, // forced check for string
   { "propSetArray", BUILTIN_FUNC_PREFIX, "csn", SetProperty::Create, (void*)4 }, // no mode parameter, full entry refresh
+  { "propSetClip", BUILTIN_FUNC_PREFIX, "csn[mode]i", SetProperty::Create, (void*)5 }, // forced check for clip
 
   // value from direct data
   { "propSet", BUILTIN_FUNC_PREFIX, "csi[mode]i", SetProperty::Create, (void*)10 },
   { "propSet", BUILTIN_FUNC_PREFIX, "csf[mode]i", SetProperty::Create, (void*)11 },
   { "propSet", BUILTIN_FUNC_PREFIX, "css[mode]i", SetProperty::Create, (void*)12 },
-#ifdef NEW_AVSVALUE
   { "propSet", BUILTIN_FUNC_PREFIX, "csa", SetProperty::Create, (void*)13 }, // no mode parameter, full entry refresh
-#endif
+  { "propSet", BUILTIN_FUNC_PREFIX, "csc[mode]i", SetProperty::Create, (void*)14 },
 
-  { "propDelete", BUILTIN_FUNC_PREFIX, "cs", DeleteProperty::Create },
+  { "propDelete", BUILTIN_FUNC_PREFIX, "cs+", DeleteProperty::Create },
   { "propClearAll", BUILTIN_FUNC_PREFIX, "c", ClearProperties::Create },
 
   { "propShow", BUILTIN_FUNC_PREFIX, "c[size]i[showtype]b", ShowProperties::Create },
+
+  { "propCopy", BUILTIN_FUNC_PREFIX, "cc[merge]b[props]s+[exclude]b", CopyProperties::Create},
 
   { 0 }
 };

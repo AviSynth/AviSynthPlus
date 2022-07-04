@@ -40,7 +40,7 @@ Ubuntu 19.10 or higher
 
 ::
 
-    git clone git://github.com/AviSynth/AviSynthPlus.git && \
+    git clone https://github.com/AviSynth/AviSynthPlus && \
     cd AviSynthPlus && \
     mkdir avisynth-build && \
     cd avisynth-build && \
@@ -61,7 +61,7 @@ the use of the `filesystem submodule`_.
 
 ::
 
-    git clone --recursive git://github.com/AviSynth/AviSynthPlus.git && \
+    git clone --recursive https://github.com/AviSynth/AviSynthPlus && \
     cd AviSynthPlus && \
     mkdir avisynth-build && \
     cd avisynth-build && \
@@ -112,7 +112,7 @@ using `an external implementation`_ as a submodule.
 
 ::
 
-    git clone --recursive git://github.com/AviSynth/AviSynthPlus.git && \
+    git clone --recursive https://github.com/AviSynth/AviSynthPlus && \
     cd AviSynthPlus && \
     mkdir avisynth-build && \
     cd avisynth-build
@@ -144,7 +144,7 @@ Tested on FreeBSD 12.1.
 
     pkg install cmake git gmake ninja
 
-    git clone git://github.com/AviSynth/AviSynthPlus.git && \
+    git clone https://github.com/AviSynth/AviSynthPlus && \
     cd AviSynthPlus && \
     mkdir avisynth-build && \
     cd avisynth-build
@@ -222,7 +222,7 @@ Building FFmpeg
 
 ::
 
-    git clone git://git.ffmpeg.org/ffmpeg.git
+    git clone https://git.videolan.org/git/ffmpeg.git
     cd ffmpeg
 
 
@@ -319,7 +319,7 @@ built straight away.
 
 ::
 
-    git clone git://github.com/ffms/ffms2.git && \
+    git clone https://github.com/ffms/ffms2 && \
     cd ffms2
 
 

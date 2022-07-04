@@ -32,75 +32,31 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
-#ifndef _AVS_TURN_H
-#define _AVS_TURN_H
+#ifndef _AVS_TURN_SSE_H
+#define _AVS_TURN_SSE_H
 
 #include <avisynth.h>
-
-typedef void (*TurnFuncPtr)(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-class Turn : public GenericVideoFilter {
-
-    TurnFuncPtr turn_function;
-    PClip u_or_b_source;
-    PClip v_or_r_source;
-
-    int num_planes;
-    int splanes[4];
-
-    void SetUVSource(int mul_h, int mul_v, IScriptEnvironment* env);
-    void SetTurnFunction(int direction, IScriptEnvironment* env);
-
-
-public:
-    Turn(PClip _child, int direction, IScriptEnvironment* env);
-
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-    int __stdcall SetCacheHints(int cachehints, int frame_range) override;
-
-    static AVSValue __cdecl create_turnleft(AVSValue args, void* user_data, IScriptEnvironment* env);
-    static AVSValue __cdecl create_turnright(AVSValue args, void* user_data, IScriptEnvironment* env);
-    static AVSValue __cdecl create_turn180(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-};
+#include "../turn.h"
 
 // Other filters (e.g. resampler) might also use these functions
-void turn_left_plane_8_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
 void turn_left_plane_8_sse2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-void turn_left_plane_16_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
 void turn_left_plane_16_sse2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-void turn_left_plane_32_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int height, int src_pitch, int dst_pitch);
 void turn_left_plane_32_sse2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int srcHeight, int src_pitch, int dst_pitch);
-
-void turn_left_rgb24(const BYTE *srcp, BYTE *dstp, int src_rowsize, int height, int src_pitch, int dst_pitch);
-
-void turn_left_rgb32_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int height, int src_pitch, int dst_pitch);
 void turn_left_rgb32_sse2(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-void turn_left_rgb48_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int height, int src_pitch, int dst_pitch);
-
-void turn_left_rgb64_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int height, int src_pitch, int dst_pitch);
 void turn_left_rgb64_sse2(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-void turn_right_plane_8_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int height, int src_pitch, int dst_pitch);
 void turn_right_plane_8_sse2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int srcHeight, int src_pitch, int dst_pitch);
-
-void turn_right_plane_16_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int height, int src_pitch, int dst_pitch);
 void turn_right_plane_16_sse2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int srcHeight, int src_pitch, int dst_pitch);
-
-void turn_right_plane_32_c(const BYTE *srcp, BYTE *dstp, int width, int height, int src_pitch, int dst_pitch);
 void turn_right_plane_32_sse2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int srcHeight, int src_pitch, int dst_pitch);
-
-void turn_right_rgb24(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-void turn_right_rgb32_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
 void turn_right_rgb32_sse2(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-void turn_right_rgb48_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
-
-void turn_right_rgb64_c(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
 void turn_right_rgb64_sse2(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
 
-#endif  // _AVS_TURN_H
+template <typename T>
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("ssse3")))
+#endif
+void turn_180_plane_ssse3(const BYTE* srcp, BYTE* dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
+
+template <typename T>
+void turn_180_plane_sse2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
+
+#endif  // _AVS_TURN_SSE_H

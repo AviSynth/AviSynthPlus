@@ -58,7 +58,7 @@ class FlipVertical : public GenericVideoFilter
 {
 public:
   FlipVertical(PClip _child) : GenericVideoFilter(_child) {}
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -76,7 +76,7 @@ class FlipHorizontal : public GenericVideoFilter
 {
 public:
   FlipHorizontal(PClip _child) : GenericVideoFilter(_child) {}
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -94,7 +94,7 @@ class Crop : public GenericVideoFilter
 {
 public:
   Crop(int _left, int _top, int _width, int _height, bool _align, PClip _child, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override;
 
@@ -116,7 +116,7 @@ class AddBorders : public GenericVideoFilter
 {
 public:
   AddBorders(int _left, int _top, int _right, int _bot, int _clr, bool _force_color_as_yuv, PClip _child, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

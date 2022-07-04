@@ -64,6 +64,7 @@ Tokenizer::Tokenizer(Tokenizer* old)
 {
   pc = old->pc;
   line = old->line;
+  type = old->type;
   NextToken();
 }
 
@@ -252,18 +253,33 @@ void Tokenizer::NextToken() {
         if (pc[1] == '"' && pc[2] == '"') {
           // """..."""
           start = pc+3;
-          end = strstr(start, "\"\"\"");
-          if (!end)
-            env->ThrowError("Parse error: string missing closing quotation marks");
+          bool escaped_quotation = false;
+          auto tmp_start = start;
+          do {
+            end = strstr(tmp_start, "\"\"\"");
+            if (!end)
+              env->ThrowError("Parse error: string missing closing quotation marks");
+            escaped_quotation = escape && (*(end - 1) == '\\');
+            if (escaped_quotation)
+              tmp_start = end + 1;
+          } while (escaped_quotation);
+
           while (end[3] == '"')
             end++;
           pc = end+3;
         } else {
           // "..."
           start = pc+1;
-          end = strchr(start, '"');
-          if (!end)
-            env->ThrowError("Parse error: string missing closing quotation mark");
+          bool escaped_quotation = false;
+          auto tmp_start = start;
+          do {
+            end = strchr(tmp_start, '"');
+            if (!end)
+              env->ThrowError("Parse error: string missing closing quotation mark");
+            escaped_quotation = escape && (*(end - 1) == '\\');
+            if (escaped_quotation)
+              tmp_start = end + 1;
+          } while (escaped_quotation);
 
           /* I like the ability to have newlines in strings, thanks */
           // const char *cr = strchr(start, '\r'), *lf = strchr(start, '\n');

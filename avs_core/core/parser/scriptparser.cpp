@@ -147,7 +147,7 @@ PExpression ScriptParser::ParseFunctionDefinition(void)
 
       param_floats[param_count] = false;
       char type = '.';
-      bool isArray = false;
+      char array_kind = ' '; // can be * (zero_or_more) or + (one_or_more)
       Tokenizer lookahead(&tokenizer);
       if (lookahead.IsIdentifier() || lookahead.IsString()) {
         // we have a variable type preceding its name
@@ -161,33 +161,52 @@ PExpression ScriptParser::ParseFunctionDefinition(void)
         else if (tokenizer.IsIdentifier("string")) type = 's';
         else if (tokenizer.IsIdentifier("clip")) type = 'c';
         else if (tokenizer.IsIdentifier("func")) type = 'n';
-#ifdef NEW_AVSVALUE
         // AVS+ 161028 array type in user defined functions
         else if (tokenizer.IsIdentifier("array") || tokenizer.IsIdentifier("val_array")) {
-          isArray = true;  type = '.';
+          array_kind = '*';  type = '.';
           // or: isArray = false;  type = 'a'; ? No. Keeping the old syntax
           // but .+ must be the very last parameter if parameter is unnamed
         }
+        else if (tokenizer.IsIdentifier("array_nz") || tokenizer.IsIdentifier("val_array_nz")) {
+          array_kind = '+';  type = '.'; // _nz: non-zero size
+        }
         else if (tokenizer.IsIdentifier("bool_array")) {
-          isArray = true;  type = 'b';
+          array_kind = '*';  type = 'b';
+        }
+        else if (tokenizer.IsIdentifier("bool_array_nz")) {
+          array_kind = '+';  type = 'b';
         }
         else if (tokenizer.IsIdentifier("int_array")) {
-          isArray = true;  type = 'i';
+          array_kind = '*';  type = 'i';
+        }
+        else if (tokenizer.IsIdentifier("int_array_nz")) {
+          array_kind = '+';  type = 'i';
         }
         else if (tokenizer.IsIdentifier("float_array")) {
-          isArray = true;  type = 'f';
+          array_kind = '*';  type = 'f';
+        }
+        else if (tokenizer.IsIdentifier("float_array_nz")) {
+          array_kind = '+';  type = 'f';
         }
         else if (tokenizer.IsIdentifier("string_array")) {
-          isArray = true;  type = 's';
+          array_kind = '*';  type = 's';
+        }
+        else if (tokenizer.IsIdentifier("string_array_nz")) {
+          array_kind = '+';  type = 's';
         }
         else if (tokenizer.IsIdentifier("clip_array")) {
-          isArray = true;  type = 'c';
+          array_kind = '*';  type = 'c';
+        }
+        else if (tokenizer.IsIdentifier("clip_array_nz")) {
+          array_kind = '+';  type = 'c';
         }
         else if (tokenizer.IsIdentifier("func_array")) {
-          isArray = true;  type = 'n';
+          array_kind = '*';  type = 'n';
         }
-#endif
-        else env->ThrowError("Script error: expected \"val\", \"bool\", \"int\", \"float\", \"string\", \"array\", or \"clip\" (or their \"_array\" versions");
+        else if (tokenizer.IsIdentifier("func_array_nz")) {
+          array_kind = '+';  type = 'n';
+        }
+        else env->ThrowError("Script error: expected \"val\", \"bool\", \"int\", \"float\", \"string\", \"array\", or \"clip\" (or their \"_array\" or \"_array_nz\" versions");
         tokenizer.NextToken();
       }
 
@@ -209,8 +228,8 @@ PExpression ScriptParser::ParseFunctionDefinition(void)
         env->ThrowError("Script error: expected a parameter name");
       }
       param_types[param_chars++] = type;
-      if(isArray)
-        param_types[param_chars++] = '*'; // zero or more
+      if(array_kind == '*' || array_kind == '+')
+        param_types[param_chars++] = array_kind; // zero or more / one or more
       tokenizer.NextToken();
 
       need_comma = true;
@@ -640,13 +659,6 @@ PExpression ScriptParser::ParseUnary(void) {
 
 PExpression ScriptParser::ParseOOP(void)
 {
-#ifndef NEW_AVSVALUE
-  PExpression left = ParseFunction(nullptr);
-  while (tokenizer.IsOperator('.')) {
-    tokenizer.NextToken();
-    left = ParseFunction(left);
-  }
-#else
   // check if need convert [] brackets to function calls: Array() and ArrayGet()
   // no context and [: e.g. x = [23,2] --> x = Array(23,2)
   PExpression left;
@@ -666,7 +678,6 @@ PExpression ScriptParser::ParseOOP(void)
     else
       left = ParseFunction(left);
   }
-#endif
   return left;
 }
 

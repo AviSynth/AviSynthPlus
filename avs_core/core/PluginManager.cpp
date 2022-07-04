@@ -120,9 +120,7 @@ static bool IsParameterTypeSpecifier(char c) {
   switch (c) {
   case 'b': case 'i': case 'f': case 's': case 'c': case '.':
   case 'n':
-#ifdef NEW_AVSVALUE
   case 'a': // Arrays as function parameters
-#endif
       return true;
     default:
       return false;
@@ -293,9 +291,7 @@ bool AVSFunction::SingleTypeMatch(char type, const AVSValue& arg, bool strict) {
     case 's': return arg.IsString();
     case 'c': return arg.IsClip();
     case 'n': return arg.IsFunction();
-#ifdef NEW_AVSVALUE
     case 'a': return arg.IsArray(); // PF 161028 AVS+ script arrays
-#endif
     default:  return false;
   }
 }
@@ -326,7 +322,7 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
   { "IsArray",   BUILTIN_FUNC_PREFIX, ".", IsArray },
   { "ArrayGet",  BUILTIN_FUNC_PREFIX, ".s", ArrayGet },
   { "ArrayGet",  BUILTIN_FUNC_PREFIX, ".i+", ArrayGet }, // .+i+ syntax is not possible.
-  { "ArraySize", BUILTIN_FUNC_PREFIX, ".*", ArraySize },
+  { "ArraySize", BUILTIN_FUNC_PREFIX, ".", ArraySize },
   */
 
   // arguments are provided in a flattened way (flattened=array elements extracted)
@@ -366,9 +362,13 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
     switch (*param_types) {
       case 'b': case 'i': case 'f': case 's': case 'c':
       case 'n':
-#ifdef NEW_AVSVALUE
-      case 'a': // PF 2016: script arrays, if possible we are using .* and .+ instead
-#endif
+      case 'a':
+        // PF 2016: 'a' is special letter for script arrays, but if possible we are using .* and .+ (legacy Avisynth style) instead
+        // Note (2021): 'a' is still not used
+        // cons: no z or nz (+ or *) possibility
+        //       no type check (array of int)
+        //       cannot be used in plugins which are intended to work for Avisynth 2.6 Classic. ("a" is invalid in function signature -> plugin load error)
+        // pros: clean syntax, accept _only_ arrays when required, no comma-delimited-list-to-array option (like in old Avisynth syntax)
         // array arguments are not necessarily "flattened" when TypeMatch is called.
         if (param_types[1] == '+' // parameter indicates an array-type args[i]
           && args[i].IsArray() // allow single e.g. 'c' parameter in place of a 'c+' requirement
@@ -382,18 +382,25 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
         if (   (!optional || args[i].Defined())
             && !SingleTypeMatch(*param_types, args[i], strict))
           return false;
-        // fall through
+
+        ++param_types;
+        ++i;
+        break;
+
       case '.': // any type
+        // This allows even an array in the place of a "."
+        // Use cases: IsArray "." can be fed with any AvsValue. ArrayGet ".i+" requires an array in the place of "." as well.
+        // Array-ness of such AVSValue parameters can be checked in the function itself.
         ++param_types;
         ++i;
         break;
       case '+': case '*':
-#ifdef NEW_AVSVALUE
+        // check array content type if required
         if (args[i].IsArray() && param_types[-1] != '.') {
           // A script can provide an array argument in an direct array-type variable.
           // e.g. a user defined script function function Summa(int_array "x") will translate to "[x]i*"
           // parameter list. Passing an integer array directly e.g. [1,2,3] will be handled here.
-          // All elements in the array should match with the type char preceding '+' or '*'
+          // All elements in the array should match with the type character preceding '+' or '*'
           // (There was another option in legacy AviSynth: the comma separated values e.g. 1,2,3
           // could be recognized and moved to an unnamed array, this is check later)
           if (!SingleTypeMatchArray(param_types[-1], args[i], strict))
@@ -402,7 +409,7 @@ bool AVSFunction::TypeMatch(const char* param_types, const AVSValue* args, size_
           ++i;
         }
         else
-#endif
+        // Legacy Avisynth array check.
         // Array of arguments of known types last until an argument of another type is found.
         // This is the reason why an .+ or .* (array of anything) must only appear at the end
         // of the parameter list since we cannot detect type-change in an any-type argument sequence.
@@ -546,6 +553,16 @@ void PluginManager::AddAutoloadDir(const std::string &dirPath, bool toFront)
 
   std::string dir(dirPath);
 
+#if !defined(AVS_BSD)
+// Any use of /proc should be avoided on BSD, since
+// most of them have removed it or discourage its use.
+// Thankfully, it actually looks like the need for it
+// is to simply populate the PROGRAMDIR variable for
+// AddAutoloadDirs, but on POSIX systems this variable
+// should probably not be expected to be as flexible
+// as it is on Windows, negating the need for pulling
+// it out programmatically.  Since the macOS and Linux
+// forms of the code still function, leave those alone.
 #ifdef AVS_WINDOWS
   // get folder of our executable
   TCHAR ExeFilePath[AVS_MAX_PATH];
@@ -553,21 +570,12 @@ void PluginManager::AddAutoloadDir(const std::string &dirPath, bool toFront)
   GetModuleFileName(NULL, ExeFilePath, AVS_MAX_PATH);
 #else // AVS_POSIX
   std::string ExeFilePath;
-  char buf[PATH_MAX + 1];
+  char buf[PATH_MAX + 1] {};
 #ifdef AVS_LINUX
   if (readlink("/proc/self/exe", buf, sizeof(buf) - 1) != -1)
 #elif defined(AVS_MACOS)
   uint32_t size = sizeof(buf) - 1;
   if (_NSGetExecutablePath(buf, &size) == 0)
-#elif defined(AVS_BSD)
-// The following works under the specific circumstance that
-// you've mounted procfs under a *BSD system that still has
-// that option.
-#if defined(__FreeBSD__) || defined(__DragonFly__)
-  if (readlink("/proc/curproc/file", buf, sizeof(buf) - 1) != -1)
-#elif defined(__NetBSD__)
-  if (readlink("/proc/curproc/exe", buf, sizeof(buf) - 1) != -1)
-#endif
 #endif // AVS_LINUX
   {
     ExeFilePath = buf;
@@ -582,11 +590,14 @@ void PluginManager::AddAutoloadDir(const std::string &dirPath, bool toFront)
 // this doesn't cause more errors.
   ExeFileDir = ExeFileDir.erase(ExeFileDir.rfind('/'), std::string::npos);
 #endif
+#endif // !AVS_BSD
 
   // variable expansion
   replace_beginning(dir, "SCRIPTDIR", Env->GetVarString("$ScriptDir$", ""));
   replace_beginning(dir, "MAINSCRIPTDIR", Env->GetVarString("$MainScriptDir$", ""));
+#if !defined(AVS_BSD)
   replace_beginning(dir, "PROGRAMDIR", ExeFileDir);
+#endif
 
   std::string plugin_dir;
 #ifdef AVS_WINDOWS
@@ -949,7 +960,7 @@ bool PluginManager::LoadPlugin(PluginFile &plugin, bool throwOnError, AVSValue *
 #else // AVS_POSIX
   plugin.Library = dlopen(plugin.FilePath.c_str(), RTLD_LAZY);
   if (plugin.Library == NULL)
-    Env->ThrowError("Cannot load file '%s'.", plugin.FilePath.c_str());
+    Env->ThrowError("Cannot load file '%s'. Reason: %s", plugin.FilePath.c_str(), dlerror());
 #endif
 
   // Try to load various plugin interfaces

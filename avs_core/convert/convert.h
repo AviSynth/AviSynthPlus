@@ -36,31 +36,7 @@
 #define __Convert_H__
 
 #include "../core/internal.h"
-
-enum {Rec601=0, Rec709=1, PC_601=2, PC_709=3, AVERAGE=4, Rec2020=5, PC_2020=6};
-int getMatrix( const char* matrix, IScriptEnvironment* env);
-
-/*****************************************************
- *******   Colorspace Single-Byte Conversions   ******
- ****************************************************/
-
-// not used here, but useful to other filters
-inline int RGB2YUV(int rgb) // limited range
-{
-  const int cyb = int(0.114*219/255*65536+0.5);
-  const int cyg = int(0.587*219/255*65536+0.5);
-  const int cyr = int(0.299*219/255*65536+0.5);
-
-  // y can't overflow
-  int y = (cyb*(rgb&255) + cyg*((rgb>>8)&255) + cyr*((rgb>>16)&255) + 0x108000) >> 16;
-  int scaled_y = (y - 16) * int(255.0/219.0*65536+0.5);
-  int b_y = ((rgb&255) << 16) - scaled_y;
-  int u = ScaledPixelClip((b_y >> 10) * int(1/2.018*1024+0.5) + 0x800000);
-  int r_y = (rgb & 0xFF0000) - scaled_y;
-  int v = ScaledPixelClip((r_y >> 10) * int(1/1.596*1024+0.5) + 0x800000);
-  return ((y*256+u)*256+v) | (rgb & 0xff000000);
-}
-
+#include "convert_matrix.h"
 
 /********************************************************
  *******   Colorspace GenericVideoFilter Classes   ******
@@ -73,8 +49,8 @@ class ConvertToRGB : public GenericVideoFilter
  **/
 {
 public:
-  ConvertToRGB(PClip _child, bool rgb24, const char* matrix, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  ConvertToRGB(PClip _child, bool rgb24, const char* matrix_name, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -85,7 +61,11 @@ public:
 
 private:
   int theMatrix;
-  enum {Rec601=0, Rec709=1, PC_601=2, PC_709=3};
+  int theColorRange;
+  // separate out set for rgb target
+  int theOutMatrix;
+  int theOutColorRange;
+  ConversionMatrix matrix;
 };
 
 // YUY2 only
@@ -96,7 +76,7 @@ class ConvertToYV12 : public GenericVideoFilter
 {
 public:
   ConvertToYV12(PClip _child, bool _interlaced, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

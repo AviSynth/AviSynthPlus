@@ -222,8 +222,9 @@ std::wstring charToWstring(const char* text, bool utf8)
     // You can define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING or _SILENCE_ALL_CXX17_DEPRECATION_WARNINGS to acknowledge that you have received this warning.
 
     // utf8 to wchar_t
-#if defined(MSVC_PURE) && (_MSC_VER < 1920)
-    // workround for v141_xp toolset suxxx: unresolved externals
+#if defined(AVS_WINDOWS)
+    // not only in XP toolset v141_xp. Intel+VS needs it as well
+    // #if defined(MSVC_PURE) && (_MSC_VER < 1920). 
     auto wsource = Utf8ToWideChar(text);
     ws = wsource.get();
 #else

@@ -1903,7 +1903,7 @@ bool AVIReadHandler::_parseStreamHeader(List2<AVIStreamNode>& streamlist, DWORD 
 
 				if (pasn->hdr.fccType == streamtypeVIDEO) {
 					switch(((BITMAPINFOHEADER *)pasn->pFormat)->biCompression) {
-						case NULL:
+						case 0:
 						case MAKEFOURCC('R', 'A', 'W', ' '): // ' WAR'
 						case MAKEFOURCC('D', 'I', 'B', ' '): // ' BID'
             case MAKEFOURCC('d', 'm', 'b', '1'): // '1bmd'

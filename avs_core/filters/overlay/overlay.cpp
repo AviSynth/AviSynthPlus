@@ -719,6 +719,9 @@ void Overlay::SetOfModeByName(const char* name, IScriptEnvironment* env) {
   if (!lstrcmpi(name, "Blend")) {
     of_mode = OF_Blend;
   }
+  else if (!lstrcmpi(name, "Blend_Compat")) {
+    of_mode = OF_Blend_Compat;
+  }
   else if (!lstrcmpi(name, "Add")) {
     of_mode = OF_Add;
   }
@@ -758,7 +761,9 @@ void Overlay::SetOfModeByName(const char* name, IScriptEnvironment* env) {
 OverlayFunction* Overlay::SelectFunction()
 {
   switch (of_mode) {
-  case OF_Blend: return new OL_BlendImage();
+  case OF_Blend: 
+  case OF_Blend_Compat:
+    return new OL_BlendImage();
   case OF_Add: return new OL_AddImage();
   case OF_Subtract: return new OL_AddImage(); // common with Add    //return new OL_SubtractImage();
   case OF_Multiply: return new OL_MultiplyImage();

@@ -226,6 +226,9 @@ What's new in the 2.6 api
       avs_num_components, avs_component_size and avs_bits_per_component
       (and others which are not mentioned because they are deprecated)
 
+What's new in the api V8
+------------------------
+
 - C++ API (AVISYNTH_INTERFACE_VERSION = 8):
     - The :ref:`IScriptEnvironment <cplusplus_iscriptenvironment>` interface has several new members:
 
@@ -285,6 +288,18 @@ What's new in the 2.6 api
 - C API (AVISYNTH_INTERFACE_VERSION = 8):
         - mostly the same functions as provided in C++ interface.
           naming convention is kept. E.g. propSetFloat in C++ is prop_set_float in C
+        - Important note: frame property access in V8 is broken. Safely available since V8.1
+
+- C API (AVISYNTH_INTERFACE_VERSION = 8, AVISYNTH_INTERFACE_BUGFIX = 1):
+        - working frame property access
+
+What's new in the api V9
+------------------------
+
+- C and C++ API (AVISYNTH_INTERFACE_VERSION = 9):
+        - :ref:`MakePropertyWritable <cplusplus_makepropertywritable>` like MakeWritable but for frame properties only.
+        - :ref:`IsPropertyWritable <cplusplus_ispropertywritable>` like IsWritable but for frame properties only.
+        - C interface equivalents: avs_make_property_writable and avs_is_property_writable
 
 Some history
 ------------

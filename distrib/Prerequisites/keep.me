@@ -1,2 +1,24 @@
-This folder is a placeholder for installer prerequisites
-that are not check in, such as VC_redist.x64.exe and VC_redist.x86.exe (vcredist_x64.exe and vcredist_x86.exe in VS2013)
+This folder is a placeholder for installer prerequisites, which has to be updated before creating the installer
+Such as Microsoft Visual C++ Redistributable packages for Visual Studio 2015, 2017, 2019, and 2022: VC_redist.x64.exe and VC_redist.x86.exe 
+
+Installer searches for XP redistributables under specific names: 
+VC_redist_14.27.29114.0.x86.exe and VC_redist_14.27.29114.0.x64.exe
+When you download these, rename VC_redist.x86.exe and VC_redist.x64.exe if XP specific builds are set in installer script
+
+https://docs.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170
+
+Important note:
+  Windows XP Support: Microsoft ended support for Windows XP on April 8, 2014
+  As of 2021, XP-specific AviSynth builds still require a _compatible_ (=not latest) Visual C++ runtime.
+
+  Runtime library support for Windows XP is no longer available in the latest Visual C++ Redistributable for Visual Studio 2015, 2017, 2019, and 2022.
+  The last redistributable to support Windows XP is version 16.7 (file version 14.27.29114.0*).
+  If Windows XP apps are deployed with or updated to a later version of the redistributable, the apps won't run.
+
+  As discussed in issue: https://github.com/AviSynth/AviSynthPlus/issues/241
+  https://my.visualstudio.com/downloads?Visual%20Studio%202019%20version%2016.7
+
+  *Others experienced that the latest XP compatible version is 14.28.29213.0.
+  Links to official installers for last XP compatible Microsoft Visual C++ 2015-2019 Redistributable (version 14.28.29213):
+  x64 - https://download.visualstudio.microsoft.com/download/pr/566435ac-4e1c-434b-b93f-aecc71e8cffc/B75590149FA14B37997C35724BC93776F67E08BFF9BD5A69FACBF41B3846D084/VC_redist.x64.exe
+  x86 - https://download.visualstudio.microsoft.com/download/pr/566435ac-4e1c-434b-b93f-aecc71e8cffc/0D59EC7FDBF05DE813736BF875CEA5C894FFF4769F60E32E87BD48406BBF0A3A/VC_redist.x86.exe 

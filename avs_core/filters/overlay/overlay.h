@@ -50,7 +50,7 @@ class Overlay : public GenericVideoFilter
 {
 public:
   Overlay(PClip _child, AVSValue args, IScriptEnvironment *env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env) override;
   ~Overlay();
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 

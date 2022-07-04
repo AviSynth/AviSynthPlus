@@ -38,117 +38,24 @@
 
 
 
-#ifndef __Planeswap_H__
-#define __Planeswap_H__
+#ifndef __Planeswap_SSE_H__
+#define __Planeswap_SSE_H__
 
 #include <avisynth.h>
 
+#ifdef X86_32
+void yuy2_swap_isse(const BYTE* srcp, BYTE* dstp, int src_pitch, int dst_pitch, int width, int height);
+#endif
+void yuy2_swap_sse2(const BYTE* srcp, BYTE* dstp, int src_pitch, int dst_pitch, int width, int height);
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("ssse3")))
+#endif
+void yuy2_swap_ssse3(const BYTE* srcp, BYTE* dstp, int src_pitch, int dst_pitch, int width, int height);
 
-/****************************************************
-****************************************************/
+void yuy2_uvtoy_sse2(const BYTE* srcp, BYTE* dstp, int src_pitch, int dst_pitch, int dst_width, int height, int pos);
+void yuy2_uvtoy8_sse2(const BYTE* srcp, BYTE* dstp, int src_pitch, int dst_pitch, int dst_width, int height, int pos);
 
-class SwapUV : public GenericVideoFilter
-/**
-  * SwapUVs planar channels
- **/
-{
-public:
-  SwapUV(PClip _child, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+template <bool has_clipY>
+void yuy2_ytouv_sse2(const BYTE* srcp_y, const BYTE* srcp_u, const BYTE* srcp_v, BYTE* dstp, int pitch_y, int pitch_u, int pitch_v, int dst_pitch, int dst_rowsize, int height);
 
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    if (cachehints == CACHE_GET_DEV_TYPE) {
-      return (vi.IsPlanar() && (child->GetVersion() >= 5)) ? child->SetCacheHints(CACHE_GET_DEV_TYPE, 0) : 0;
-    }
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl CreateSwapUV(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-};
-
-
-class SwapUVToY : public GenericVideoFilter
-/**
-  * SwapUVToYs planar channels
- **/
-{
-public:
-  SwapUVToY(PClip _child, int _mode, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    if (cachehints == CACHE_GET_DEV_TYPE) {
-      return (!vi.IsYUY2() && (child->GetVersion() >= 5)) ? child->SetCacheHints(CACHE_GET_DEV_TYPE, 0) : 0;
-    }
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl CreateUToY(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreateVToY(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreateYToY8(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreateUToY8(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreateVToY8(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreateAnyToY8(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreatePlaneToY8(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-  enum {UToY=1, VToY, UToY8, VToY8, YUY2UToY8, YUY2VToY8, AToY8, RToY8, GToY8, BToY8, YToY8};
-
-private:
-  int mode;
-};
-
-
-class SwapYToUV : public GenericVideoFilter
-/**
-  * SwapYToYUVs planar channels
- **/
-{
-public:
-  SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl CreateYToUV(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreateYToYUV(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue __cdecl CreateYToYUVA(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-
-private:
-  PClip clip, clipY, clipA;
-};
-
-class CombinePlanes : public GenericVideoFilter
-  /**
-  * SwapYToYUVs planar channels
-  **/
-{
-public:
-  CombinePlanes(PClip _child, PClip _clip2, PClip _clip3, PClip _clip4, PClip _sample, const char *_target_planes_str, const char *_source_planes_str, const char *_pixel_type, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl CreateCombinePlanes(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-
-private:
-  PClip clips[4];
-  int pixelsize;
-  int bits_per_pixel;
-  int planecount;
-  char planes[4];
-  int source_planes[4];
-  int target_planes[4];
-};
-
-#endif  // __Planeswap_H__
+#endif  // __Planeswap_SSE_H__

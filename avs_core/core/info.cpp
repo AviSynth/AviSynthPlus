@@ -697,7 +697,7 @@ static void adjustWriteLimits(std::vector<int>& s, const int width, const int he
 
   // alignment X
   if (al & ATA_RIGHT)
-    x -= (FONT_WIDTH * len + 1);
+    x -= (FONT_WIDTH * len - 1);
   else if (al & ATA_CENTER)
     x -= (FONT_WIDTH * len / 2);
 
@@ -705,7 +705,7 @@ static void adjustWriteLimits(std::vector<int>& s, const int width, const int he
   if (al & ATA_BASELINE)
     y -= FONT_HEIGHT / 2;
   else if (al & ATA_BOTTOM)
-    y -= (FONT_HEIGHT + 1);
+    y -= (FONT_HEIGHT - 1);
 
   // Chop text if exceed right margin
   if (len * FONT_WIDTH > width - x)
@@ -780,12 +780,8 @@ void do_DrawStringPlanar(const int width, const int height, BYTE **dstps, int *p
   auto getHBDColor_UV = [](int color) {
     if constexpr (bits_per_pixel < 32)
       return (pixel_t)(color << (bits_per_pixel - 8));
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-    constexpr float shift = 0.5f;
-#else
     constexpr float shift = 0.0f;
-#endif
-    return (pixel_t)((color - 128) / 255.0f + shift); // 32 bit float chroma 128=0.5
+    return (pixel_t)((color - 128) / 255.0f + shift);
     // FIXME: consistently using limited->fullscale conversion for float
   };
 
@@ -913,7 +909,8 @@ void do_DrawStringPlanar(const int width, const int height, BYTE **dstps, int *p
         .. .O .. .O .. ..
   */
 
-  for (int ty = ystart; ty < yend; ty += ySubS) {
+  for (int ty = (ystart >> logYRatioUV) << logYRatioUV; ty < (yend >> logYRatioUV) << logYRatioUV; ty += ySubS) {
+    // special care: ystart or yend is odd and vertical subsampling is 2
     int i, j, num;
     unsigned int fontline = 0;
     unsigned int fontoutline = 0;

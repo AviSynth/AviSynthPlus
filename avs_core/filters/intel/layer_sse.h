@@ -32,265 +32,62 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
-
-
-
-// Avisynth filter: Layer
-// by "poptones" (poptones@myrealbox.com)
-
-
-#ifndef __Layer_H__
-#define __Layer_H__
+#ifndef __Layer_SSE_H__
+#define __Layer_SSE_H__
 
 #include <avisynth.h>
 #include <stdint.h>
 
+void mask_sse2(BYTE* srcp, const BYTE* alphap, int src_pitch, int alpha_pitch, size_t width, size_t height);
+void colorkeymask_sse2(BYTE* pf, int pitch, int color, int height, int width, int tolB, int tolG, int tolR);
+void invert_frame_sse2(BYTE* frame, int pitch, int width, int height, int mask);
+void invert_frame_uint16_sse2(BYTE* frame, int pitch, int width, int height, uint64_t mask64);
+template<bool use_chroma>
+void layer_yuy2_mul_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_yuy2_add_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+void layer_yuy2_fast_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<typename pixel_t>
+void layer_genericplane_fast_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_yuy2_subtract_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<int mode>
+void layer_yuy2_lighten_darken_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level, int thresh);
+template<bool use_chroma>
+void layer_rgb32_mul_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_rgb32_add_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+void layer_rgb32_fast_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_rgb32_subtract_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<int mode>
+void layer_rgb32_lighten_darken_sse2(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level, int thresh);
 
-/********************************************************************
-********************************************************************/
+#ifdef X86_32 
+void mask_mmx(BYTE* srcp, const BYTE* alphap, int src_pitch, int alpha_pitch, size_t width, size_t height);
+void colorkeymask_mmx(BYTE* srcp, int pitch, int color, int height, int width, int tolB, int tolG, int tolR);
+void invert_frame_mmx(BYTE* frame, int pitch, int width, int height, int mask);
+void invert_plane_mmx(BYTE* frame, int pitch, int width, int height);
+template<bool use_chroma>
+void layer_yuy2_mul_mmx(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_yuy2_add_mmx(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_yuy2_subtract_mmx(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
 
-class Mask : public IClip
-/**
-  * Class for overlaying a mask clip on a video clip
- **/
-{
-public:
-  Mask(PClip _child1, PClip _child2, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+void layer_yuy2_fast_isse(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<int mode>
+void layer_yuy2_lighten_darken_isse(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level, int thresh);
+template<bool use_chroma>
+void layer_rgb32_mul_isse(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_rgb32_add_isse(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+void layer_rgb32_fast_isse(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<bool use_chroma>
+void layer_rgb32_subtract_isse(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level);
+template<int mode>
+void layer_rgb32_lighten_darken_isse(BYTE* dstp, const BYTE* ovrp, int dst_pitch, int overlay_pitch, int width, int height, int level, int thresh);
 
-  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
-    { child1->GetAudio(buf, start, count, env); }
-  inline virtual const VideoInfo& __stdcall GetVideoInfo()
-    { return vi; }
-  inline virtual bool __stdcall GetParity(int n)
-    { return child1->GetParity(n); }
+#endif
 
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-private:
-  const PClip child1, child2;
-  VideoInfo vi;
-  int mask_frames;
-  int pixelsize;
-  int bits_per_pixel;
-
-};
-
-
-
-class ColorKeyMask : public GenericVideoFilter
-/**
-  * Class for setting a mask on a video clip based on a color key
-**/
-{
-public:
-  ColorKeyMask(PClip _child, int _color, int _tolB, int _tolG, int _tolR, IScriptEnvironment *env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-private:
-  const int color, tolB, tolG, tolR;
-  uint64_t color64;
-  int tolB16, tolG16, tolR16;
-  int pixelsize;
-  int bits_per_pixel;
-  int max_pixel_value;
-
-};
-
-
-
-class ResetMask : public GenericVideoFilter
-/**
-  * Class to set the mask to all-opaque
-**/
-{
-public:
-  ResetMask(PClip _child, float _mask_f, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-private:
-    float mask_f;
-    int mask;
-};
-
-
-
-class Invert : public GenericVideoFilter
-/**
-  * Class to invert selected RGBA channels
-**/
-{
-public:
-  Invert(PClip _child, const char * _channels, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-private:
-  int mask;
-  bool doB, doG, doR, doA;
-  bool doY, doU, doV;
-
-  uint64_t mask64;
-  int pixelsize;
-  int bits_per_pixel; // 8,10..16
-};
-
-
-
-class ShowChannel : public GenericVideoFilter
-/**
-  * Class to set the RGB components to the alpha mask
-**/
-{
-public:
-  ShowChannel(PClip _child, const char * _pixel_type, int _channel, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void* channel, IScriptEnvironment* env);
-private:
-  int channel;
-  const int input_type;
-  const int pixelsize;
-  const int bits_per_pixel;
-  bool input_type_is_planar_rgb;
-  bool input_type_is_planar_rgba;
-  bool input_type_is_yuv;
-  bool input_type_is_yuva;
-  bool input_type_is_planar;
-};
-
-
-
-
-class MergeRGB : public GenericVideoFilter
-/**
-  * Class to load the RGB components from specified clips
-**/
-{
-public:
-  MergeRGB(PClip _child, PClip _blue, PClip _green, PClip _red, PClip _alpha,
-           const char * _pixel_type, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void* mode, IScriptEnvironment* env);
-private:
-  const PClip blue, green, red, alpha;
-  const VideoInfo &viB, &viG, &viR, &viA;
-  const char* myname;
-};
-
-
-
-
-class Layer: public IClip
-/**
-  * Class for layering two clips on each other, combined by various functions
- **/
-{
-public:
-  Layer( PClip _child1, PClip _child2, const char _op[], int _lev, int _x, int _y,
-         int _t, bool _chroma, float _strength, int _placement, IScriptEnvironment* env );
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
-    { child1->GetAudio(buf, start, count, env); }
-  inline virtual const VideoInfo& __stdcall GetVideoInfo()
-    { return vi; }
-  inline virtual bool __stdcall GetParity(int n)
-    { return child1->GetParity(n); }
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-private:
-  const PClip child1, child2;
-  VideoInfo vi;
-  const  char* Op;
-  int levelB, ThresholdParam;
-  int ydest, xdest, ysrc, xsrc, ofsX, ofsY, ycount, xcount, overlay_frames;
-  const bool chroma;
-  bool hasAlpha;
-  int bits_per_pixel;
-  float opacity; // like in "Overlay"
-  int placement; // PLACEMENT_MPEG1 or PLACEMENT_MPEG2
-  float ThresholdParam_f;
-};
-
-
-
-class Subtract : public IClip
-/**
-  * Class for subtracting one clip from another
- **/
-{
-public:
-  Subtract(PClip _child1, PClip _child2, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
-    { child1->GetAudio(buf, start, count, env);  }
-  inline virtual const VideoInfo& __stdcall GetVideoInfo()
-    { return vi; }
-  inline virtual bool __stdcall GetParity(int n)
-    { return child1->GetParity(n); }
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-private:
-  const PClip child1, child2;
-  VideoInfo vi;
-
-// Common to all instances
-  static bool DiffFlag;
-  static BYTE LUT_Diff8[513];
-  int pixelsize;
-  int bits_per_pixel;
-
-};
-
-
-
-#endif  // __Layer_H__
+#endif  // __Layer_SSE_H__

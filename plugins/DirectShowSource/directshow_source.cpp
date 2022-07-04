@@ -51,15 +51,15 @@
 // We print a timestamp, the objects address, the message
 //
 #define dssRPT0(f, s)                 _RPT0(0, "DSS " s);                \
-      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%08p 0x%08X " s, Tick(), f, this, GetCurrentThreadId())
+      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%p 0x%08X " s, Tick(), f, this, GetCurrentThreadId())
 #define dssRPT1(f, s, a1)             _RPT1(0, "DSS " s, a1);            \
-      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%08p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1)
+      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1)
 #define dssRPT2(f, s, a1, a2)         _RPT2(0, "DSS " s, a1, a2);        \
-      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%08p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1, a2)
+      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1, a2)
 #define dssRPT3(f, s, a1, a2, a3)     _RPT3(0, "DSS " s, a1, a2, a3);    \
-      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%08p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1, a2, a3)
+      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1, a2, a3)
 #define dssRPT4(f, s, a1, a2, a3, a4) _RPT4(0, "DSS " s, a1, a2, a3, a4);\
-      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%08p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1, a2, a3, a4)
+      if (log && (f & log->mask)) fprintf(log->file, "%s %03x 0x%p 0x%08X " s, Tick(), f, this, GetCurrentThreadId(), a1, a2, a3, a4)
 
 // Reporting masks
 enum {

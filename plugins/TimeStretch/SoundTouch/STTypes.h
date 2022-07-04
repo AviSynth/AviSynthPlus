@@ -123,10 +123,10 @@ namespace soundtouch
 
     #endif
 
-    // If defined, allows the SIMD-optimized routines to take minor shortcuts
-    // for improved performance. Undefine to require faithfully similar SIMD
-    // calculations as in normal C implementation.
-    #define SOUNDTOUCH_ALLOW_NONEXACT_SIMD_OPTIMIZATION    1
+    // If defined, allows the SIMD-optimized routines to skip unevenly aligned
+    // memory offsets that can cause performance penalty in some SIMD implementations.
+    // Causes slight compromise in sound quality.
+    // #define SOUNDTOUCH_ALLOW_NONEXACT_SIMD_OPTIMIZATION    1
 
 
     #ifdef SOUNDTOUCH_INTEGER_SAMPLES
@@ -152,6 +152,7 @@ namespace soundtouch
         // floating point samples
         typedef float  SAMPLETYPE;
         // data type for sample accumulation: Use double to utilize full precision.
+        // Use float also here to enable efficient autovectorization
         typedef double LONG_SAMPLETYPE;
 
         #ifdef SOUNDTOUCH_ALLOW_X86_OPTIMIZATIONS
@@ -161,7 +162,13 @@ namespace soundtouch
 
     #endif  // SOUNDTOUCH_INTEGER_SAMPLES
 
-};
+    #if ((SOUNDTOUCH_ALLOW_SSE) || (__SSE__) || (SOUNDTOUCH_USE_NEON))
+        #if SOUNDTOUCH_ALLOW_NONEXACT_SIMD_OPTIMIZATION
+            #define ST_SIMD_AVOID_UNALIGNED
+        #endif
+    #endif
+
+}
 
 // define ST_NO_EXCEPTION_HANDLING switch to disable throwing std exceptions:
 // #define ST_NO_EXCEPTION_HANDLING    1

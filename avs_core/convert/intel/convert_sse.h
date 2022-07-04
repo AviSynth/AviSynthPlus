@@ -32,15 +32,18 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
-#ifndef __Convert_AVX2_H__
-#define __Convert_AVX2_H__
+#ifndef __Convert_sse_H__
+#define __Convert_sse_H__
 
-#include <avs/types.h>
+#include <avs/config.h>
+#include <cstdint>
 
-template<typename pixel_t, uint8_t targetbits, bool chroma, bool fulls, bool fulld>
-void convert_32_to_uintN_avx2(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
+template<int rgb_size>
+void convert_yuy2_to_rgb_sse2(const uint8_t *srcp, uint8_t* dstp, int src_pitch, int dst_pitch, int height, int width, int crv, int cgv, int cgu, int cbu, int cy, int tv_scale);
 
-template<bool expandrange, uint8_t shiftbits>
-void convert_uint16_to_uint16_c_avx2(const BYTE *srcp, BYTE *dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch);
+#ifdef X86_32
+template<int rgb_size>
+void convert_yuy2_to_rgb_isse(const uint8_t*srcp, uint8_t* dstp, int src_pitch, int dst_pitch, int height, int width, int crv, int cgv, int cgu, int cbu, int cy, int tv_scale);
+#endif
 
-#endif  // __Convert_AVX2_H__
+#endif  // __Convert_sse_H__

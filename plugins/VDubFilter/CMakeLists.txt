@@ -1,6 +1,4 @@
-# We need CMake 3.8 at least, because we require
-# CMAKE_CXX_STANDARD to be set to C++17.
-CMAKE_MINIMUM_REQUIRED( VERSION 3.8.2 )
+CMAKE_MINIMUM_REQUIRED( VERSION 3.6.2 )
 
 set(PluginName "VDubFilter")
 set(ProjectName "Plugin${PluginName}")

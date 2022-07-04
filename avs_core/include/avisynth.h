@@ -23,6 +23,7 @@
 //           Interface Version to 8 (classic 2.6 = 6)
 // 20200527  Add IScriptEnvironment_Avs25, used internally
 // 20200607  AVS frame property enums to match existing Avisynth enum style
+// 202112xx  pre V9-MakePropertyWritable, IsPropertyWritable
 
 // http://www.avisynth.org
 
@@ -59,8 +60,8 @@
 // graphical user interfaces.
 
 
-#ifndef __AVISYNTH_8_H__
-#define __AVISYNTH_8_H__
+#ifndef __AVISYNTH_9_H__
+#define __AVISYNTH_9_H__
 
 #include "avs/config.h"
 #include "avs/capi.h"
@@ -93,7 +94,8 @@ enum {
   AVISYNTH_CLASSIC_INTERFACE_VERSION_25 = 3,
   AVISYNTH_CLASSIC_INTERFACE_VERSION_26BETA = 5,
   AVISYNTH_CLASSIC_INTERFACE_VERSION = 6,
-  AVISYNTH_INTERFACE_VERSION = 8
+  AVISYNTH_INTERFACE_VERSION = 9,
+  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 0 // reset to zero whenever the normal interface version bumps
 };
 
 /* Compiler-specific crap */
@@ -407,9 +409,12 @@ struct AVS_Linkage {
   const char*   (PDevice::* PDevice_GetName)() const;
   // end class PDevice
 
+  // V9: VideoFrame helper
+  bool              (VideoFrame::* IsPropertyWritable)() const;
+
   /**********************************************************************/
   // Reserve pointer space for Avisynth+
-  void          (VideoInfo::* reserved2[64 - 23])();
+  void          (VideoInfo::* reserved2[64 - 24])();
   /**********************************************************************/
 
   // AviSynth Neo additions
@@ -999,6 +1004,8 @@ public:
   // 0: OK, 1: NG, -1: disabled or non CPU frame
   int CheckMemory() const AVS_BakedCode(return AVS_LinkCall(VideoFrame_CheckMemory)())
 
+  bool IsPropertyWritable() const AVS_BakedCode(return AVS_LinkCall(IsPropertyWritable)())
+
   ~VideoFrame() AVS_BakedCode( AVS_LinkCall_Void(VideoFrame_DESTRUCTOR)() )
 #ifdef BUILDING_AVSCORE
 public:
@@ -1276,12 +1283,10 @@ public:
   double          AsFloat2(float def) const;
   const char*     AsString2(const char* def) const;
 
-#ifdef NEW_AVSVALUE
   void            MarkArrayAsC(); // for C interface, no deep-copy and deep-free
   void            CONSTRUCTOR10(const AVSValue& v, bool c_arrays);
   AVSValue(const AVSValue& v, bool c_arrays);
   void            Assign2(const AVSValue* src, bool init, bool c_arrays);
-#endif
 
 #endif
 }; // end class AVSValue
@@ -1356,6 +1361,9 @@ enum AvsEnvProperty
   AEP_FILTERCHAIN_THREADS = 4,
   AEP_THREAD_ID = 5,
   AEP_VERSION = 6,
+  AEP_HOST_SYSTEM_ENDIANNESS = 7,
+  AEP_INTERFACE_VERSION = 8,
+  AEP_INTERFACE_BUGFIX = 9,
 
   // Neo additionals
   AEP_NUM_DEVICES = 901,
@@ -1527,7 +1535,10 @@ public:
   virtual AVSValue __stdcall Invoke3(const AVSValue& implicit_last, const PFunction& func, const AVSValue args, const char* const* arg_names = 0) = 0;
   virtual bool __stdcall Invoke3Try(AVSValue* result, const AVSValue& implicit_last, const PFunction& func, const AVSValue args, const char* const* arg_names = 0) = 0;
 
-}; // end class IScriptEnvironment
+  // V9
+  virtual bool __stdcall MakePropertyWritable(PVideoFrame* pvf) = 0;
+
+}; // end class IScriptEnvironment. Order is important.
 
 // used internally
 class IScriptEnvironment_Avs25 {
@@ -1607,7 +1618,7 @@ public:
   // noThrow version of GetVar
   virtual AVSValue __stdcall GetVarDef(const char* name, const AVSValue& def = AVSValue()) = 0;
 
-}; // end class IScriptEnvironment_Avs25
+}; // end class IScriptEnvironment_Avs25. Order is important.
 
 
 enum MtMode
@@ -1731,6 +1742,9 @@ public:
   virtual bool __stdcall Invoke3Try(
     AVSValue* result, const AVSValue& implicit_last,
     const PFunction& func, const AVSValue args, const char* const* arg_names = 0) = 0;
+
+  // V9
+  virtual bool __stdcall MakePropertyWritable(PVideoFrame* pvf) = 0;
 
   // Throws exception when the requested variable is not found.
   virtual AVSValue __stdcall GetVar(const char* name) = 0;
@@ -1907,4 +1921,4 @@ AVSC_API(IScriptEnvironment2*, CreateScriptEnvironment2)(int version = AVISYNTH_
 
 #pragma pack(pop)
 
-#endif //__AVISYNTH_8_H__
+#endif //__AVISYNTH_9_H__

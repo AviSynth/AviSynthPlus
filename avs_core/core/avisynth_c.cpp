@@ -328,6 +328,16 @@ int AVSC_CC avs_is_writable(const AVS_VideoFrame * p)
   return 0;
 }
 
+// V9
+extern "C"
+int AVSC_CC avs_is_property_writable(const AVS_VideoFrame * p)
+{
+  if (p->refcount == 1) {
+    return 1;
+  }
+  return 0;
+}
+
 extern "C"
 BYTE * AVSC_CC avs_get_write_ptr_p(const AVS_VideoFrame * p, int plane)
 {
@@ -893,22 +903,17 @@ extern "C"
 void AVSC_CC avs_copy_value(AVS_Value * dest, AVS_Value src)
 {
   // true: don't copy array elements recursively
-#ifdef NEW_AVSVALUE
   new(dest) AVSValue(*(const AVSValue*)&src, true);
-#else
-  new(dest) AVSValue(*(const AVSValue*)&src);
-#endif
 }
 
 extern "C"
 void AVSC_CC avs_release_value(AVS_Value v)
 {
-#ifdef NEW_AVSVALUE
   if (((AVSValue*)&v)->IsArray()) {
     // signing for destructor: don't free array elements
     ((AVSValue*)&v)->MarkArrayAsC();
   }
-#endif
+
   ((AVSValue*)&v)->~AVSValue();
 }
 
@@ -1129,8 +1134,7 @@ AVS_VideoFrame * AVSC_CC avs_new_video_frame_p_a(AVS_ScriptEnvironment * p, cons
 {
   p->error = 0;
   try {
-    auto env = p->env;
-    PVideoFrame f0 = env->NewVideoFrameP(*(const VideoInfo*)vi, (PVideoFrame*)propSrc, align);
+    PVideoFrame f0 = p->env->NewVideoFrameP(*(const VideoInfo*)vi, (PVideoFrame*)&propSrc, align);
     AVS_VideoFrame* f;
     new((PVideoFrame*)&f) PVideoFrame(f0);
     return f;
@@ -1147,8 +1151,7 @@ AVS_VideoFrame * AVSC_CC avs_new_video_frame_p(AVS_ScriptEnvironment * p, const 
 {
   p->error = 0;
   try {
-    auto env = p->env;
-    PVideoFrame f0 = env->NewVideoFrameP(*(const VideoInfo*)vi, (PVideoFrame*)propSrc, AVS_FRAME_ALIGN);
+    PVideoFrame f0 = p->env->NewVideoFrameP(*(const VideoInfo*)vi, (PVideoFrame*)&propSrc, AVS_FRAME_ALIGN);
     AVS_VideoFrame* f;
     new((PVideoFrame*)&f) PVideoFrame(f0);
     return f;
@@ -1166,6 +1169,20 @@ int AVSC_CC avs_make_writable(AVS_ScriptEnvironment * p, AVS_VideoFrame * *pvf)
   p->error = 0;
   try {
     return p->env->MakeWritable((PVideoFrame*)(pvf));
+  }
+  catch (const AvisynthError& err) {
+    p->error = err.msg;
+  }
+  return -1;
+}
+
+// Since V9
+extern "C"
+int AVSC_CC avs_make_property_writable(AVS_ScriptEnvironment * p, AVS_VideoFrame * *pvf)
+{
+  p->error = 0;
+  try {
+    return p->env->MakePropertyWritable((PVideoFrame*)(pvf));
   }
   catch (const AvisynthError& err) {
     p->error = err.msg;

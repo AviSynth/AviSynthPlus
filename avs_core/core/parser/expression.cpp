@@ -560,7 +560,7 @@ AVSValue ExpFunctionCall::Evaluate(IScriptEnvironment* env)
 
   // Keep an entry at the beginning: 0th is implicite_last
   std::vector<AVSValue> args(arg_expr_count+1, AVSValue());
-  for (size_t a = 0; a < arg_expr_count; ++a)
+  for (int a = 0; a < arg_expr_count; ++a)
     args[a + 1] = arg_exprs[a]->Evaluate(env);
 
   AVSValue implicit_last = oop_notation ? AVSValue() : env2->GetVarDef("last");

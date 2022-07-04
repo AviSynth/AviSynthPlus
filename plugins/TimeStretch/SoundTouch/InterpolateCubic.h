@@ -41,21 +41,27 @@ namespace soundtouch
 class InterpolateCubic : public TransposerBase
 {
 protected:
-    virtual void resetRegisters();
     virtual int transposeMono(SAMPLETYPE *dest,
                         const SAMPLETYPE *src,
-                        int &srcSamples);
+                        int &srcSamples) override;
     virtual int transposeStereo(SAMPLETYPE *dest,
                         const SAMPLETYPE *src,
-                        int &srcSamples);
+                        int &srcSamples) override;
     virtual int transposeMulti(SAMPLETYPE *dest,
                         const SAMPLETYPE *src,
-                        int &srcSamples);
+                        int &srcSamples) override;
 
     double fract;
 
 public:
     InterpolateCubic();
+
+    virtual void resetRegisters() override;
+
+    int getLatency() const
+    {
+        return 1;
+    }
 };
 
 }

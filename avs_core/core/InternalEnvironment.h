@@ -187,6 +187,8 @@ public:
   virtual AVSValue __stdcall Invoke3(const AVSValue& implicit_last, const PFunction& func, const AVSValue args, const char* const* arg_names = 0) = 0;
   virtual bool __stdcall Invoke3Try(AVSValue* result, const AVSValue& implicit_last, const PFunction& func, const AVSValue args, const char* const* arg_names = 0) = 0;
 
+  virtual bool __stdcall MakePropertyWritable(PVideoFrame* pvf) = 0; // V9
+
   // IScriptEnvironment2
   virtual bool __stdcall LoadPlugin(const char* filePath, bool throwOnError, AVSValue *result) = 0;
   virtual void __stdcall AddAutoloadDir(const char* dirPath, bool toFront) = 0;
@@ -206,9 +208,9 @@ public:
   virtual ClipDataStore* __stdcall ClipData(IClip *clip) = 0;
   virtual MtMode __stdcall GetDefaultMtMode() const = 0;
   virtual void __stdcall SetLogParams(const char *target, int level) = 0;
-  virtual void __stdcall LogMsg(int level, const char* fmt, ...) = 0;
+  virtual void LogMsg(int level, const char* fmt, ...) = 0;
   virtual void __stdcall LogMsg_valist(int level, const char* fmt, va_list va) = 0;
-  virtual void __stdcall LogMsgOnce(const OneTimeLogTicket &ticket, int level, const char* fmt, ...) = 0;
+  virtual void LogMsgOnce(const OneTimeLogTicket &ticket, int level, const char* fmt, ...) = 0;
   virtual void __stdcall LogMsgOnce_valist(const OneTimeLogTicket &ticket, int level, const char* fmt, va_list va) = 0;
   virtual void __stdcall VThrowError(const char* fmt, va_list va) = 0;
   virtual void __stdcall SetMaxCPU(const char *feature) = 0;

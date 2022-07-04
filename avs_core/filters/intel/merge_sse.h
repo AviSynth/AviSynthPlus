@@ -38,97 +38,41 @@
 // adapted by Richard Berg (avisynth-dev@richardberg.net)
 
 
-#ifndef __Merge_H__
-#define __Merge_H__
+#ifndef __Merge_SSE_H__
+#define __Merge_SSE_H__
 
 #include <avisynth.h>
-
-
-/****************************************************
-****************************************************/
-
-class MergeChroma : public GenericVideoFilter
-/**
-  * Merge the chroma planes of one clip into another, preserving luma
- **/
-{
-public:
-  MergeChroma(PClip _child, PClip _clip, float _weight, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-private:
-  PClip clip;
-  float weight;
-  int pixelsize;
-  int bits_per_pixel;
-};
-
-
-class MergeLuma : public GenericVideoFilter
-/**
-  * Merge the luma plane of one clip into another, preserving chroma
- **/
-{
-public:
-  MergeLuma(PClip _child, PClip _clip, float _weight, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-private:
-  PClip clip;
-  float weight;
-  int pixelsize;
-  int bits_per_pixel;
-};
-
-
-class MergeAll : public GenericVideoFilter
-/**
-  * Merge the planes of one clip into another
- **/
-{
-public:
-  MergeAll(PClip _child, PClip _clip, float _weight, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-  static AVSValue __cdecl Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-private:
-  PClip clip;
-  float weight;
-  int pixelsize;
-  int bits_per_pixel;
-};
-
-typedef void(*MergeFuncPtr) (BYTE *p1, const BYTE *p2, int p1_pitch, int p2_pitch, int rowsize, int height, float weight_f, int weight_i, int invweight_i);
-MergeFuncPtr getMergeFunc(int bits_per_pixel, int cpuFlags, BYTE *srcp, const BYTE *otherp, float weight_f, int &weight_i, int &invweight_i);
 
 template<bool lessthan16bit>
 void weighted_merge_planar_uint16_sse2(BYTE *p1, const BYTE *p2, int p1_pitch, int p2_pitch, int rowsize, int height, float weight_f, int weight_i, int invweight_i);
 
 void weighted_merge_planar_sse2(BYTE *p1,const BYTE *p2, int p1_pitch, int p2_pitch,int rowsize, int height, float weight_f, int weight_i, int invweight_i);
+
+#ifdef X86_32
 void weighted_merge_planar_mmx(BYTE *p1,const BYTE *p2, int p1_pitch, int p2_pitch,int rowsize, int height, float weight_f, int weight_i, int invweight_i);
-template<typename pixel_t>
-void weighted_merge_planar_c(BYTE *p1, const BYTE *p2, int p1_pitch, int p2_pitch, int rowsize, int height, float weight_f, int weight_i, int invweight_i);
-void weighted_merge_planar_c_float(BYTE *p1, const BYTE *p2, int p1_pitch, int p2_pitch, int rowsize, int height, float weight_f, int weight_i, int invweight_i);
+#endif
 void weighted_merge_planar_sse2_float(BYTE *p1, const BYTE *p2, int p1_pitch, int p2_pitch, int rowsize, int height, float weight_f, int weight_i, int invweight_i);
 
-#endif  // __Merge_H__
+#ifdef X86_32
+void weighted_merge_chroma_yuy2_mmx(BYTE* src, const BYTE* chroma, int pitch, int chroma_pitch, int width, int height, int weight, int invweight);
+#endif
+void weighted_merge_chroma_yuy2_sse2(BYTE* src, const BYTE* chroma, int pitch, int chroma_pitch, int width, int height, int weight, int invweight);
+#ifdef X86_32
+void weighted_merge_luma_yuy2_mmx(BYTE* src, const BYTE* luma, int pitch, int luma_pitch, int width, int height, int weight, int invweight);
+#endif
+void weighted_merge_luma_yuy2_sse2(BYTE* src, const BYTE* luma, int pitch, int luma_pitch, int width, int height, int weight, int invweight);
+
+#ifdef X86_32
+void replace_luma_yuy2_mmx(BYTE* src, const BYTE* luma, int pitch, int luma_pitch, int width, int height);
+#endif
+void replace_luma_yuy2_sse2(BYTE* src, const BYTE* luma, int pitch, int luma_pitch, int width, int height);
+
+#ifdef X86_32
+template<typename pixel_t>
+void average_plane_isse(BYTE* p1, const BYTE* p2, int p1_pitch, int p2_pitch, int rowsize, int height);
+#endif
+template<typename pixel_t>
+void average_plane_sse2(BYTE* p1, const BYTE* p2, int p1_pitch, int p2_pitch, int rowsize, int height);
+void average_plane_sse2_float(BYTE* p1, const BYTE* p2, int p1_pitch, int p2_pitch, int rowsize, int height);
+
+#endif  // __Merge_SSE_H__

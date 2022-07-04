@@ -34,6 +34,11 @@
 // import and export plugins, or graphical user interfaces.
 
 #include "conditional_functions.h"
+#include "../focus.h" // sad
+#ifdef INTEL_INTRINSICS
+#include "intel/conditional_functions_sse.h"
+#include "../intel/focus_sse.h" // sad
+#endif
 #include "../../core/internal.h"
 #include <avs/config.h>
 #include <avs/minmax.h>
@@ -41,7 +46,6 @@
 #include <limits>
 #include <algorithm>
 #include <cmath>
-#include "../focus.h" // sad
 #include "../core/AVSMap.h"
 
 extern const AVSFunction Conditional_funtions_filters[] = {
@@ -84,6 +88,7 @@ extern const AVSFunction Conditional_funtions_filters[] = {
   {  "BDifferenceToNext",   BUILTIN_FUNC_PREFIX, "c[offset]i", ComparePlane::Create_next, (void *)PLANAR_B },
   //{  "SatDifferenceFromNext","c[offset]i", CompareSat::Create_next },
 //{  "HueDifferenceFromNext","c[offset]i", CompareHue::Create_next },
+  {  "PlaneMinMaxStats", BUILTIN_FUNC_PREFIX, "c[threshold]f[offset]i[plane]i[setvar]b", MinMaxPlane::Create_minmax_stats, (void*)-1 },
   {  "YPlaneMax",    BUILTIN_FUNC_PREFIX, "c[threshold]f[offset]i", MinMaxPlane::Create_max, (void *)PLANAR_Y },
   {  "YPlaneMin",    BUILTIN_FUNC_PREFIX, "c[threshold]f[offset]i", MinMaxPlane::Create_min, (void *)PLANAR_Y },
   {  "YPlaneMedian", BUILTIN_FUNC_PREFIX, "c[offset]i", MinMaxPlane::Create_median, (void *)PLANAR_Y },
@@ -124,15 +129,14 @@ extern const AVSFunction Conditional_funtions_filters[] = {
   { "propGetInt", BUILTIN_FUNC_PREFIX, "cs[index]i[offset]i", GetProperty::Create, (void *)1 },
   { "propGetFloat", BUILTIN_FUNC_PREFIX, "cs[index]i[offset]i", GetProperty::Create, (void*)2 },
   { "propGetString", BUILTIN_FUNC_PREFIX, "cs[index]i[offset]i", GetProperty::Create, (void*)3 },
+  { "propGetClip", BUILTIN_FUNC_PREFIX, "cs[index]i[offset]i", GetProperty::Create, (void*)4 },
   { "propGetDataSize", BUILTIN_FUNC_PREFIX, "cs[index]i[offset]i", GetPropertyDataSize::Create },
   { "propNumElements", BUILTIN_FUNC_PREFIX, "cs[offset]i", GetPropertyNumElements::Create},
   { "propNumKeys", BUILTIN_FUNC_PREFIX, "c[offset]i", GetPropertyNumKeys::Create},
   { "propGetKeyByIndex", BUILTIN_FUNC_PREFIX, "c[index]i[offset]i", GetPropertyKeyByIndex::Create},
   { "propGetType", BUILTIN_FUNC_PREFIX, "cs[offset]i", GetPropertyType::Create},
-#ifdef NEW_AVSVALUE
   { "propGetAsArray", BUILTIN_FUNC_PREFIX, "cs[offset]i", GetPropertyAsArray::Create},
   { "propGetAll", BUILTIN_FUNC_PREFIX, "c[offset]i", GetAllProperties::Create},
-#endif
 
   { 0 }
 };
@@ -233,6 +237,16 @@ AVSValue AveragePlane::AvgPlane(AVSValue clip, void* , int plane, int offset, IS
   else // worst case
     sum_in_32bits = ((int64_t)total_pixels * (pixelsize == 1 ? 255 : 65535)) <= std::numeric_limits<int>::max();
 
+#ifdef INTEL_INTRINSICS
+  if ((pixelsize==1) && sum_in_32bits && (env->GetCPUFlags() & CPUF_SSE2) && width >= 16) {
+    sum = get_sum_of_pixels_sse2(srcp, height, width, pitch);
+  } else
+#ifdef X86_32
+  if ((pixelsize==1) && sum_in_32bits && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && width >= 8) {
+    sum = get_sum_of_pixels_isse(srcp, height, width, pitch);
+  } else
+#endif
+#endif
   {
     if(pixelsize==1)
       sum = get_sum_of_pixels_c<uint8_t>(srcp, height, width, pitch);
@@ -340,7 +354,6 @@ AVSValue ComparePlane::CmpPlane(AVSValue clip, AVSValue clip2, void* , int plane
   PVideoFrame src2 = child2->GetFrame(n,env);
 
   int pixelsize = vi.ComponentSize();
-  int bits_per_pixel = vi.BitsPerComponent();
 
   const BYTE* srcp = src->GetReadPtr(plane);
   const BYTE* srcp2 = src2->GetReadPtr(plane);
@@ -362,17 +375,33 @@ AVSValue ComparePlane::CmpPlane(AVSValue clip, AVSValue clip2, void* , int plane
   if (height != height2 || width != width2)
     env->ThrowError("Plane Difference: Images are not the same size!");
 
+#ifdef X86_32
+  int bits_per_pixel = vi.BitsPerComponent();
   int total_pixels = width*height;
   bool sum_in_32bits;
   if (pixelsize == 4)
     sum_in_32bits = false;
   else // worst case check
     sum_in_32bits = ((int64_t)total_pixels * ((1 << bits_per_pixel) - 1)) <= std::numeric_limits<int>::max();
+#endif
 
   double sad = 0.0;
 
   // for c: width, for sse: rowsize
   if (vi.IsRGB32() || vi.IsRGB64()) {
+#ifdef INTEL_INTRINSICS
+    if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      // int64 internally, no sum_in_32bits
+      sad = (double)calculate_sad_8_or_16_sse2<uint16_t,true>(srcp, srcp2, pitch, pitch2, width*pixelsize, height); // in focus. 21.68/21.39
+    } else if ((pixelsize == 1) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      sad = (double)calculate_sad_8_or_16_sse2<uint8_t,true>(srcp, srcp2, pitch, pitch2, rowsize, height); // in focus, no overflow
+    } else
+#ifdef X86_32
+      if ((pixelsize==1) && sum_in_32bits && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && width >= 8) {
+        sad = get_sad_rgb_isse(srcp, srcp2, height, rowsize, pitch, pitch2);
+      } else
+#endif
+#endif
       {
         if (pixelsize == 1)
           sad = (double)get_sad_rgb_c<uint8_t>(srcp, srcp2, height, width, pitch, pitch2);
@@ -380,6 +409,19 @@ AVSValue ComparePlane::CmpPlane(AVSValue clip, AVSValue clip2, void* , int plane
           sad = (double)get_sad_rgb_c<uint16_t>(srcp, srcp2, height, width, pitch, pitch2);
       }
   } else {
+#ifdef INTEL_INTRINSICS
+    if ((pixelsize==2) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      sad = (double)calculate_sad_8_or_16_sse2<uint16_t,false>(srcp, srcp2, pitch, pitch2, rowsize, height); // in focus, no overflow
+    } else
+      if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      sad = (double)calculate_sad_8_or_16_sse2<uint8_t,false>(srcp, srcp2, pitch, pitch2, rowsize, height); // in focus, no overflow
+    } else
+#ifdef X86_32
+      if ((pixelsize==1) && sum_in_32bits && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && width >= 8) {
+        sad = get_sad_isse(srcp, srcp2, height, rowsize, pitch, pitch2);
+      } else
+#endif
+#endif
       {
         if(pixelsize==1)
           sad = get_sad_c<uint8_t>(srcp, srcp2, height, width, pitch, pitch2);
@@ -429,7 +471,6 @@ AVSValue ComparePlane::CmpPlaneSame(AVSValue clip, void* , int offset, int plane
   PVideoFrame src2 = child->GetFrame(n2,env);
 
   int pixelsize = vi.ComponentSize();
-  int bits_per_pixel = vi.BitsPerComponent();
 
   const BYTE* srcp = src->GetReadPtr(plane);
   const BYTE* srcp2 = src2->GetReadPtr(plane);
@@ -442,16 +483,32 @@ AVSValue ComparePlane::CmpPlaneSame(AVSValue clip, void* , int offset, int plane
   if (width == 0 || height == 0)
     env->ThrowError("Plane Difference: No chroma planes in greyscale clip!");
 
-  int total_pixels = width*height;
+#ifdef X86_32
+  int bits_per_pixel = vi.BitsPerComponent();
+  int total_pixels = width * height;
   bool sum_in_32bits;
   if (pixelsize == 4)
     sum_in_32bits = false;
   else // worst case check
     sum_in_32bits = ((int64_t)total_pixels * ((1 << bits_per_pixel) - 1)) <= std::numeric_limits<int>::max();
+#endif
 
   double sad = 0;
   // for c: width, for sse: rowsize
   if (vi.IsRGB32() || vi.IsRGB64()) {
+#ifdef INTEL_INTRINSICS
+    if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      // int64 internally, no sum_in_32bits
+      sad = (double)calculate_sad_8_or_16_sse2<uint16_t,true>(srcp, srcp2, pitch, pitch2, rowsize, height); // in focus. 21.68/21.39
+    } else if ((pixelsize == 1) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      sad = (double)calculate_sad_8_or_16_sse2<uint8_t,true>(srcp, srcp2, pitch, pitch2, rowsize, height); // in focus, no overflow
+    } else
+#ifdef X86_32
+      if ((pixelsize==1) && sum_in_32bits && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && width >= 8) {
+        sad = get_sad_rgb_isse(srcp, srcp2, height, rowsize, pitch, pitch2);
+      } else
+#endif
+#endif
       {
         if(pixelsize==1)
           sad = get_sad_rgb_c<uint8_t>(srcp, srcp2, height, width, pitch, pitch2);
@@ -459,6 +516,18 @@ AVSValue ComparePlane::CmpPlaneSame(AVSValue clip, void* , int offset, int plane
           sad = get_sad_rgb_c<uint16_t>(srcp, srcp2, height, width, pitch, pitch2);
       }
   } else {
+#ifdef INTEL_INTRINSICS
+    if ((pixelsize==2) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      sad = (double)calculate_sad_8_or_16_sse2<uint16_t,false>(srcp, srcp2, pitch, pitch2, rowsize, height); // in focus, no overflow
+    } else if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+      sad = (double)calculate_sad_8_or_16_sse2<uint8_t,false>(srcp, srcp2, pitch, pitch2, rowsize, height); // in focus, no overflow
+    } else
+#ifdef X86_32
+      if ((pixelsize==1) && sum_in_32bits && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && width >= 8) {
+        sad = get_sad_isse(srcp, srcp2, height, width, pitch, pitch2);
+      } else
+#endif
+#endif
       {
         if(pixelsize==1)
           sad = get_sad_c<uint8_t>(srcp, srcp2, height, width, pitch, pitch2);
@@ -479,29 +548,90 @@ AVSValue ComparePlane::CmpPlaneSame(AVSValue clip, void* , int offset, int plane
   return (AVSValue)f;
 }
 
+AVSValue MinMaxPlane::Create_minmax_stats(AVSValue args, void* user_data, IScriptEnvironment* env) {
+  const int plane = args[3].AsInt(0); // 0:Y or R  1:U or G  2: V or B  3:A
+  if (plane < 0 || plane>3)
+    env->ThrowError("MinMax Stats: plane index must be between 0-3!");
+
+  if (!args[0].IsClip())
+    env->ThrowError("MinMax Stats: No clip supplied!");
+
+  VideoInfo vi = args[0].AsClip()->GetVideoInfo();
+  const int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+  const int planes_r[4] = { PLANAR_R, PLANAR_G, PLANAR_B, PLANAR_A }; // in 'logical' RGB order
+  const int* planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;
+
+  const int current_plane = planes[plane];
+
+  const int setvar = args[4].AsBool(false);
+
+  return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), current_plane, MinMaxPlane::STATS, setvar, env);
+}
+
 
 AVSValue MinMaxPlane::Create_max(AVSValue args, void* user_data, IScriptEnvironment* env) {
   int plane = (int)reinterpret_cast<intptr_t>(user_data);
-  return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MAX, env);
+  return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MinMaxPlane::MAX, false, env);
 }
 
 AVSValue MinMaxPlane::Create_min(AVSValue args, void* user_data, IScriptEnvironment* env) {
   int plane = (int)reinterpret_cast<intptr_t>(user_data);
-  return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MIN, env);
+  return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MinMaxPlane::MIN, false, env);
 }
 
 AVSValue MinMaxPlane::Create_median(AVSValue args, void* user_data, IScriptEnvironment* env) {
   int plane = (int)reinterpret_cast<intptr_t>(user_data);
-  return MinMax(args[0], user_data, 50.0, args[1].AsInt(0), plane, MIN, env);
+  // MEDIAN: min 50%
+  return MinMax(args[0], user_data, 50.0, args[1].AsInt(0), plane, MinMaxPlane::MIN, false, env);
 }
 
 AVSValue MinMaxPlane::Create_minmax(AVSValue args, void* user_data, IScriptEnvironment* env) {
   int plane = (int)reinterpret_cast<intptr_t>(user_data);
-  return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MINMAX_DIFFERENCE, env);
+  return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MinMaxPlane::MINMAX_DIFFERENCE, false, env);
 }
 
+template<bool average>
+void get_minmax_float_c(const BYTE* srcp, int pitch, int w, int h, float& min, float& max, double &sum)
+{
+  min = *reinterpret_cast<const float*>(srcp);
+  max = min;
+  sum = 0;
 
-AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset, int plane, int mode, IScriptEnvironment* env) {
+  for (int y = 0; y < h; y++) {
+    for (int x = 0; x < w; x++) {
+      const float pix = reinterpret_cast<const float*>(srcp)[x];
+      if constexpr(average)
+        sum += pix;
+      if (pix < min) min = pix;
+      if (pix > max) max = pix;
+    }
+    srcp += pitch;
+  }
+}
+
+template<typename pixel_t, bool average>
+void get_minmax_int_c(const BYTE* srcp, int pitch, int w, int h, int& min, int& max, int64_t& sum)
+{
+  min = *reinterpret_cast<const pixel_t*>(srcp);
+  max = min;
+  sum = 0;
+
+  for (int y = 0; y < h; y++) {
+    int tmpsum = 0;
+    for (int x = 0; x < w; x++) {
+      const int pix = reinterpret_cast<const pixel_t*>(srcp)[x];
+      if constexpr (average)
+        sum += pix;
+      if (pix < min) min = pix;
+      if (pix > max) max = pix;
+    }
+    if constexpr (average)
+      sum += tmpsum;
+    srcp += pitch;
+  }
+}
+
+AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset, int plane, int mode, bool setvar, IScriptEnvironment* env) {
 
   if (!clip.IsClip())
     env->ThrowError("MinMax: No clip supplied!");
@@ -509,13 +639,38 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
   PClip child = clip.AsClip();
   VideoInfo vi = child->GetVideoInfo();
 
+  if (vi.IsRGB()) {
+    if (plane == PLANAR_Y || plane == PLANAR_U || plane == PLANAR_V)
+      env->ThrowError("MinMax: no such plane in RGB format");
+  }
+  else if (vi.IsY()) {
+    if (plane != PLANAR_Y)
+      env->ThrowError("MinMax: no such plane in Y (greyscale) format");
+  }
+  else {
+    if (plane == PLANAR_R || plane == PLANAR_G || plane == PLANAR_B)
+      env->ThrowError("MinMax: no such plane in YUV format");
+  }
+  if (vi.NumComponents() < 4 && plane == PLANAR_A)
+    env->ThrowError("MinMax: no Alpha plane in this format");
+
+  // input clip to always planar
+  if (vi.IsRGB() && !vi.IsPlanar()) {
+    AVSValue new_args[1] = { child };
+    if (vi.IsRGB24() || vi.IsRGB48())
+      child = env->Invoke("ConvertToPlanarRGB", AVSValue(new_args, 1)).AsClip();
+    else // RGB32, RGB64
+      child = env->Invoke("ConvertToPlanarRGBA", AVSValue(new_args, 1)).AsClip();
+    vi = child->GetVideoInfo();
+  }
+  else if (vi.IsYUY2()) {
+    AVSValue new_args[2] = { child, false };
+    child = env->Invoke("ConvertToYUV422", AVSValue(new_args, 2)).AsClip();
+    vi = child->GetVideoInfo();
+  }
+
   if (!vi.IsPlanar())
     env->ThrowError("MinMax: Image must be planar");
-
-  int pixelsize = vi.ComponentSize();
-  int buffersize = pixelsize == 1 ? 256 : 65536; // 65536 for float, too, reason for 10-14 bits: avoid overflow
-  int real_buffersize = pixelsize == 4 ? 65536 : (1 << vi.BitsPerComponent());
-  uint32_t *accum_buf = new uint32_t[buffersize];
 
   // Get current frame number
   AVSValue cn = env->GetVarDef("current_frame");
@@ -530,11 +685,69 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
 
   const BYTE* srcp = src->GetReadPtr(plane);
   int pitch = src->GetPitch(plane);
-  int w = src->GetRowSize(plane) / pixelsize;
+  int pixelsize = vi.ComponentSize();
+  int w = src->GetRowSize(plane) / pixelsize; // good for packed rgb as well
   int h = src->GetHeight(plane);
 
   if (w == 0 || h == 0)
     env->ThrowError("MinMax: plane does not exist!");
+
+  float stats_min;
+  float stats_max;
+  float stats_median;
+  float stats_thresholded_min;
+  float stats_thresholded_max;
+  float stats_average;
+
+  if (threshold == 0 || mode == MinMaxPlane::STATS) {
+    // special case, no histogram needed
+
+    if (pixelsize == 4) // 32 bit float
+    {
+      double sum = 0;
+      if (mode == MinMaxPlane::STATS)
+        get_minmax_float_c<true>(srcp, pitch, w, h, stats_min, stats_max, sum);
+      else
+        get_minmax_float_c<false>(srcp, pitch, w, h, stats_min, stats_max, sum);
+
+      if (mode == MinMaxPlane::MIN) return stats_min;
+      else if (mode == MinMaxPlane::MAX) return stats_max;
+      else if (mode == MinMaxPlane::MINMAX_DIFFERENCE) return stats_max - stats_min;
+      stats_average = (float)(sum / (w * h));
+      // STATS: go on
+    }
+    else
+    {
+      int min, max;
+      int64_t sum = 0;
+      // sse4.1 is not any faster
+      if(pixelsize == 1)
+        if (mode == MinMaxPlane::STATS)
+          get_minmax_int_c<uint8_t, true>(srcp, pitch, w, h, min, max, sum);
+        else
+          get_minmax_int_c<uint8_t, false>(srcp, pitch, w, h, min, max, sum);
+      else
+        if (mode == MinMaxPlane::STATS)
+          get_minmax_int_c<uint16_t, true>(srcp, pitch, w, h, min, max, sum);
+        else
+          get_minmax_int_c<uint16_t, false>(srcp, pitch, w, h, min, max, sum);
+
+      if (mode == MinMaxPlane::MIN) return min;
+      else if (mode == MinMaxPlane::MAX) return max;
+      else if (mode == MinMaxPlane::MINMAX_DIFFERENCE) return max - min;
+
+      // STATS: go on
+      stats_min = (float)min;
+      stats_max = (float)max;
+      stats_average = (float)((double)sum / (w * h));
+    }
+  }
+
+  const int bits_per_pixel = vi.BitsPerComponent();
+  const int max_pixel_value = (1 << bits_per_pixel) - 1;
+
+  const int buffersize = pixelsize == 4 ? 65536 : (1 << bits_per_pixel); // 65536 for float, too, reason for 10-14 bits: avoid overflow
+  uint32_t* accum_buf = new uint32_t[buffersize];
 
   // Reset accumulators
   std::fill_n(accum_buf, buffersize, 0);
@@ -543,7 +756,7 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
   if (pixelsize == 1) {
     for (int y = 0; y < h; y++) {
       for (int x = 0; x < w; x++) {
-        accum_buf[srcp[x]]++;
+        accum_buf[srcp[x]]++; // safe
       }
       srcp += pitch;
     }
@@ -551,7 +764,7 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
   else if (pixelsize == 2) {
     for (int y = 0; y < h; y++) {
       for (int x = 0; x < w; x++) {
-        accum_buf[reinterpret_cast<const uint16_t *>(srcp)[x]]++;
+        accum_buf[min((int)(reinterpret_cast<const uint16_t *>(srcp)[x]), max_pixel_value)]++;
       }
       srcp += pitch;
     }
@@ -562,14 +775,10 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
     // See similar in colors, ColorYUV analyze
     const bool chroma = (plane == PLANAR_U) || (plane == PLANAR_V);
     if (chroma) {
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-      const float shift = 0.0f;
-#else
       const float shift = 32768.0f;
-#endif
       for (int y = 0; y < h; y++) {
         for (int x = 0; x < w; x++) {
-          // -0.5..0.5 (0..1.0 when FLOAT_CHROMA_IS_HALF_CENTERED) to 0..65535
+          // -0.5..0.5 to 0..65535
           const float pixel = reinterpret_cast<const float *>(srcp)[x];
           accum_buf[clamp((int)(65535.0f*pixel + shift + 0.5f), 0, 65535)]++;
         }
@@ -596,31 +805,40 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
   int retval;
 
     // Find the value we need.
-  if (mode == MIN) {
+  if (mode == MinMaxPlane::MIN) {
+    // threshold == 0 was covered already
     unsigned int counted=0;
-    retval = real_buffersize - 1;
-    for (int i = 0; i< real_buffersize;i++) {
+    retval = buffersize - 1;
+    for (int i = 0; i< buffersize;i++) {
       counted += accum_buf[i];
       if (counted>tpixels) {
         retval = i;
         break;
       }
     }
-  } else if (mode == MAX) {
+  }
+  else if (mode == MinMaxPlane::MAX) {
     unsigned int counted=0;
     retval = 0;
-    for (int i = real_buffersize-1; i>=0;i--) {
+    for (int i = buffersize-1; i>=0;i--) {
       counted += accum_buf[i];
       if (counted>tpixels) {
         retval = i;
         break;
       }
     }
-  } else if (mode == MINMAX_DIFFERENCE) {
+  }
+  else if (mode == MinMaxPlane::STATS && threshold == 0) {
+    stats_thresholded_min = (float)stats_min;
+    stats_thresholded_max = (float)stats_max;
+    retval = -1; // stats: n/a
+  }
+  else if (mode == MinMaxPlane::MINMAX_DIFFERENCE || mode == MinMaxPlane::STATS) {
+    // thresholded case
     unsigned int counted=0;
     int i, t_min = 0;
     // Find min
-    for (i = 0; i < real_buffersize;i++) {
+    for (i = 0; i < buffersize;i++) {
       counted += accum_buf[i];
       if (counted>tpixels) {
         t_min=i;
@@ -630,8 +848,8 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
 
     // Find max
     counted=0;
-    int t_max = real_buffersize-1;
-    for (i = real_buffersize-1; i>=0;i--) {
+    int t_max = buffersize-1;
+    for (i = buffersize-1; i>=0;i--) {
       counted += accum_buf[i];
       if (counted>tpixels) {
         t_max=i;
@@ -640,26 +858,61 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
     }
 
     retval = t_max - t_min; // results <0 will be returned if threshold > 50
+    stats_thresholded_min = (float)t_min;
+    stats_thresholded_max = (float)t_max;
   }
-  else {
-    retval = -1;
+  
+  if (mode == MinMaxPlane::STATS) {
+    // for STATS we already have min and max, thresholded min and max
+    // let's gather median, which is equal to 50% MIN
+    // comment: no separate MEDIAN mode is used, already converted to MIN 50% in ctor
+    unsigned int tpixels = (unsigned int)(pixels * 0.5f);
+    unsigned int counted = 0;
+    retval = buffersize - 1;
+    for (int i = 0; i < buffersize; i++) {
+      counted += accum_buf[i];
+      if (counted > tpixels) {
+        retval = i;
+        break;
+      }
+    }
+    stats_median = (float)retval;
   }
 
   delete[] accum_buf;
   //_RPT2(0, "End of MinMax cn=%d n=%d\r", cn.AsInt(), n);
 
+  if (mode == MinMaxPlane::STATS) {
+    if (pixelsize == 4) {
+      const bool chroma = (plane == PLANAR_U) || (plane == PLANAR_V);
+      const float shift = chroma ? 32768.0f : 0;
+      stats_thresholded_min = (float)((double)(stats_thresholded_min - shift) / (buffersize - 1)); // convert back to float, /65535
+      stats_thresholded_max = (float)((double)(stats_thresholded_max - shift) / (buffersize - 1)); // convert back to float, /65535
+      stats_median = (float)((double)(stats_median - shift) / (buffersize - 1)); // convert back to float, /65535
+    }
+
+    AVSValue result[] = { stats_min, stats_max, stats_thresholded_min, stats_thresholded_max, stats_median, stats_average };
+    AVSValue ret = AVSValue(result, 6);
+    if (setvar) {
+      env->SetGlobalVar("PlaneStats_min", stats_min);
+      env->SetGlobalVar("PlaneStats_max", stats_max);
+      env->SetGlobalVar("PlaneStats_thmin", stats_thresholded_min);
+      env->SetGlobalVar("PlaneStats_thmax", stats_thresholded_max);
+      env->SetGlobalVar("PlaneStats_median", stats_median);
+      env->SetGlobalVar("PlaneStats_average", stats_average);
+    }
+
+    return ret;
+  }
+
   if (pixelsize == 4) {
     const bool chroma = (plane == PLANAR_U) || (plane == PLANAR_V);
     if (chroma && (mode == MIN || mode == MAX)) {
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-      const float shift = 0.0f;
-#else
       const float shift = 32768.0f;
-#endif
-      return AVSValue((double)(retval - shift) / (real_buffersize - 1)); // convert back to float, /65535
+      return AVSValue((double)(retval - shift) / (buffersize - 1)); // convert back to float, /65535
     }
     else {
-      return AVSValue((double)retval / (real_buffersize - 1)); // convert back to float, /65535
+      return AVSValue((double)retval / (buffersize - 1)); // convert back to float, /65535
     }
   }
   else
@@ -676,21 +929,21 @@ AVSValue GetProperty::Create(AVSValue args, void* user_data, IScriptEnvironment*
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propGetxxxxx: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
   int propType = (int)(intptr_t)user_data;
-  // vUnset, vInt, vFloat, vData/*, vNode*/, vFrame/*, vMethod*/ }
+  // vUnset, vInt, vFloat, vData, vNode/Clip, vFrame/*, vMethod*/ }
   // 0: auto
   // 1: integer
   // 2: float
   // 3: char (null terminated data)
+  // 4: Clip
 
   const char* propName = args[1].AsString();
   const int index = args[2].AsInt(0);
   const int offset = args[3].AsInt(0);
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
   PVideoFrame src = child->GetFrame(n, env);
@@ -710,7 +963,7 @@ AVSValue GetProperty::Create(AVSValue args, void* user_data, IScriptEnvironment*
     case 'i': propType = 1; break;
     case 'f': propType = 2; break;
     case 's': propType = 3; break;
-    // case 'c': propType = 4; break; Clips not supported
+    case 'c': propType = 4; break;
     default:
       env->ThrowError("Error getting frame property \"%s\": type '%c' not supported", propName, res);
     }
@@ -733,6 +986,11 @@ AVSValue GetProperty::Create(AVSValue args, void* user_data, IScriptEnvironment*
       return AVSValue(result);
     }
   }
+  else if (propType == 4) {
+    PClip result = env->propGetClip(avsmap, propName, index, &error);
+    if (!error)
+      return AVSValue(result);
+  }
   else {
     error = AVSGetPropErrors::GETPROPERROR_TYPE;
   }
@@ -753,7 +1011,6 @@ AVSValue GetProperty::Create(AVSValue args, void* user_data, IScriptEnvironment*
   return AVSValue();
 }
 
-#ifdef NEW_AVSVALUE
 AVSValue GetPropertyAsArray::Create(AVSValue args, void* , IScriptEnvironment* env)
 {
   AVSValue clip = args[0];
@@ -764,13 +1021,12 @@ AVSValue GetPropertyAsArray::Create(AVSValue args, void* , IScriptEnvironment* e
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propGetAsArray: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
   const char* propName = args[1].AsString();
   const int offset = args[2].AsInt(0);
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
   PVideoFrame src = child->GetFrame(n, env);
@@ -816,6 +1072,7 @@ AVSValue GetPropertyAsArray::Create(AVSValue args, void* , IScriptEnvironment* e
       }
         break;
       case 'v': elem = AVSValue(env->propGetFrame(avsmap, propName, i, &error)); break;
+      case 'c': elem = AVSValue(env->propGetClip(avsmap, propName, i, &error)); break;
       default:
         elem = AVSValue();
       }
@@ -857,12 +1114,11 @@ AVSValue GetAllProperties::Create(AVSValue args, void*, IScriptEnvironment* env)
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propGetAll: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
   const int offset = args[1].AsInt(0);
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
   PVideoFrame src = child->GetFrame(n, env);
@@ -917,18 +1173,26 @@ AVSValue GetAllProperties::Create(AVSValue args, void*, IScriptEnvironment* env)
       if (!error)
         elem = AVSValue(env->SaveString(s));
     }
+    else if (propType == 'c') {
+      if (propNumElements == 1)
+        elem = AVSValue(env->propGetClip(avsmap, propName, 0, &error));
+      else {
+        std::vector<AVSValue> avsarr(propNumElements);
+        for (int i = 0; i < propNumElements; ++i)
+          avsarr[i] = AVSValue(env->propGetClip(avsmap, propName, i, &error));
+        elem = AVSValue(avsarr.data(), propNumElements); // array deep copy
+      }
+    }
     else {
-      // 'c', 'v': ignore
+      // 'v': ignore no such AVSValue in Avisynth 
     }
 
     pair[1] = elem;
-    result[index] = AVSValue(pair.data(), 2); // NEW_AVSVALUE: arrays in arrays, automatic deep copy
+    result[index] = AVSValue(pair.data(), 2); // arrays in arrays, automatic deep copy
   }
 
   return AVSValue(result.data(), propNum); // array deep copy
 }
-
-#endif
 
 // e.g. string length
 AVSValue GetPropertyDataSize::Create(AVSValue args, void* , IScriptEnvironment* env) {
@@ -940,14 +1204,13 @@ AVSValue GetPropertyDataSize::Create(AVSValue args, void* , IScriptEnvironment* 
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propGetDataSize: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
   const char* propName = args[1].AsString();
   const int index = args[2].AsInt(0);
   const int offset = args[3].AsInt(0);
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
   PVideoFrame src = child->GetFrame(n, env);
@@ -986,13 +1249,12 @@ AVSValue GetPropertyNumElements::Create(AVSValue args, void*, IScriptEnvironment
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propNumElements: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
   const char* propName = args[1].AsString();
   const int offset = args[2].AsInt(0);
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
   PVideoFrame src = child->GetFrame(n, env);
@@ -1020,13 +1282,12 @@ AVSValue GetPropertyType::Create(AVSValue args, void*, IScriptEnvironment* env) 
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propGetType: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
   const char* propName = args[1].AsString();
   const int offset = args[2].AsInt(0);
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
   PVideoFrame src = child->GetFrame(n, env);
@@ -1066,10 +1327,9 @@ AVSValue GetPropertyNumKeys::Create(AVSValue args, void*, IScriptEnvironment* en
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propNumKeys: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   int offset = args[1].AsInt(0);
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
@@ -1098,13 +1358,12 @@ AVSValue GetPropertyKeyByIndex::Create(AVSValue args, void*, IScriptEnvironment*
   VideoInfo vi = child->GetVideoInfo();
 
   AVSValue cn = env->GetVarDef("current_frame");
-  if (!cn.IsInt())
-    env->ThrowError("propNumKeys: This filter can only be used within run-time filters");
+  const bool calledFromRunTime = cn.IsInt();
 
   const int index = args[1].AsInt(0);
   const int offset = args[2].AsInt(0);
 
-  int n = cn.AsInt();
+  int n = calledFromRunTime ? cn.AsInt() : 0;
   n = min(max(n + offset, 0), vi.num_frames - 1);
 
   PVideoFrame src = child->GetFrame(n, env);
@@ -1121,4 +1380,3 @@ AVSValue GetPropertyKeyByIndex::Create(AVSValue args, void*, IScriptEnvironment*
 
   return AVSValue();
 }
-

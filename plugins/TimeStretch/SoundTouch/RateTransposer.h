@@ -59,8 +59,6 @@ public:
     };
 
 protected:
-    virtual void resetRegisters() = 0;
-
     virtual int transposeMono(SAMPLETYPE *dest,
                         const SAMPLETYPE *src,
                         int &srcSamples)  = 0;
@@ -83,6 +81,9 @@ public:
     virtual int transpose(FIFOSampleBuffer &dest, FIFOSampleBuffer &src);
     virtual void setRate(double newRate);
     virtual void setChannels(int channels);
+    virtual int getLatency() const = 0;
+
+    virtual void resetRegisters() = 0;
 
     // static factory function
     static TransposerBase *newInstance();
@@ -123,7 +124,7 @@ protected:
 
 public:
     RateTransposer();
-    virtual ~RateTransposer();
+    virtual ~RateTransposer() override;
 
     /// Returns the output buffer object
     FIFOSamplePipe *getOutput() { return &outputBuffer; };
@@ -146,13 +147,13 @@ public:
 
     /// Adds 'numSamples' pcs of samples from the 'samples' memory position into
     /// the input of the object.
-    void putSamples(const SAMPLETYPE *samples, uint numSamples);
+    void putSamples(const SAMPLETYPE *samples, uint numSamples) override;
 
     /// Clears all the samples in the object
-    void clear();
+    void clear() override;
 
     /// Returns nonzero if there aren't any samples available for outputting.
-    int isEmpty() const;
+    int isEmpty() const override;
 
     /// Return approximate initial input-output latency
     int getLatency() const;

@@ -32,121 +32,77 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
-#ifndef __Focus_H__
-#define __Focus_H__
+#ifndef __Focus_SSE_H__
+#define __Focus_SSE_H__
 
 #include <avisynth.h>
 
+#ifdef X86_32
+void af_vertical_mmx(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount);
+#endif
+void af_vertical_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount);
+void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount);
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
+void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount);
+void af_vertical_sse2_float(BYTE * line_buf, BYTE * dstp, const int height, const int pitch, const int row_size, const float amount);
+
+
+#ifdef X86_32
+void af_horizontal_planar_mmx(BYTE* dstp, size_t height, size_t pitch, size_t width, size_t amount);
+#endif
+void af_horizontal_planar_sse2(BYTE* dstp, size_t height, size_t pitch, size_t width, size_t amount);
+void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch, size_t row_size, size_t amount, int bits_per_pixel);
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
+void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch, size_t row_size, size_t amount, int bits_per_pixel);
+void af_horizontal_planar_float_sse2(BYTE* dstp, size_t height, size_t pitch, size_t row_size, float amount);
+
+
+#ifdef X86_32
+void af_horizontal_yuy2_mmx(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount);
+#endif
+void af_horizontal_yuy2_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount);
+
+#ifdef X86_32
+void af_horizontal_rgb32_mmx(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount);
+#endif
+void af_horizontal_rgb32_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount);
+
+void af_horizontal_rgb64_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount);
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
+void af_horizontal_rgb64_sse41(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount);
+
+
+
+#ifdef X86_32
+void accumulate_line_mmx(BYTE* c_plane, const BYTE** planeP, int planes, size_t width, int threshold, int div);
+#endif
+template<bool maxThreshold>
+void accumulate_line_sse2(BYTE* c_plane, const BYTE** planeP, int planes, size_t width, int threshold, int div);
+template<bool maxThreshold>
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("ssse3")))
+#endif
+void accumulate_line_ssse3(BYTE* c_plane, const BYTE** planeP, int planes, size_t width, int threshold, int div);
+template<bool maxThreshold, bool lessThan16bit>
+void accumulate_line_16_sse2(BYTE* c_plane, const BYTE** planeP, int planes, size_t rowsize, int threshold, int div, int bits_per_pixel);
+template<bool maxThreshold, bool lessThan16bit>
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
+void accumulate_line_16_sse41(BYTE* c_plane, const BYTE** planeP, int planes, size_t rowsize, int threshold, int div, int bits_per_pixel);
+
+#ifdef X86_32
+int calculate_sad_isse(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
+#endif
 template<bool packedRGB3264>
 int calculate_sad_sse2(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
 template<typename pixel_t, bool packedRGB3264>
 int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
 
-class AdjustFocusV : public GenericVideoFilter
-/**
-  * Class to adjust focus in the vertical direction, helper for sharpen/blue
- **/
-{
-public:
-  AdjustFocusV(double _amount, PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-private:
-  const double amountd;
-  int half_amount;
-};
-
-
-class AdjustFocusH : public GenericVideoFilter
-/**
-  * Class to adjust focus in the horizontal direction, helper for sharpen/blue
- **/
-{
-public:
-  AdjustFocusH(double _amount, PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-private:
-  const double amountd;
-  int half_amount;
-};
-
-AVSValue __cdecl Create_Sharpen(AVSValue args, void*, IScriptEnvironment* env);
-AVSValue __cdecl Create_Blur(AVSValue args, void*, IScriptEnvironment* env);
-
-
-/*** Soften classes ***/
-
-class TemporalSoften : public GenericVideoFilter
-/**
-  * Class to soften the focus on the temporal axis
- **/
-{
-public:
-  TemporalSoften( PClip _child, unsigned radius, unsigned luma_thresh, unsigned chroma_thresh,int _scenechange, IScriptEnvironment* env );
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-private:
-    typedef struct {
-      int planeId;
-      int threshold;
-    } planeInfo;
-    planeInfo planes[4];
-    int scenechange;
-    int pixelsize;
-    int bits_per_pixel;
-
-// YUY2:
-  const unsigned luma_threshold, chroma_threshold;
-  const int kernel;
-
-  enum { MAX_RADIUS=7 };
-};
-
-
-class SpatialSoften : public GenericVideoFilter
-/**
-  * Class to soften the focus on the spatial axis
- **/
-{
-public:
-  SpatialSoften(PClip _child, int _radius, unsigned _luma_threshold, unsigned _chroma_threshold, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-private:
-  const unsigned luma_threshold, chroma_threshold;
-  const int diameter;
-
-};
-
-// in focus_avx2.cpp
-void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch, size_t row_size, size_t amount, int bits_per_pixel);
-void af_horizontal_planar_avx2(BYTE* dstp, size_t height, size_t pitch, size_t width, size_t amount);
-void af_vertical_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount);
-void af_vertical_uint16_t_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount);
-
-
-#endif  // __Focus_H__
+#endif  // __Focus_SSE_H__

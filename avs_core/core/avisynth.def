@@ -77,3 +77,43 @@ EXPORTS
   avs_is_yuva
   avs_is_planar_rgb
   avs_is_planar_rgba
+  avs_is_rgb48
+  avs_is_rgb64
+  avs_subframe_planar_a
+  avs_copy_frame_props
+  avs_get_frame_props_ro
+  avs_get_frame_props_rw
+  avs_prop_num_keys
+  avs_prop_get_key
+  avs_prop_num_elements
+  avs_prop_get_type
+  avs_prop_get_int
+  avs_prop_get_float
+  avs_prop_get_data
+  avs_prop_get_data_size
+  avs_prop_get_clip
+  avs_prop_get_frame
+  avs_prop_delete_key
+  avs_prop_set_int
+  avs_prop_set_float
+  avs_prop_set_data
+  avs_prop_set_clip
+  avs_prop_set_frame
+  avs_prop_get_int_array
+  avs_prop_get_float_array
+  avs_prop_set_int_array
+  avs_prop_set_float_array
+  avs_clear_map
+  avs_new_video_frame_p
+  avs_new_video_frame_p_a
+  avs_get_env_property
+  avs_pool_allocate
+  avs_pool_free
+  avs_get_var_try
+  avs_get_var_bool
+  avs_get_var_int
+  avs_get_var_double
+  avs_get_var_string
+  avs_get_var_long
+  avs_is_property_writable
+  avs_make_property_writable

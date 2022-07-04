@@ -76,7 +76,7 @@ class Levels : public GenericVideoFilter
 public:
   Levels(PClip _child, float _in_min, double _gamma, float _in_max, float _out_min, float _out_max, bool _coring, bool _dither,
           IScriptEnvironment* env );
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -150,7 +150,7 @@ public:
                           double rb, double gb, double bb, double ab,
                           double rg, double gg, double bg, double ag,
                           bool _analyze, bool _dither, bool _conditional, const char *_condVarSuffix, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
   ~RGBAdjust();
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
@@ -196,7 +196,7 @@ public:
     double _startHue, double _endHue, double _maxSat, double _minSat, double _interp,
     bool _dither, bool _realcalc, double _dither_strength, IScriptEnvironment* env);
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -251,7 +251,7 @@ class MaskHS : public GenericVideoFilter
 public:
   MaskHS( PClip _child, double _startHue, double _endHue, double _maxSat, double _minSat, bool _coring, bool _realcalc, IScriptEnvironment* env );
 
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

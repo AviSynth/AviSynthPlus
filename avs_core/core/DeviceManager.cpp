@@ -12,6 +12,10 @@
 #include "AVSMap.h"
 #include "parser/scriptparser.h"
 
+#ifndef MINGW_HAS_SECURE_API
+#define sprintf_s sprintf
+#endif
+
 #define ENABLE_CUDA_COMPUTE_STREAM 0
 
 #ifdef ENABLE_CUDA
@@ -373,7 +377,7 @@ public:
     if (mem > 0) {
       uint64_t requested = mem * 1048576ull;
       uint64_t mem_limit = prop.totalGlobalMem;
-      memory_max = clamp(requested, 64 * 1024 * 1024ull, mem_limit - 128 * 1024 * 1024ull);
+      memory_max = clamp(requested, (uint64_t)(64 * 1024 * 1024ull), (uint64_t)(mem_limit - 128 * 1024 * 1024ull));
     }
     return (int)(memory_max / 1048576ull);
   }
@@ -1265,10 +1269,11 @@ public:
         return new OnDevice(clip, numPrefetch, (Device*)(void*)env->GetDevice(DEV_TYPE_CPU, 0), env);
       case DEV_TYPE_CUDA:
         return new OnDevice(clip, numPrefetch, (Device*)(void*)env->GetDevice(DEV_TYPE_CUDA, upstreamIndex), env);
+      default:
+        env->ThrowError("Not supported device ...");
+        return AVSValue();
       }
 
-      env->ThrowError("Not supported device ...");
-      return AVSValue();
     }
     else {
       assert(args[0].IsFunction());

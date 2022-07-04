@@ -101,7 +101,7 @@ class ShowFrameNumber : public GenericVideoFilter
 public:
   ShowFrameNumber(PClip _child, bool _scroll, int _offset, int _x, int _y, const char _fontname[], int _size,
 			int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 
@@ -135,7 +135,7 @@ class ShowCRC32 : public GenericVideoFilter
 public:
   ShowCRC32(PClip _child, bool _scroll, int _offset, int _x, int _y, const char _fontname[], int _size,
     int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 
@@ -167,7 +167,7 @@ class ShowSMPTE : public GenericVideoFilter
 public:
   ShowSMPTE(PClip _child, double _rate, const char* _offset, int _offset_f, int _x, int _y, const char _fontname[], int _size,
 			int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   static AVSValue __cdecl CreateSMTPE(AVSValue args, void*, IScriptEnvironment* env);
   static AVSValue __cdecl CreateTime(AVSValue args, void*, IScriptEnvironment* env);
@@ -204,7 +204,7 @@ public:
             const char _fontname[], int _size, int _textcolor, int _halocolor, int _align,
             int _spc, bool _multiline, int _lsp, int _font_width, int _font_angle, bool _interlaced, const char _font_filename[], const bool _utf8, IScriptEnvironment* env);
   virtual ~Subtitle(void);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 
@@ -238,7 +238,7 @@ public:
     const char _fontname[], int _size, int _textcolor, int _halocolor, int _align,
     int _spc, bool _multiline, int _lsp, int _font_width, int _font_angle, bool _interlaced, const char _font_filename[], const bool _utf8, const bool _bold, IScriptEnvironment* env);
   virtual ~SimpleText(void);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 
@@ -251,11 +251,11 @@ private:
   const int x, y, firstframe, lastframe;
   const int size;
   const int lsp;
-  const int font_width, font_angle; // n/a
+  // const int font_width, font_angle; // n/a
   const bool multiline;
-  const bool interlaced; // n/a
+  // const bool interlaced; // n/a
   const int textcolor, halocolor, align;
-  const int spc; // n/a
+  // const int spc; // n/a
   const int halocolor_orig;
   const char* const fontname; // Terminus or info_h
   const char* const text;
@@ -273,8 +273,8 @@ class FilterInfo : public GenericVideoFilter
 public:
   FilterInfo( PClip _child, const char _fontname[], int _size, int _textcolor, int _halocolor, IScriptEnvironment* env);
   virtual ~FilterInfo(void);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 
@@ -309,7 +309,7 @@ public:
   Compare(PClip _child1, PClip _child2, const char* channels, const char *fname, bool _show_graph, IScriptEnvironment* env);
   ~Compare();
   static AVSValue __cdecl Create(AVSValue args, void* , IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -342,6 +342,7 @@ private:
   int framecount;
   int planar_plane;
   int pixelsize;
+  int bits_per_pixel;
   const int text_color, halo_color;
 
 };

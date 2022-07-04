@@ -55,6 +55,8 @@ set(archdetect_c_code "
     #error cmake_ARCH riscv
 #elif defined(__sparc_v9__)
     #error cmake_ARCH sparc
+#elif defined(__mips__)
+    #error cmake_ARCH mips
 #endif
 
 #error cmake_ARCH unknown

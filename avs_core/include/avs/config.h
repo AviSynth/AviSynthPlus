@@ -61,6 +61,8 @@
 #   define RISCV
 #elif defined(__sparc_v9__)
 #   define SPARC
+#elif defined(__mips__)
+#   define MIPS
 #else
 #   error Unsupported CPU architecture.
 #endif
@@ -88,6 +90,11 @@
 #elif defined(__GNUC__)
 #   define GCC
 #   define AVS_FORCEINLINE __attribute__((always_inline)) inline
+#elif defined(__INTEL_COMPILER) || defined(__INTEL_LLVM_COMPILER)
+// Intel C++ Compilers with MSVC command line interface will not appear here rather at _MSC_VER
+#   define AVS_FORCEINLINE inline
+#   undef __forceinline
+#   define __forceinline inline
 #else
 #   error Unsupported compiler.
 #   define AVS_FORCEINLINE inline
@@ -154,6 +161,19 @@
 // thread local variables.
 // Use workaround instead __declspec(thread)
 #define XP_TLS
+#endif
+
+#ifndef MSVC
+// GCC and Clang can be used on big endian systems, MSVC can't.
+#  if __BYTE_ORDER__ == __ORDER_LITTLE_ENDIAN__
+#    define AVS_ENDIANNESS "little"
+#  elif __BYTE_ORDER__ == __ORDER_BIG_ENDIAN__
+#    define AVS_ENDIANNESS "big"
+#  else
+#    define AVS_ENDIANNESS "middle"
+#  endif
+#else
+#define AVS_ENDIANNESS "little"
 #endif
 
 #endif //AVS_CONFIG_H

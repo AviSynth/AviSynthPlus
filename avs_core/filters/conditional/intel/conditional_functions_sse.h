@@ -35,81 +35,9 @@
 
 #include <avisynth.h>
 
-
-class AveragePlane {
-
-public:
-  static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue AvgPlane(AVSValue clip, void* user_data, int plane, int offset, IScriptEnvironment* env);
-};
-
-class ComparePlane {
-
-public:
-  static AVSValue CmpPlane(AVSValue clip, AVSValue clip2, void* user_data, int plane, IScriptEnvironment* env);
-  static AVSValue CmpPlaneSame(AVSValue clip, void* user_data, int offset, int plane, IScriptEnvironment* env);
-
-  static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue Create_prev(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue Create_next(AVSValue args, void* user_data, IScriptEnvironment* env);
-};
-
-
-class MinMaxPlane {
-
-public:
-  static AVSValue MinMax(AVSValue clip, void* user_data, double threshold, int offset, int plane, int mode, IScriptEnvironment* env);
-
-  static AVSValue Create_max(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue Create_min(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue Create_median(AVSValue args, void* user_data, IScriptEnvironment* env);
-  static AVSValue Create_minmax(AVSValue args, void* user_data, IScriptEnvironment* env);
-
-private:
-  enum { MIN = 1, MAX = 2, MEDIAN = 3, MINMAX_DIFFERENCE = 4 };
-
-};
-
-
-class GetProperty {
-public:
-  static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-};
-
-#ifdef NEW_AVSVALUE
-class GetPropertyAsArray {
-public:
-  static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-};
-
-class GetAllProperties {
-public:
-  static AVSValue Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-};
-
+double get_sum_of_pixels_sse2(const uint8_t* srcp, size_t height, size_t width, size_t pitch);
+#ifdef X86_32
+double get_sum_of_pixels_isse(const uint8_t* srcp, size_t height, size_t width, size_t pitch);
+size_t get_sad_isse(const uint8_t* src_ptr, const uint8_t* other_ptr, size_t height, size_t width, size_t src_pitch, size_t other_pitch);
+size_t get_sad_rgb_isse(const uint8_t* src_ptr, const uint8_t* other_ptr, size_t height, size_t width, size_t src_pitch, size_t other_pitch);
 #endif
-
-class GetPropertyDataSize {
-public:
-  static AVSValue Create(AVSValue args, void* , IScriptEnvironment* env);
-};
-
-class GetPropertyType {
-public:
-  static AVSValue Create(AVSValue args, void*, IScriptEnvironment* env);
-};
-
-class GetPropertyNumElements {
-public:
-  static AVSValue Create(AVSValue args, void* , IScriptEnvironment* env);
-};
-
-class GetPropertyNumKeys {
-public:
-  static AVSValue Create(AVSValue args, void*, IScriptEnvironment* env);
-};
-
-class GetPropertyKeyByIndex {
-public:
-  static AVSValue Create(AVSValue args, void*, IScriptEnvironment* env);
-};

@@ -5,6 +5,8 @@ Compiling AviSynth+
 This guide uses a command line-based compilation methodology, because
 it's easier to provide direct instructions for this that can just be copy/pasted.
 
+Later on some other compiling method (CMake GUI, Visual Studio solution) is shown as well with different compilers.
+
 `MSys2 <https://msys2.github.io/>`_ and `7zip <http://www.7-zip.org/>`_ should
 already be installed, and msys2's bin directory should have been added to Windows'
 %PATH% variable.
@@ -19,11 +21,17 @@ already be installed, and msys2's bin directory should have been added to Window
 AviSynth+ prerequisites
 -----------------------
 
+Note that AviSynth+ is not restricted to Windows.
+
 AviSynth+ can be built by a few different compilers:
 
-* Visual Studio 2017 or higher.
+* Visual Studio 2019 or higher. (May work for VS2017)
+  - native msvc or clang-cl
 * Clang 7.0.1 or higher.
-* GCC 8 or higher.
+* GCC 7 or higher.
+* Intel C++ Compiler 2021 (ICX: LLVM based NextGen)
+* Intel C++ Compiler 19.2 (ICL: classic)
+
 
 | Download and install Visual Studio Community:
 | `<https://visualstudio.microsoft.com/downloads/>`_
@@ -160,7 +168,7 @@ one line.  Make sure to copy/paste all of the lines in the command.
 Download the AviSynth+ source:
 ::
 
-    git clone -b MT git://github.com/pinterf/AviSynthPlus.git && \
+    git clone https://github.com/AviSynth/AviSynthPlus && \
     cd AviSynthPlus
 
 Set up the packaging directory for later:
@@ -177,11 +185,29 @@ Now, we can build AviSynth+.
 Using MSBuild
 .............
 
-For 32-bit:
+Note: depending on your Visual Studio 2019 or 2022 version, choose only one cmake build block.
+
+For 32-bit (no XP, SSE2):
 ::
 
-    cmake ../AviSynthPlus -DBUILD_DIRECTSHOWSOURCE:bool=on && \
+    cmake ../AviSynthPlus -G "Visual Studio 17 2022" -A Win32 -DMSVC_CPU_ARCH:string="SSE2" -DBUILD_DIRECTSHOWSOURCE:bool=on && \
+    cmake --build . --config Release -j $(nproc)
 
+    or
+
+    cmake ../AviSynthPlus -G "Visual Studio 16 2019" -A Win32 -DMSVC_CPU_ARCH:string="SSE2" -DBUILD_DIRECTSHOWSOURCE:bool=on && \
+    cmake --build . --config Release -j $(nproc)
+
+
+For 32-bit (XP, SSE):
+::
+
+    cmake ../AviSynthPlus -G "Visual Studio 17 2022" -A Win32 -T "v141_xp" -DMSVC_CPU_ARCH:string="SSE" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on && \
+    cmake --build . --config Release -j $(nproc)
+
+    or
+
+    cmake ../AviSynthPlus -G "Visual Studio 16 2019" -A Win32 -T "v141_xp" -DMSVC_CPU_ARCH:string="SSE" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on && \
     cmake --build . --config Release -j $(nproc)
 
 
@@ -206,12 +232,30 @@ Undo the upx packing on the 32-bit copy of DevIL.dll:
     upx -d ../$AVSDIRNAME/32bit/DevIL.dll
 
 
-For 64-bit:
+For 64-bit (no XP):
 ::
 
-    cmake ../AviSynthPlus -G "Visual Studio 15 2017 Win64" -DBUILD_DIRECTSHOWSOURCE:bool=on && \
-
+    cmake ../AviSynthPlus -G "Visual Studio 17 2022" -A x64 -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on && \
     cmake --build . --config Release -j $(nproc)
+
+    or
+
+    cmake ../AviSynthPlus -G "Visual Studio 16 2019" -A x64 -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on && \
+    cmake --build . --config Release -j $(nproc)
+
+
+
+For 64-bit (XP):
+::
+
+    cmake ../AviSynthPlus -G "Visual Studio 17 2022" -A x64 -T "v141_xp" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on && \
+    cmake --build . --config Release -j $(nproc)
+
+    or
+
+    cmake ../AviSynthPlus -G "Visual Studio 16 2019" -A x64 -T "v141_xp" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on && \
+    cmake --build . --config Release -j $(nproc)
+
 
 Copy the .dlls to the packaging directory:
 ::
@@ -238,6 +282,253 @@ Packaging up everything can be quickly done with 7-zip:
     7z a -mx9 $AVSDIRNAME.7z $AVSDIRNAME
 
 
+Building with Microsoft C++ (cmake command line)
+------------------------------------------------
+
+From CMake GUI:
+~~~~~~~~~~~~~~~
+
+1. Delete Cache
+2. ``Where is source code`` and ``Where to build binaries``: git project folder e.g. C:/Github/AviSynthPlus
+3. Press Configure
+4. Choose an available generator:
+
+   - `Visual Studio 17 2022` (solution will be generated for VS2022)
+   - `Visual Studio 16 2019` (solution will be generated for VS2019)
+5. Choose optional platform generator: default is `x64` when left empty, `Win32` is another option
+6. When you want XP compatible build, set ``Optional toolset to use (-T option)``:
+
+  - `v141_xp`
+
+  (note: for XP this is only the half of the prerequisites)
+
+7. Fill options, Generate
+8. Open the generated solution with Visual Studio GUI, build/debug
+
+Note: you can't have a solution file containing both x86 and x64 configuration at a time.
+
+Command line
+~~~~~~~~~~~~
+
+Examples (assuming we are in ``avisynth-build`` folder)
+Config (--config parameter) can be Debug, Release, RelWithDebInfo.
+
+**Visual Studio 2022**
+
+
+``msvc_2022_win64_cleanfirst.bat``
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      cmake .. -G "Visual Studio 17 2022" -A x64 -DWINXP_SUPPORT:bool=off -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Release --clean-first
+
+
+``msvc_2022_win64_cuda_plugins_allowed_cleanfirst.bat``
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      cmake .. -G "Visual Studio 17 2022" -A x64 -DENABLE_CUDA:bool=on -DWINXP_SUPPORT:bool=off -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Release --clean-first
+
+``msvc_2022_win32_xp_sse_cleanfirst.bat`` 
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      cmake .. -G "Visual Studio 17 2022" -A Win32 -T "v141_xp" -DMSVC_CPU_ARCH:string="SSE" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Release --clean-first
+
+
+``msvc_2022_win64_xp_cleanfirst.bat``
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      cmake .. -G "Visual Studio 17 2022" -A x64 -T "v141_xp" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Release --clean-first
+
+
+**Visual Studio 2019**
+
+``msvc_win64_cleanfirst.bat``
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      cmake .. -G "Visual Studio 16 2019" -A x64 -DENABLE_CUDA:bool=on -DWINXP_SUPPORT:bool=off -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Release --clean-first
+
+
+``msvc_win32_xp_sse_cleanfirst.bat`` 
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      cmake .. -G "Visual Studio 16 2019" -A Win32 -T "v141_xp" -DMSVC_CPU_ARCH:string="SSE" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Release --clean-first
+
+``msvc_win64_xp_cleanfirst.bat``
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      cmake .. -G "Visual Studio 16 2019" -A x64 -T "v141_xp" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Release --clean-first
+
+
+``msvc_win32_xp_nointel_cleanfirst.bat``
+
+::
+
+    @rem cd avisynth-build
+    del .\CMakeCache.txt
+    cmake .. -G "Visual Studio 16 2019" -A Win32 -T "v141_xp" -DMSVC_CPU_ARCH:string="SSE" -DWINXP_SUPPORT:bool=on -DBUILD_DIRECTSHOWSOURCE:bool=on -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=OFF
+    cmake --build . --config Release --clean-first
+
+
+
+
+
+Building with Intel C++ Compiler ICX or ICL (Windows)
+-----------------------------------------------------
+
+Prerequisites:
+~~~~~~~~~~~~~~
+
+Useful link:
+
+https://www.intel.com/content/www/us/en/developer/articles/news/free-intel-software-developer-tools.html
+
+We need Intel oneAPI Base Kit and optionally oneAPI HPC Toolkit
+
+- Download Intel® oneAPI DPC++/C++ Compiler
+
+  - https://www.intel.com/content/www/us/en/developer/tools/oneapi/toolkits.html#base-kit
+  - Includes C++ 2021.4 (we need Intel C++ 2021; DPC++ is not suitable for Avisynth+)
+  - Save disk space: No Python, No Math kernel Library, No Video Processing, No Deep Neural
+
+- Download component for C++
+
+  - https://www.intel.com/content/www/us/en/developer/tools/oneapi/toolkits.html#hpc-kit
+  - Intel® oneAPI HPC Toolkit for Windows*
+  - Why: Intel® C++ Compiler Classic
+  - Choose Custom Installation (Fortran support not needed)
+
+Howto: https://www.intel.com/content/www/us/en/developer/articles/technical/using-oneapi-compilers-with-cmake-in-visual-studio.html
+
+Choose "Intel(R) oneAPI DPC++ Compiler", there are two flavours (DPCPP is not compatible with Avisynth)
+
+- Intel® NextGen Compiler (in base kit, LLVM based)
+
+  TOOLSET = "Intel C++ Compiler 2021", COMPILER EXE NAME = icx.exe
+
+- Intel® Classic Compiler (in extra HPC kit)
+
+  TOOLSET = "Intel C++ Compiler 19.2", COMPILER EXE NAME = icl.exe
+
+Once installed first one or both, check some files.
+
+There are CMake support files (info from: c:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\latest\\windows\\cmake\\SYCL\\)
+
+Copy
+
+  c:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\latest\\windows\\cmake\\SYCL\\FindIntelDPCPP.cmake
+
+to
+
+  c:\\Program Files\\CMake\\share\\cmake-3.20\\Modules\\
+
+Note: Intel C++ Compilers need Cmake 3.20 as a minimum.
+
+From CMake GUI:
+~~~~~~~~~~~~~~~
+
+1. Delete Cache
+2. ``Where is source code`` and ``Where to build binaries``: git project folder e.g. C:/Github/AviSynthPlus
+3. Press Configure
+4. Choose an available generator:
+   - `Visual Studio 17 2022` (solution will be generated for VS2022)
+   - `Visual Studio 16 2019` (solution will be generated for VS2019)
+5. Choose optional platform generator: default is `x64` when left empty, `Win32` is another option
+6. Set ``Optional toolset to use (-T option)``:
+
+  - For LLVM based icx: `Intel C++ Compiler 2021`
+  - For classic 19.2 icl: `Intel C++ Compiler 19.2`
+
+7. Specify native compilers (checkbox): browse for the appropriate compiler executable path.
+
+  - icx: C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\latest\\windows\\bin\\icx.exe
+  - icl: C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\latest\\windows\\bin\\intel64\\icl.exe
+
+If you have errors like ``xilink: : error : Assertion failed (shared/driver/drvutils.c, line 312`` then
+as a workaround you must copy clang.exe (by default it is located in C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\latest\\windows\\bin)
+to the folder beside xilink (for x64 configuration it is in C:\\Program Files (x86)\\Intel\\oneAPI\\compiler\\latest\\windows\\bin\\intel64).
+
+Successful log looks like:
+
+::
+
+      The CXX compiler identification is IntelLLVM 2021.4.0 with MSVC-like command-line
+      Check for working CXX compiler: C:/Program Files (x86)/Intel/oneAPI/compiler/2021.4.0/windows/bin/icx.exe
+
+or
+
+::
+
+      The CXX compiler identification is Intel 2021.4.0.20210910
+      Check for working CXX compiler: C:/Program Files (x86)/Intel/oneAPI/compiler/2021.4.0/windows/bin/intel64/icl.exe
+
+8. Fill options, Generate
+9. Open the generated solution with Visual Studio GUI, build/debug
+
+
+Command line
+~~~~~~~~~~~~
+
+Examples (assuming we are in ``avisynth-build`` folder). Config can be Debug, Release, RelWithDebInfo.
+
+``x_icl_cleanfirst.bat`` 
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      C:\Program Files (x86)\Intel\oneAPI\setvars.bat
+      cmake ../ -T "Intel C++ Compiler 19.2" -DCMAKE_CXX_COMPILER="icl.exe" -DBUILD_DIRECTSHOWSOURCE:bool=off -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Debug --clean-first
+
+``x_icx_cleanfirst.bat``
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      C:\Program Files (x86)\Intel\oneAPI\setvars.bat
+      cmake ../ -T "Intel C++ Compiler 2021" -DCMAKE_CXX_COMPILER="icx.exe" -DBUILD_DIRECTSHOWSOURCE:bool=off -DENABLE_PLUGINS:bool=on -DENABLE_INTEL_SIMD:bool=ON
+      cmake --build . --config Debug --clean-first
+
+``x_icx_cleanfirst_no_simd.bat``
+This one will build only Avisynth.dll, no external plugins, plain C code (no SIMD)
+
+::
+
+      @rem cd avisynth-build
+      del .\CMakeCache.txt
+      C:\Program Files (x86)\Intel\oneAPI\setvars.bat
+      cmake ../ -T "Intel C++ Compiler 2021" -DCMAKE_CXX_COMPILER="icx.exe" -DBUILD_DIRECTSHOWSOURCE:bool=off -DENABLE_PLUGINS:bool=OFF -DENABLE_INTEL_SIMD:bool=OFF
+      cmake --build . --config Debug --clean-first
+
+
 Building with Clang
 -------------------
 
@@ -246,24 +537,31 @@ Command line: todo
 Using Cmake GUI:
 ~~~~~~~~~~~~~~~~
 
-1) Delete Cache
-2) Choose optional platform generator (Win32 or x64)
-3) Configure.
+1. Delete Cache
+2. ``Where is source code`` and ``Where to build binaries``: git project folder e.g. C:/Github/AviSynthPlus
+3. Press Configure
+4. Choose generator:
 
-Specify optional toolset to use (-T) for Cmake:
+   - `Visual Studio 17 2022` (solution will be generated for VS2022)
+   - `Visual Studio 16 2019` (solution will be generated for VS2019)
+5. Choose optional platform generator: default is `x64` when left empty, `Win32` is another option
+6. Set ``Optional toolset to use (-T option)``:
 
-A) When you have installed LLVM separately, specify "llvm" or "LLVM" as platform toolset.
-B) Since Visual Studio 2019 16.4, Clang-cl 9.0 is embedded in VS. For using that, set "ClangCL" for platform toolset.
+  Type ``llvm`` or ``clangcl``
 
-::
+  clangcl (Clang-cl) comes with Visual Studio.
+  
+  for native LLVM you may need to specify native compilers (checkbox): browse for the appropriate compiler executable path.
 
-    How to install VS support (as it appears in VS2019 16.4):
+Hint: How to install Clang-cl in Visual Studio: as it appears in VS2019/2022:
+
     Tools|Get Tools and Features|Add Individual Components|Compilers, build tools, and runtimes
+    
         [X] C++ Clang compiler for Windows
-        [X] C++ Clang-cl for v142 build tools (x64/x86)
+        [X] C++ Clang-cl for v142/v143 build tools (x64/x86)
 
-4) Fill options, Generate
-5) Open the generated solution with Visual Studio GUI, build/debug
+7. Fill options, Generate
+8. Open the generated solution with Visual Studio GUI, build/debug
 
 
 Building with GCC
@@ -284,7 +582,7 @@ Grab the AviSynth+ source code:
 ::
 
     cd $HOME && \
-    git clone -b MT git://github.com/pinterf/AviSynthPlus.git && \
+    git clone https://github.com/AviSynth/AviSynthPlus && \
     cd AviSynthPlus && \
     mkdir -p avisynth-build/i686 avisynth-build/amd64
 
@@ -340,7 +638,7 @@ The full instructions for that are contained in the first section of
 Download the source code and prepare the build directories:
 ::
 
-    git clone -b MT git://github.com/pinterf/AviSynthPlus.git && \
+    git clone https://github.com/AviSynth/AviSynthPlus && \
     cd AviSynthPlus && \
     mkdir -p avisynth-build/i686 avisynth-build/amd64 && \
     AVSDIRNAME=avisynth+-gcc_r$(git rev-list --count HEAD)-g$(git rev-parse --short HEAD)-$(date --rfc-3339=date | sed 's/-//g') && \
@@ -379,4 +677,4 @@ Packaging:
 
 Back to the :doc:`main page <../../index>`
 
-$ Date: 2019-04-11 21:48:49 -04:00 $
+$ Date: 2021-12-08 12:12:00 +01:00 $

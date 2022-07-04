@@ -55,6 +55,15 @@
 *          implement 'clip' three operand operator like in masktools2: x minvalue maxvalue clip -> max(min(x, maxvalue), minvalue)
 * 20191120 yrange_min, yrange_half, yrange_max, clamp_float_UV param, allow "float_UV" for scale_inputs
 *          yscalef, yscaleb forcing non-chroma rules for scaling even when processing chroma planes
+* 202107xx round, floor, ceil, trunc (acceleration from SSE4.1 and up)
+*          arbitrary variable names; instead of 'A' to 'Z', up to 256 of them can be used
+* 20210924 frame property access clip.framePropName syntax after VSAkarin idea (no array access yet)
+*          sin and cos as SIMD (VSAkarin, port from VS)
+* 20211116 neg
+* 20211117 atan2 as SIMD
+* 20211118 sgn
+* 20211127 lutx, lutxy (lut=1 and 2)
+* 20211128 allow f32 for 'scale_inputs' when "int", "intf", "all", "allf"
 *
 * Differences from masktools 2.2.15
 * ---------------------------------
@@ -90,6 +99,7 @@
 #include <stdlib.h>
 #include "../../core/internal.h"
 #include "../../convert/convert_planar.h" // fill_plane
+#include "../../convert/convert_helper.h"
 #include "avs/alignment.h"
 
 #if (defined(_WIN64) && (defined(_M_AMD64) || defined(_M_X64))) || defined(__x86_64__)
@@ -124,6 +134,13 @@
 #if defined(GCC) || defined(CLANG)
 #include <avxintrin.h>
 #endif
+
+// rounder constants
+constexpr int FROUND_TO_NEAREST_INT = 0x00;
+constexpr int FROUND_TO_NEG_INF = 0x01;
+constexpr int FROUND_TO_POS_INF = 0x02;
+constexpr int FROUND_TO_ZERO = 0x03;
+constexpr int FROUND_NO_EXC = 0x08;
 
 // normal versions work with two xmm or ymm registers (2*4 or 2*8 pixels per cycle)
 // _Single suffixed versions work only one xmm or ymm registers at a time (1*4 or 1*8 pixels per cycle)
@@ -257,13 +274,19 @@ stack1.push_back(t1);
 
 enum {
     elabsmask, elc7F, elmin_norm_pos, elinv_mant_mask,
-    elfloat_one, elfloat_half, elstore8, elstore10, elstore12, elstore14, elstore16,
+    elfloat_one, elfloat_minusone, elfloat_half, elsignmask, elstore8, elstore10, elstore12, elstore14, elstore16,
     spatialX, spatialX2,
     loadmask1000, loadmask1100, loadmask1110,
     elShuffleForRight0, elShuffleForRight1, elShuffleForRight2, elShuffleForRight3, elShuffleForRight4, elShuffleForRight5, elShuffleForRight6,
     elShuffleForLeft0, elShuffleForLeft1, elShuffleForLeft2, elShuffleForLeft3, elShuffleForLeft4, elShuffleForLeft5, elShuffleForLeft6,
-    elexp_hi, elexp_lo, elcephes_LOG2EF, elcephes_exp_C1, elcephes_exp_C2, elcephes_exp_p0, elcephes_exp_p1, elcephes_exp_p2, elcephes_exp_p3, elcephes_exp_p4, elcephes_exp_p5, elcephes_SQRTHF,
-    elcephes_log_p0, elcephes_log_p1, elcephes_log_p2, elcephes_log_p3, elcephes_log_p4, elcephes_log_p5, elcephes_log_p6, elcephes_log_p7, elcephes_log_p8, elcephes_log_q1 = elcephes_exp_C2, elcephes_log_q2 = elcephes_exp_C1
+    elexp_hi, elexp_lo, elcephes_LOG2EF,
+    elcephes_exp_C1, elcephes_log_q2 = elcephes_exp_C1, elcephes_exp_C2, elcephes_log_q1 = elcephes_exp_C2, elcephes_exp_p0, elcephes_exp_p1, elcephes_exp_p2, elcephes_exp_p3, elcephes_exp_p4, elcephes_exp_p5, elcephes_SQRTHF,
+    elcephes_log_p0, elcephes_log_p1, elcephes_log_p2, elcephes_log_p3, elcephes_log_p4, elcephes_log_p5, elcephes_log_p6, elcephes_log_p7, elcephes_log_p8,
+    float_invpi, float_rintf,
+    float_pi1, float_pi2, float_pi3, float_pi4,
+    float_sinC3, float_sinC5, float_sinC7, float_sinC9,
+    float_cosC2, float_cosC4, float_cosC6, float_cosC8,
+    float_atan2f_rmul, float_atan2f_radd, float_atan2f_tmul, float_atan2f_tadd, float_atan2f_halfpi, float_atan2f_pi
 };
 
 // constants for xmm
@@ -276,13 +299,15 @@ enum {
   { (int)MAKEDWORD(a0,a1,a2,a3), (int)MAKEDWORD(a4,a5,a6,a7), (int)MAKEDWORD(a8,a9,a10,a11), (int)MAKEDWORD(a12,a13,a14,a15) }
 
 
-alignas(16) static const FloatIntUnion logexpconst[][4] = {
+static constexpr ExprUnion logexpconst alignas(16)[73][4] = {
     XCONST(0x7FFFFFFF), // absmask
     XCONST(0x7F), // c7F
     XCONST(0x00800000), // min_norm_pos
     XCONST(~0x7f800000), // inv_mant_mask
     XCONST(1.0f), // float_one
+    XCONST(-1.0f), // float_minusone
     XCONST(0.5f), // float_half
+    XCONST(0x80000000), // elsignmask
     XCONST(255.0f), // store8
     XCONST(1023.0f), // store10 (avs+)
     XCONST(4095.0f), // store12 (avs+)
@@ -327,7 +352,27 @@ alignas(16) static const FloatIntUnion logexpconst[][4] = {
     XCONST(-1.6668057665E-1f), // cephes_log_p5
     XCONST(+2.0000714765E-1f), // cephes_log_p6
     XCONST(-2.4999993993E-1f), // cephes_log_p7
-    XCONST(+3.3333331174E-1f) // cephes_log_p8
+    XCONST(+3.3333331174E-1f), // cephes_log_p8
+    XCONST(0x3ea2f983), // float_invpi, 1/pi
+    XCONST(0x4b400000), // float_rintf
+    XCONST(0x40490000), // float_pi1
+    XCONST(0x3a7da000), // float_pi2
+    XCONST(0x34222000), // float_pi3
+    XCONST(0x2cb4611a), // float_pi4
+    XCONST(0xbe2aaaa6), // float_sinC3
+    XCONST(0x3c08876a), // float_sinC5
+    XCONST(0xb94fb7ff), // float_sinC7
+    XCONST(0x362edef8), // float_sinC9
+    XCONST(static_cast<int32_t>(0xBEFFFFE2)), // float_cosC2
+    XCONST(0x3D2AA73C), // float_cosC4
+    XCONST(static_cast<int32_t>(0XBAB58D50)), // float_cosC6
+    XCONST(0x37C1AD76), // float_cosC8
+    XCONST(0x3ccb7dda), // float_atan2f_rmul 0.024840285f
+    XCONST(0x3e3f4c37), // float_atan2f_radd 0.18681418f
+    XCONST(0xbdc0b66d), // float_atan2f_tmul -0.094097948f
+    XCONST(0xbeaa0d0a), // float_atan2f_tadd -0.33213072f
+    XCONST(0x3fc90fdb), // float_atan2f_halfpi 1.57079637f
+    XCONST(0x40490fdb), // float_atan2f_pi 3.14159274f
 };
 
 
@@ -339,13 +384,15 @@ alignas(16) static const FloatIntUnion logexpconst[][4] = {
 #undef XCONST
 #define XCONST(x) { x, x, x, x, x, x, x, x }
 
-alignas(32) static const FloatIntUnion logexpconst_avx[][8] = {
+static constexpr ExprUnion logexpconst_avx alignas(32)[73][8] = {
   XCONST(0x7FFFFFFF), // absmask
   XCONST(0x7F), // c7F
   XCONST(0x00800000), // min_norm_pos
   XCONST(~0x7f800000), // inv_mant_mask
   XCONST(1.0f), // float_one
+  XCONST(-1.0f), // float_minusone
   XCONST(0.5f), // float_half
+  XCONST(0x80000000), // elsignmask
   XCONST(255.0f), // store8
   XCONST(1023.0f), // store10 (avs+)
   XCONST(4095.0f), // store12 (avs+)
@@ -390,8 +437,29 @@ alignas(32) static const FloatIntUnion logexpconst_avx[][8] = {
   XCONST(-1.6668057665E-1f), // cephes_log_p5
   XCONST(+2.0000714765E-1f), // cephes_log_p6
   XCONST(-2.4999993993E-1f), // cephes_log_p7
-  XCONST(+3.3333331174E-1f) // cephes_log_p8
+  XCONST(+3.3333331174E-1f), // cephes_log_p8
+  XCONST(0x3ea2f983), // float_invpi, 1/pi
+  XCONST(0x4b400000), // float_rintf
+  XCONST(0x40490000), // float_pi1
+  XCONST(0x3a7da000), // float_pi2
+  XCONST(0x34222000), // float_pi3
+  XCONST(0x2cb4611a), // float_pi4
+  XCONST(0xbe2aaaa6), // float_sinC3
+  XCONST(0x3c08876a), // float_sinC5
+  XCONST(0xb94fb7ff), // float_sinC7
+  XCONST(0x362edef8), // float_sinC9
+  XCONST(static_cast<int32_t>(0xBEFFFFE2)), // float_cosC2
+  XCONST(0x3D2AA73C), // float_cosC4
+  XCONST(static_cast<int32_t>(0XBAB58D50)), // float_cosC6
+  XCONST(0x37C1AD76), // float_cosC8 
+  XCONST(0x3ccb7dda), // float_atan2f_rmul 0.024840285f
+  XCONST(0x3e3f4c37), // float_atan2f_radd 0.18681418f
+  XCONST(0xbdc0b66d), // float_atan2f_tmul -0.094097948f
+  XCONST(0xbeaa0d0a), // float_atan2f_tadd -0.33213072f
+  XCONST(0x3fc90fdb), // float_atan2f_halfpi 1.57079637f
+  XCONST(0x40490fdb) // float_atan2f_pi 3.14159274f
 };
+#undef XCONST
 
 #define CPTR_AVX(x) (ymmword_ptr[constptr + (x) * 32])
 
@@ -550,6 +618,350 @@ vaddps(x, x, y); \
 vfmadd231ps(x, emm0, CPTR_AVX(elcephes_log_q2)); \
 vorps(x, x, invalid_mask); }
 
+// Note: VS Expr changed a lot since ported to Avisynth, 
+// Here we are using their VEX macros for easy port of new sin and cos
+// however we do not support VEX encoding or FMA3 in xmm register mode
+// Note: VEX2 cmpltps -> vcmpltps does not work so we uncomment v##op parts as well (comparisons changed in vex)
+#define VEX1(op, arg1, arg2) \
+do { \
+  if constexpr(false /*cpuFlags & CPUF_AVX*/) \
+    /*v##op(arg1, arg2)*/; \
+  else \
+    op(arg1, arg2); \
+} while (0)
+#define VEX1IMM(op, arg1, arg2, imm) \
+do { \
+  if constexpr(false /*cpuFlags & CPUF_AVX*/) { \
+    /*v##op(arg1, arg2, imm)*/; \
+  } else if (arg1 == arg2) { \
+    op(arg2, imm); \
+  } else { \
+    movdqa(arg1, arg2); \
+    op(arg1, imm); \
+  } \
+} while (0)
+#define VEX2(op, arg1, arg2, arg3) \
+do { \
+  if constexpr(false /*cpuFlags & CPUF_AVX*/) { \
+    /*v##op(arg1, arg2, arg3)*/; \
+  } else if (arg1 == arg2) { \
+    op(arg2, arg3); \
+  } else if (arg1 != arg3) { \
+    movdqa(arg1, arg2); \
+    op(arg1, arg3); \
+  } else { \
+    XmmReg tmp; \
+    movdqa(tmp, arg2); \
+    op(tmp, arg3); \
+    movdqa(arg1, tmp); \
+  } \
+} while (0)
+#define VEX2IMM(op, arg1, arg2, arg3, imm) \
+do { \
+  if constexpr(false/*cpuFlags & CPUF_AVX*/) { \
+    /*v##op(arg1, arg2, arg3, imm)*/; \
+  } else if (arg1 == arg2) { \
+    op(arg2, arg3, imm); \
+  } else if (arg1 != arg3) { \
+    movdqa(arg1, arg2); \
+    op(arg1, arg3, imm); \
+  } else { \
+    XmmReg tmp; \
+    movdqa(tmp, arg2); \
+    op(tmp, arg3, imm); \
+    movdqa(arg1, tmp); \
+  } \
+} while (0)
+
+// atan2: based on https://stackoverflow.com/questions/46210708/atan2-approximation-with-11bits-in-mantissa-on-x86with-sse2-and-armwith-vfpv4?noredirect=1&lq=1
+#if 0
+float fast_atan2f(float y, float x)
+{
+  // max rel err = 3.53486939e-5
+  const float atan2f_rmul = 0.024840285f;
+  const float atan2f_radd = 0.18681418f;
+  const float atan2f_tmul = -0.094097948f;
+  const float atan2f_tadd = -0.33213072f;
+  const float atan2f_halfpi = 1.57079637f;
+  const float atan2f_pi = 3.14159274f;
+
+  float a, r, s, t, c, q, ax, ay, mx, mn;
+  ax = fabsf(x);
+  ay = fabsf(y);
+
+  mx = fmaxf(ay, ax);
+  mn = fminf(ay, ax);
+  a = mn / mx;
+  // Minimax polynomial approximation to atan(a) on [0,1]
+  s = a * a;
+  c = s * a;
+  q = s * s;
+  r = atan2f_rmul * q + atan2f_radd;
+  t = atan2f_tmul * q + atan2f_tadd;
+  r = r * s + t;
+  r = r * c + a;
+  // Map to full circle
+  if (ay > ax) r = atan2f_halfpi - r;
+  if (x < 0) r = atan2f_pi - r;
+  if (y < 0) r = -r;
+  return r;
+}
+#endif
+
+// atan2(0, 0) = 0
+// ~speed: "y x atan2" C/SSE2/AVX2:52/480/1000 fps
+#define ATAN2_PS(x0 /*y*/, /*x*/x1) { \
+XmmReg x2, x3, x4, x5, x6, x7, x8; \
+/*VEX1(movaps, x1, x);*/ \
+/*VEX1(movaps, x0, y);*/ \
+/* Remove sign */ \
+VEX1(movaps, x3, CPTR(elabsmask)); \
+VEX1(movaps, x2, x1); \
+VEX2(andps, x2, x2, x3); /* ax = fabsf (x); */ \
+VEX2(andps, x3, x3, x0); /* ay = fabsf (y); */ \
+VEX1(movaps, x4, x3); \
+VEX2(maxps, x4, x4, x2); /* mx = fmaxf (ay, ax); */ \
+VEX1(movaps, x5, x3); \
+VEX2(minps, x5, x5, x2); /* fminf (ay, ax); */ \
+VEX2(divps, x5, x5, x4); /* a = mn / mx; */ \
+VEX1(movaps, x4, x5); \
+VEX2(mulps, x4, x4, x5); /* s = a * a; */ \
+VEX1(movaps, x6, x4); \
+VEX2(mulps, x6, x6, x4); /* q = s * s; */ \
+VEX1(movaps, x7, CPTR(float_atan2f_rmul)); \
+VEX2(mulps, x7, x7, x6); /* r = atan2f_rmul * q (+ atan2f_radd) */ \
+VEX2(addps, x7, x7, CPTR(float_atan2f_radd)); /* r = (atan2f_rmul * q) + atan2f_radd; */ \
+VEX2(mulps, x7, x7, x4); /* r = r * s (+ t) */ \
+VEX2(mulps, x4, x4, x5); /* c = s * a; */ \
+VEX2(mulps, x6, x6, CPTR(float_atan2f_tmul)); /* t = atan2f_tmul * q (+ atan2f_tadd) */ \
+VEX2(addps, x6, x6, CPTR(float_atan2f_tadd)); /* t = (atan2f_tmul * q) + atan2f_tadd; */ \
+VEX2(addps, x7, x7, x6); /* r = (r * s) + t; */ \
+VEX2(mulps, x7, x7, x4); /* r = r * c (+ a) */ \
+VEX2(addps, x7, x7, x5); /* r = (r * c) + a */ \
+/* Map to full circle */ \
+/* if (ay > ax) r = atan2f_halfpi - r; */ \
+/* if (x < 0) r = atan2f_pi - r; */ \
+/* if (y < 0) r = -r; */ \
+/* r = atan2f_halfpi - r */ \
+VEX1(movaps, x4, CPTR(float_atan2f_halfpi)); \
+VEX2(subps, x4, x4, x7); /* r = atan2f_halfpi - r */ \
+VEX2(cmpltps, x2, x2, x3); /* if (ay > ax) */ \
+/* blend */ \
+VEX1(movaps, x3, x2); \
+VEX2(andnps, x3, x3, x7); \
+VEX2(andps, x2, x2, x4); \
+VEX2(orps, x2, x2, x3); \
+/* r = atan2f_pi - r; */ \
+VEX1(movaps, x3, CPTR(float_atan2f_pi)); \
+VEX2(subps, x3, x3, x2); /* r = atan2f_pi - r */ \
+/* if (x < 0) */ \
+VEX2(xorps, x4, x4, x4); /* zero */ \
+VEX2(cmpltps, x1, x1, x4); /* if (x < 0) */ \
+/* blend */ \
+VEX1(movaps, x5, x1); \
+VEX2(andnps, x5, x5, x2); \
+VEX2(andps, x1, x1, x3); \
+VEX2(orps, x1, x1, x5); \
+/* r = -r; */ \
+VEX1(movaps, x2, CPTR(elsignmask)); \
+VEX2(subps, x2, x2, x1); /* r = -r */ \
+/* if (y < 0) */ \
+VEX2(cmpltps, x0, x0, x4); /* if (y < 0) */ \
+/* blend */ \
+VEX1(movaps, x3, x0); \
+VEX2(andnps, x3, x3, x1); \
+VEX2(andps, x0, x0, x2); \
+VEX2(orps, x0, x0, x3); \
+/* extra check when 0,0 given -> convert NaN to 0 */ \
+VEX1(movaps, x3, x0); \
+VEX2(cmpordps, x3, x3, x3);/* find NaNs. 0: NaN in either. FFFF: both non-Nan */ \
+/* mask NaN to zero */ \
+VEX2(andps, x0, x0, x3); \
+/* return value in y */ \
+/* input was "x0 for y */ \
+}
+
+#define ATAN2_PS_AVX(x0 /*y*/, x1 /*x*/) { \
+YmmReg x2, x3, x4, x5, x6, x7, x8; \
+/* Remove sign */ \
+/* vmovaps(x1, x); */ \
+/* vmovaps(x0, y); */ \
+vmovaps(x2, CPTR_AVX(elabsmask)); \
+vandps(x8, x1, x2); /* ax = fabsf (x); */ \
+vandps(x2, x0, x2); /* ay = fabsf (y); */ \
+vmaxps(x4, x8, x2); /* mx = fmaxf (ay, ax); */ \
+vminps(x5, x8, x2); /* fminf (ay, ax); */ \
+vdivps(x4, x5, x4); /* a = mn / mx; */ \
+vmulps(x5, x4, x4); /* s = a * a; */ \
+vmulps(x6, x5, x5); /* q = s * s; */ \
+vmovaps(x7, CPTR_AVX(float_atan2f_rmul)); \
+vmovaps(x3, CPTR_AVX(float_atan2f_radd)); \
+vfmadd213ps(x7, x6, CPTR_AVX(float_atan2f_radd)); /* r = atan2f_rmul * q + atan2f_radd; */ \
+vmovaps(x3, CPTR_AVX(float_atan2f_tmul)); \
+vfmadd213ps(x3, x6, CPTR_AVX(float_atan2f_tadd)); /* t = atan2f_tmul * q + atan2f_tadd */ \
+vmulps(x6, x5, x4); \
+vfmadd231ps(x3, x5, x7); /* r = r * s + t; */ \
+vfmadd213ps(x3, x6, x4); /* r = (r * c) + a */ \
+/* Map to full circle */ \
+/* if (ay > ax) r = atan2f_halfpi - r; */ \
+/* if (x < 0) r = atan2f_pi - r; */ \
+/* if (y < 0) r = -r; */ \
+/* r = atan2f_pi - r */ \
+vmovaps(x4, CPTR_AVX(float_atan2f_halfpi)); \
+vsubps(x4, x4, x3); /* r = atan2f_halfpi - r */ \
+vcmpps(x2, x8, x2, _CMP_LT_OQ); /*vcmpltps(x2, x8, x2);*/ /* if (ay > ax) */ \
+vblendvps(x2, x3, x4, x2); \
+vmovaps(x3, CPTR_AVX(float_atan2f_pi)); \
+vsubps(x3, x3, x2); /* r = atan2f_pi - r */ \
+vxorps(x4, x4, x4); \
+vcmpps(x1, x1, x4, _CMP_LT_OQ); /* vcmpltps(x1, x1, x4); */ /* if (x < 0) */ \
+vblendvps(x1, x2, x3, x1); \
+vmovaps(x2, CPTR_AVX(elsignmask)); \
+vxorps(x2, x1, x2); /* r = -r */ \
+vcmpps(x0, x0, x4, _CMP_LT_OQ); /* vcmpltps(x0, x0, x4); */ /* if (y < 0) */ \
+vblendvps(x0, x1, x2, x0); \
+/* extra check when 0,0 given -> convert NaN to 0 */ \
+vcmpps(x3, x0, x0, _CMP_ORD_Q); /* vcmpordps, x3, x3, x3);*/ /* find NaNs. 0: NaN in either. FFFF: both non-Nan */ \
+/* mask NaN to zero */ \
+vandps(x0, x0, x3); \
+/* return value in y */ \
+/* no need. input was "x0" for y */ \
+}
+
+#define SINCOS_PS(issin, y, x) { \
+XmmReg t1, sign, t2, t3, t4; \
+/* // Remove sign */ \
+VEX1(movaps, t1, CPTR(elabsmask)); \
+if (issin) { \
+  VEX1(movaps, sign, t1); \
+  VEX2(andnps, sign, sign, x); \
+} \
+else { \
+  VEX2(pxor, sign, sign, sign); \
+} \
+VEX2(andps, t1, t1, x); \
+/*// Range reduction*/ \
+VEX1(movaps, t3, CPTR(float_rintf)); \
+VEX2(mulps, t2, t1, CPTR(float_invpi)); \
+VEX2(addps, t2, t2, t3); \
+VEX1IMM(pslld, t4, t2, 31); \
+VEX2(xorps, sign, sign, t4); \
+VEX2(subps, t2, t2, t3); \
+if constexpr(false /*cpuFlags & CPUF_FMA3*/) { \
+  vfnmadd231ps(t1, t2, CPTR(float_pi1)); \
+  vfnmadd231ps(t1, t2, CPTR(float_pi2)); \
+  vfnmadd231ps(t1, t2, CPTR(float_pi3)); \
+  vfnmadd231ps(t1, t2, CPTR(float_pi4)); \
+} \
+else { \
+  VEX2(mulps, t4, t2, CPTR(float_pi1)); \
+  VEX2(subps, t1, t1, t4); \
+  VEX2(mulps, t4, t2, CPTR(float_pi2)); \
+  VEX2(subps, t1, t1, t4); \
+  VEX2(mulps, t4, t2, CPTR(float_pi3)); \
+  VEX2(subps, t1, t1, t4); \
+  VEX2(mulps, t4, t2, CPTR(float_pi4)); \
+  VEX2(subps, t1, t1, t4); \
+} \
+if (issin) { \
+  /* // Evaluate minimax polynomial for sin(x) in [-pi/2, pi/2] interval */ \
+  /* // Y <- X + X * X^2 * (C3 + X^2 * (C5 + X^2 * (C7 + X^2 * C9))) */ \
+  VEX2(mulps, t2, t1, t1); \
+  if constexpr(false /*cpuFlags & CPUF_FMA3*/) { \
+    vmovaps(t3,  CPTR(float_sinC7)); \
+    vfmadd231ps(t3, t2, CPTR(float_sinC9)); \
+    vfmadd213ps(t3, t2, CPTR(float_sinC5)); \
+    vfmadd213ps(t3, t2, CPTR(float_sinC3)); \
+    VEX2(mulps, t3, t3, t2); \
+    vfmadd231ps(t1, t1, t3); \
+  } \
+  else { \
+    VEX2(mulps, t3, t2, CPTR(float_sinC9)); \
+    VEX2(addps, t3, t3, CPTR(float_sinC7)); \
+    VEX2(mulps, t3, t3, t2); \
+    VEX2(addps, t3, t3, CPTR(float_sinC5)); \
+    VEX2(mulps, t3, t3, t2); \
+    VEX2(addps, t3, t3, CPTR(float_sinC3)); \
+    VEX2(mulps, t3, t3, t2); \
+    VEX2(mulps, t3, t3, t1); \
+    VEX2(addps, t1, t1, t3); \
+  } \
+} \
+else { \
+/*  // Evaluate minimax polynomial for cos(x) in [-pi/2, pi/2] interval */ \
+/*  // Y <- 1 + X^2 * (C2 + X^2 * (C4 + X^2 * (C6 + X^2 * C8))) */ \
+  VEX2(mulps, t2, t1, t1); \
+  if constexpr(false /*cpuFlags & CPUF_FMA3*/) { \
+    vmovaps(t1, CPTR(float_cosC6)); \
+    vfmadd231ps(t1, t2, CPTR(float_cosC8)); \
+    vfmadd213ps(t1, t2, CPTR(float_cosC4)); \
+    vfmadd213ps(t1, t2, CPTR(float_cosC2)); \
+    vfmadd213ps(t1, t2, CPTR(elfloat_one)); \
+  } \
+  else { \
+    VEX2(mulps, t1, t2, CPTR(float_cosC8)); \
+    VEX2(addps, t1, t1, CPTR(float_cosC6)); \
+    VEX2(mulps, t1, t1, t2); \
+    VEX2(addps, t1, t1, CPTR(float_cosC4)); \
+    VEX2(mulps, t1, t1, t2); \
+    VEX2(addps, t1, t1, CPTR(float_cosC2)); \
+    VEX2(mulps, t1, t1, t2); \
+    VEX2(addps, t1, t1, CPTR(elfloat_one)); \
+  } \
+} \
+/*// Apply sign */ \
+VEX2(xorps, y, t1, sign); \
+}
+
+// y dst x src
+#define SINCOS_PS_AVX(issin, y, x) { \
+YmmReg t1, sign, t2, t3, t4; \
+/* // Remove sign */ \
+vmovaps(t1, CPTR_AVX(elabsmask)); \
+if (issin) { \
+  vmovaps(sign, t1); \
+  vandnps(sign, sign, x); \
+} \
+else { \
+  vxorps(sign, sign, sign); \
+} \
+vandps(t1, t1, x); \
+/*// Range reduction*/ \
+vmovaps(t3, CPTR_AVX(float_rintf)); \
+vmulps(t2, t1, CPTR_AVX(float_invpi)); \
+vaddps(t2, t2, t3); \
+vpslld(t4, t2, 31); \
+vxorps(sign, sign, t4); \
+vsubps(t2, t2, t3); \
+vfnmadd231ps(t1, t2, CPTR_AVX(float_pi1)); \
+vfnmadd231ps(t1, t2, CPTR_AVX(float_pi2)); \
+vfnmadd231ps(t1, t2, CPTR_AVX(float_pi3)); \
+vfnmadd231ps(t1, t2, CPTR_AVX(float_pi4)); \
+if (issin) { \
+  /* // Evaluate minimax polynomial for sin(x) in [-pi/2, pi/2] interval */ \
+  /* // Y <- X + X * X^2 * (C3 + X^2 * (C5 + X^2 * (C7 + X^2 * C9))) */ \
+  vmulps(t2, t1, t1); \
+  vmovaps(t3,  CPTR_AVX(float_sinC7)); \
+  vfmadd231ps(t3, t2, CPTR_AVX(float_sinC9)); \
+  vfmadd213ps(t3, t2, CPTR_AVX(float_sinC5)); \
+  vfmadd213ps(t3, t2, CPTR_AVX(float_sinC3)); \
+  vmulps(t3, t3, t2); \
+  vfmadd231ps(t1, t1, t3); \
+} \
+else { \
+/*  // Evaluate minimax polynomial for cos(x) in [-pi/2, pi/2] interval */ \
+/*  // Y <- 1 + X^2 * (C2 + X^2 * (C4 + X^2 * (C6 + X^2 * C8))) */ \
+  vmulps(t2, t1, t1); \
+  vmovaps(t1, CPTR_AVX(float_cosC6)); \
+  vfmadd231ps(t1, t2, CPTR_AVX(float_cosC8)); \
+  vfmadd213ps(t1, t2, CPTR_AVX(float_cosC4)); \
+  vfmadd213ps(t1, t2, CPTR_AVX(float_cosC2)); \
+  vfmadd213ps(t1, t2, CPTR_AVX(elfloat_one)); \
+} \
+/*// Apply sign */ \
+vxorps(y, t1, sign); \
+}
+
 // return (x - std::round(x / d)*d);
 #define FMOD_PS(x, d) { \
 XmmReg aTmp; \
@@ -653,6 +1065,21 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
         else {
           XmmReg r1, r2;
           movd(r1, dword_ptr[regptrs + sizeof(void *) * (iter.e.ival + RWPTR_START_OF_INTERNAL_VARIABLES)]);
+          shufps(r1, r1, 0);
+          movaps(r2, r1);
+          stack.push_back(std::make_pair(r1, r2));
+        }
+      }
+      else if (iter.op == opLoadFramePropVar) {
+        if (processSingle) {
+          XmmReg r1;
+          movd(r1, dword_ptr[regptrs + sizeof(void*) * (iter.e.ival + RWPTR_START_OF_INTERNAL_FRAMEPROP_VARIABLES)]);
+          shufps(r1, r1, 0);
+          stack1.push_back(r1);
+        }
+        else {
+          XmmReg r1, r2;
+          movd(r1, dword_ptr[regptrs + sizeof(void*) * (iter.e.ival + RWPTR_START_OF_INTERNAL_FRAMEPROP_VARIABLES)]);
           shufps(r1, r1, 0);
           movaps(r2, r1);
           stack.push_back(std::make_pair(r1, r2));
@@ -1848,16 +2275,18 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
       //  1.5   2   2
       //  2.5   3   2
       //  3.5   4   4
+      // 3.7.1test27: no more banker's rounding. Using cvttps and +0.5f
       else if (iter.op == opStore8) {
         if (processSingle) {
           auto t1 = stack1.back();
           stack1.pop_back();
           XmmReg r1;
           Reg a;
+          addps(t1, CPTR(elfloat_half)); // rounder for truncate! no banker's rounding
           maxps(t1, zero);
           minps(t1, CPTR(elstore8));
           mov(a, ptr[regptrs]);
-          cvtps2dq(t1, t1);    // 00 w3 00 w2 00 w1 00 w0 -- min/max clamp ensures that high words are zero
+          cvttps2dq(t1, t1);    // 00 w3 00 w2 00 w1 00 w0 -- min/max clamp ensures that high words are zero
           packssdw(t1, zero);  // _mm_packs_epi32: w7 w6 w5 w4 w3 w2 w1 w0
           packuswb(t1, zero);  // _mm_packus_epi16: 0 0 0 0 0 0 0 0 b7 b6 b5 b4 b3 b2 b1 b0
           movd(dword_ptr[a], t1);
@@ -1867,13 +2296,15 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           stack.pop_back();
           XmmReg r1, r2;
           Reg a;
+          addps(t1.first, CPTR(elfloat_half)); // rounder for truncate! no banker's rounding
           maxps(t1.first, zero);
+          addps(t1.second, CPTR(elfloat_half)); // rounder for truncate! no banker's rounding
           maxps(t1.second, zero);
           minps(t1.first, CPTR(elstore8));
           minps(t1.second, CPTR(elstore8));
           mov(a, ptr[regptrs]);
-          cvtps2dq(t1.first, t1.first);    // 00 w3 00 w2 00 w1 00 w0 -- min/max clamp ensures that high words are zero
-          cvtps2dq(t1.second, t1.second);  // 00 w7 00 w6 00 w5 00 w4
+          cvttps2dq(t1.first, t1.first);    // 00 w3 00 w2 00 w1 00 w0 -- min/max clamp ensures that high words are zero
+          cvttps2dq(t1.second, t1.second);  // 00 w7 00 w6 00 w5 00 w4
           // t1.second is the lo
           packssdw(t1.first, t1.second);   // _mm_packs_epi32: w7 w6 w5 w4 w3 w2 w1 w0
           packuswb(t1.first, zero);       // _mm_packus_epi16: 0 0 0 0 0 0 0 0 b7 b6 b5 b4 b3 b2 b1 b0
@@ -1890,6 +2321,7 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           stack1.pop_back();
           XmmReg r1;
           Reg a;
+          addps(t1, CPTR(elfloat_half)); // rounder for truncate! no banker's rounding
           maxps(t1, zero);
           switch (iter.op) {
           case opStore10:
@@ -1906,7 +2338,7 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
             break;
           }
           mov(a, ptr[regptrs]);
-          cvtps2dq(t1, t1);
+          cvttps2dq(t1, t1); // no cvtps, but cvttps
           // new
           switch (iter.op) {
           case opStore10:
@@ -1935,7 +2367,9 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           stack.pop_back();
           XmmReg r1, r2;
           Reg a;
+          addps(t1.first, CPTR(elfloat_half)); // rounder for truncate! no banker's rounding
           maxps(t1.first, zero);
+          addps(t1.second, CPTR(elfloat_half)); // rounder for truncate! no banker's rounding
           maxps(t1.second, zero);
           switch (iter.op) {
           case opStore10:
@@ -1956,8 +2390,8 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
             break;
           }
           mov(a, ptr[regptrs]);
-          cvtps2dq(t1.first, t1.first);
-          cvtps2dq(t1.second, t1.second);
+          cvttps2dq(t1.first, t1.first); // no bankers rounding
+          cvttps2dq(t1.second, t1.second);
           // new
           switch (iter.op) {
           case opStore10:
@@ -2020,13 +2454,13 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           vcvtps2ph(qword_ptr[a + 8], t1.second, 0);
         }
       }
-      else if (iter.op == opStoreVar || iter.op == opStoreAndPopVar) {
+      else if (iter.op == opStoreVar || iter.op == opStoreVarAndDrop1) {
         if (processSingle) {
           auto t1 = stack1.back();
           // 16 bytes/variable
           int offset = sizeof(void *) * RWPTR_START_OF_USERVARIABLES + 16 * iter.e.ival;
           movaps(xmmword_ptr[regptrs + offset], t1);
-          if (iter.op == opStoreAndPopVar)
+          if (iter.op == opStoreVarAndDrop1)
             stack1.pop_back();
         }
         else {
@@ -2035,7 +2469,7 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           int offset = sizeof(void *) * RWPTR_START_OF_USERVARIABLES + 32 * iter.e.ival;
           movaps(xmmword_ptr[regptrs + offset], t1.first);
           movaps(xmmword_ptr[regptrs + offset + 16], t1.second);
-          if (iter.op == opStoreAndPopVar)
+          if (iter.op == opStoreVarAndDrop1)
             stack.pop_back();
         }
       }
@@ -2050,6 +2484,51 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           andps(t1.second, CPTR(elabsmask));
         }
       }
+      else if (iter.op == opSgn) {
+        // 1, 0, -1
+        /*
+          __m128 sgn(__m128 value) {
+            const __m128 zero = _mm_set_ps1 (0.0f);
+            __m128 p = _mm_and_ps(_mm_cmpgt_ps(value, zero), _mm_set_ps1(1.0f));
+            __m128 n = _mm_and_ps(_mm_cmplt_ps(value, zero), _mm_set_ps1(-1.0f));
+            return _mm_or_ps(p, n);
+          }
+        */
+        if (processSingle) {
+          auto &t1 = stack1.back();
+          XmmReg r1, r2;
+          xorps(r2, r2);
+          movaps(r1, t1);
+          movaps(t1, r2);
+          cmpltps(t1, r1);
+          cmpltps(r1, r2);
+          andps(t1, CPTR(elfloat_one));
+          andps(r1, CPTR(elfloat_minusone));
+          orps(t1, r1);
+        }
+        else {
+          auto &t1 = stack.back();
+          XmmReg r2, r3, r4, r5;
+          xorps(r2, r2);
+          xorps(r3, r3);
+          cmpltps(r3, t1.first);
+          cmpltps(t1.first, r2);
+          movaps(r4, t1.first);
+          andnps(r4, r3);
+          movaps(r3, CPTR(elfloat_one));
+          xorps(r5, r5);
+          cmpltps(r5, t1.second);
+          cmpltps(t1.second, r2);
+          movaps(r2, CPTR(elfloat_minusone));
+          andps(t1.first, r2);
+          andps(r2, t1.second);
+          andnps(t1.second, r5);
+          andps(r4, r3);
+          orps(t1.first, r4);
+          andps(t1.second, r3);
+          orps(t1.second, r2);
+        }
+      }
       else if (iter.op == opNeg) {
         if (processSingle) {
           auto &t1 = stack1.back();
@@ -2062,6 +2541,17 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           cmpleps(t1.second, zero);
           andps(t1.first, CPTR(elfloat_one));
           andps(t1.second, CPTR(elfloat_one));
+        }
+      }
+      else if (iter.op == opNegSign) {
+        if (processSingle) {
+          auto& t1 = stack1.back();
+          xorps(t1, CPTR(elsignmask));
+        }
+        else {
+          auto& t1 = stack.back();
+          xorps(t1.first, CPTR(elsignmask));
+          xorps(t1.second, CPTR(elsignmask));
         }
       }
       else if (iter.op == opAnd) {
@@ -2216,6 +2706,43 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           EXP_PS(t2.second)
         }
       }
+      else if (iter.op == opSin) {
+        if (processSingle) {
+          auto& _t1 = stack1.back();
+          SINCOS_PS(true, _t1, _t1)
+        }
+        else {
+          auto& _t1 = stack.back();
+          SINCOS_PS(true, _t1.first, _t1.first);
+          SINCOS_PS(true, _t1.second, _t1.second);
+        }
+      }
+      else if (iter.op == opCos) {
+        if (processSingle) {
+          auto& _t1 = stack1.back();
+          SINCOS_PS(false, _t1, _t1)
+        }
+        else {
+          auto& _t1 = stack.back();
+          SINCOS_PS(false, _t1.first, _t1.first);
+          SINCOS_PS(false, _t1.second, _t1.second);
+        }
+      }
+      else if (iter.op == opAtan2) {
+        if (processSingle) {
+          auto t1 = stack1.back();
+          stack1.pop_back();
+          auto& t2 = stack1.back();
+          ATAN2_PS(t2, t1);
+        }
+        else {
+          auto t1 = stack.back();
+          stack.pop_back();
+          auto& t2 = stack.back();
+          ATAN2_PS(t2.first, t1.first);
+          ATAN2_PS(t2.second, t1.second);
+        }
+      }
       else if (iter.op == opClip) {
         // clip(a, low, high) = min(max(a, low),high)
         if (processSingle) {
@@ -2237,6 +2764,22 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           minps(t3.first, t1.first);
           maxps(t3.second, t2.second);
           minps(t3.second, t1.second);
+        }
+      }
+      else if (iter.op == opRound || iter.op == opFloor || iter.op == opCeil || iter.op == opTrunc) {
+         const int rounder_flag =
+           (iter.op == opRound) ? (FROUND_TO_NEAREST_INT | FROUND_NO_EXC) :
+           (iter.op == opFloor) ? (FROUND_TO_NEG_INF | FROUND_NO_EXC) :
+           (iter.op == opCeil) ? (FROUND_TO_POS_INF | FROUND_NO_EXC) :
+           (FROUND_TO_ZERO | FROUND_NO_EXC); // opTrunc
+        if (processSingle) {
+          auto& t1 = stack1.back();
+          roundps(t1, t1, rounder_flag);
+        }
+        else {
+          auto& t1 = stack.back();
+          roundps(t1.first, t1.first, rounder_flag);
+          roundps(t1.second, t1.second, rounder_flag);
         }
       }
 
@@ -2302,7 +2845,7 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
   std::vector<ExprOp> ops;
   int numInputs;
   int cpuFlags;
-  int planewidth;
+  int planewidth; // original, lut can overwrite
   int planeheight;
   bool singleMode;
 
@@ -2388,6 +2931,23 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           YmmReg r1, r2;
           XmmReg r1x;
           vmovd(r1x, dword_ptr[regptrs + sizeof(void *) * (iter.e.ival + RWPTR_START_OF_INTERNAL_VARIABLES)]);
+          vbroadcastss(r1, r1x);
+          vmovaps(r2, r1);
+          stack.push_back(std::make_pair(r1, r2));
+        }
+      }
+      else if (iter.op == opLoadFramePropVar) {
+        if (processSingle) {
+          YmmReg r1;
+          XmmReg r1x;
+          vmovd(r1x, dword_ptr[regptrs + sizeof(void*) * (iter.e.ival + RWPTR_START_OF_INTERNAL_FRAMEPROP_VARIABLES)]);
+          vbroadcastss(r1, r1x);
+          stack1.push_back(r1);
+        }
+        else {
+          YmmReg r1, r2;
+          XmmReg r1x;
+          vmovd(r1x, dword_ptr[regptrs + sizeof(void*) * (iter.e.ival + RWPTR_START_OF_INTERNAL_FRAMEPROP_VARIABLES)]);
           vbroadcastss(r1, r1x);
           vmovaps(r2, r1);
           stack.push_back(std::make_pair(r1, r2));
@@ -2658,10 +3218,11 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           auto t1 = stack1.back();
           stack1.pop_back();
           Reg a;
+          vaddps(t1, t1, CPTR_AVX(elfloat_half)); // rounder for truncate! no banker's rounding
           vmaxps(t1, t1, zero);
           vminps(t1, t1, CPTR_AVX(elstore8));
           mov(a, ptr[regptrs]);
-          vcvtps2dq(t1, t1);   // float to int32
+          vcvttps2dq(t1, t1);   // float to int32 no bankers rounding
           XmmReg r1x, r2x;
           // 32 -> 16 bits from ymm 8 integers to xmm 8 words
           // first
@@ -2676,13 +3237,15 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           auto t1 = stack.back();
           stack.pop_back();
           Reg a;
+          vaddps(t1.first, t1.first, CPTR_AVX(elfloat_half)); // rounder for truncate! no banker's rounding
           vmaxps(t1.first, t1.first, zero);
+          vaddps(t1.second, t1.second, CPTR_AVX(elfloat_half)); // rounder for truncate! no banker's rounding
           vmaxps(t1.second, t1.second, zero);
           vminps(t1.first, t1.first, CPTR_AVX(elstore8));
           vminps(t1.second, t1.second, CPTR_AVX(elstore8));
           mov(a, ptr[regptrs]);
-          vcvtps2dq(t1.first, t1.first);   // float to int32
-          vcvtps2dq(t1.second, t1.second);
+          vcvttps2dq(t1.first, t1.first);   // float to int32 no bankers rounding
+          vcvttps2dq(t1.second, t1.second);
           // we have 8 integers in t.first and another 8 in t.second
           // second                           first
           // d15 d14 d13 d12 d11 d10 d9 d8    d7 d6 d5 d4 d3 d2 d1 d0  // 16x32 bit integers in two ymm registers. not really 256 bits, but 2x128 bits
@@ -2710,6 +3273,7 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           auto t1 = stack1.back();
           stack1.pop_back();
           Reg a;
+          vaddps(t1, t1, CPTR_AVX(elfloat_half)); // rounder for truncate! no banker's rounding
           vmaxps(t1, t1, zero);
           switch (iter.op) {
           case opStore10:
@@ -2726,7 +3290,7 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
             break;
           }
           mov(a, ptr[regptrs]);
-          vcvtps2dq(t1, t1);   // min / max clamp ensures that high words are zero
+          vcvttps2dq(t1, t1);   // min / max clamp ensures that high words are zero
           XmmReg r1x, r2x;
           // 32 -> 16 bits from ymm 8 integers to xmm 8 words
           vextracti128(r1x, t1, 0); // not perfect, lower 128 bits of t1 could be used as xmm in packus. Cannot tell jitasm that xxmN is lower ymmN
@@ -2738,7 +3302,9 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           auto t1 = stack.back();
           stack.pop_back();
           Reg a;
+          vaddps(t1.first, t1.first, CPTR_AVX(elfloat_half)); // rounder for truncate! no banker's rounding
           vmaxps(t1.first, t1.first, zero);
+          vaddps(t1.second, t1.second, CPTR_AVX(elfloat_half)); // rounder for truncate! no banker's rounding
           vmaxps(t1.second, t1.second, zero);
           switch (iter.op) {
           case opStore10:
@@ -2759,8 +3325,8 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
             break;
           }
           mov(a, ptr[regptrs]);
-          vcvtps2dq(t1.first, t1.first);   // min / max clamp ensures that high words are zero
-          vcvtps2dq(t1.second, t1.second);
+          vcvttps2dq(t1.first, t1.first);   // min / max clamp ensures that high words are zero
+          vcvttps2dq(t1.second, t1.second);
           // we have 8 integers in t.first and another 8 in t.second
           // second                           first
           // d15 d14 d13 d12 d11 d10 d9 d8    d7 d6 d5 d4 d3 d2 d1 d0  // 16x32 bit integers in two ymm registers. not really 256 bits, but 2x128 bits
@@ -2810,13 +3376,13 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           vcvtps2ph(xmmword_ptr[a + 16], t1.second, 0);
         }
       }
-      else if (iter.op == opStoreVar || iter.op == opStoreAndPopVar) {
+      else if (iter.op == opStoreVar || iter.op == opStoreVarAndDrop1) {
         if (processSingle) {
           auto t1 = stack1.back();
           // 32 bytes/variable
           int offset = sizeof(void *) * RWPTR_START_OF_USERVARIABLES + 32 * iter.e.ival;
           vmovaps(ymmword_ptr[regptrs + offset], t1);
-          if (iter.op == opStoreAndPopVar)
+          if (iter.op == opStoreVarAndDrop1)
             stack1.pop_back();
         }
         else {
@@ -2825,7 +3391,7 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           int offset = sizeof(void *) * RWPTR_START_OF_USERVARIABLES + 64 * iter.e.ival;
           vmovaps(ymmword_ptr[regptrs + offset], t1.first);
           vmovaps(ymmword_ptr[regptrs + offset + 32], t1.second); // this needs 64 byte aligned data to prevent overwrite!
-          if (iter.op == opStoreAndPopVar)
+          if (iter.op == opStoreVarAndDrop1)
             stack.pop_back();
         }
       }
@@ -2839,7 +3405,36 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           vandps(t1.first, t1.first, CPTR_AVX(elabsmask));
           vandps(t1.second, t1.second, CPTR_AVX(elabsmask));
         }
-      } else if (iter.op == opNeg) {
+      } 
+      else if (iter.op == opSgn) {
+        // 1, 0, -1
+        if (processSingle) {
+          auto &t1 = stack1.back();
+          YmmReg r1, r2;
+          vxorps(r2, r2, r2);
+          vcmpps(r1, t1, r2, _CMP_GT_OQ);
+          vcmpps(t1, t1, r2, _CMP_LT_OQ);
+          vandps(r1, r1, CPTR_AVX(elfloat_one));
+          vandps(t1, t1, CPTR_AVX(elfloat_minusone));
+          vorps(t1, r1, t1);
+        }
+        else {
+          auto &t1 = stack.back();
+          YmmReg r2, r3, r4, r5;
+          vxorps(r2, r2, r2);
+          vcmpps(r3, t1.first, r2, _CMP_GT_OQ);
+          vcmpps(t1.first, t1.first, r2, _CMP_LT_OQ);
+          vcmpps(r4, t1.second, r2, _CMP_GT_OQ);
+          vcmpps(t1.second, t1.second, r2, _CMP_LT_OQ);
+          vmovaps(r2, CPTR_AVX(elfloat_one));
+          vandps(r3, r3, r2);
+          vmovaps(r5, CPTR_AVX(elfloat_minusone));
+          vblendvps(t1.first, r3, r5, t1.first);
+          vandps(r2, r4, r2);
+          vblendvps(t1.second, r2, r5, t1.second);
+        }
+      }
+      else if (iter.op == opNeg) {
         if (processSingle) {
           auto &t1 = stack1.back();
           vcmpps(t1, t1, zero, _CMP_LE_OQ); // cmpleps
@@ -2851,6 +3446,17 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           vcmpps(t1.second, t1.second, zero, _CMP_LE_OQ);
           vandps(t1.first, t1.first, CPTR_AVX(elfloat_one));
           vandps(t1.second, t1.second, CPTR_AVX(elfloat_one));
+        }
+      }
+      else if (iter.op == opNegSign) {
+        if (processSingle) {
+          auto& t1 = stack1.back();
+          vxorps(t1, t1, CPTR_AVX(elsignmask));
+        }
+        else {
+          auto& t1 = stack.back();
+          vxorps(t1.first, t1.first, CPTR_AVX(elsignmask));
+          vxorps(t1.second, t1.second, CPTR_AVX(elsignmask));
         }
       }
       else if (iter.op == opAnd) {
@@ -3003,6 +3609,42 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           EXP_PS_AVX(t2.second);
         }
       }
+      else if (iter.op == opSin) {
+        if (processSingle) {
+          auto& _t1 = stack1.back();
+          SINCOS_PS_AVX(true, _t1, _t1);
+        }
+        else {
+          auto& _t1 = stack.back();
+          SINCOS_PS_AVX(true, _t1.first, _t1.first);
+          SINCOS_PS_AVX(true, _t1.second, _t1.second);
+        }
+      }
+      else if (iter.op == opCos) {
+        if (processSingle) {
+          auto& _t1 = stack1.back();
+          SINCOS_PS_AVX(false, _t1, _t1);
+        }
+        else {
+          auto& _t1 = stack.back();
+          SINCOS_PS_AVX(false, _t1.first, _t1.first);
+          SINCOS_PS_AVX(false, _t1.second, _t1.second);
+        }
+      }
+      else if (iter.op == opAtan2) {
+        if (processSingle) {
+          auto t1 = stack1.back();
+          stack1.pop_back();
+          auto &t2 = stack1.back();
+          ATAN2_PS_AVX(t2, t1);
+        } else {
+          auto t1 = stack.back();
+          stack.pop_back();
+          auto &t2 = stack.back();
+          ATAN2_PS_AVX(t2.first, t1.first);
+          ATAN2_PS_AVX(t2.second, t1.second);
+        }
+      }
       else if (iter.op == opClip) {
         // clip(a, low, high) = min(max(a, low),high)
         if (processSingle) {
@@ -3024,6 +3666,22 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           vminps(t3.first, t3.first, t1.first);
           vmaxps(t3.second, t3.second, t2.second);
           vminps(t3.second, t3.second, t1.second);
+        }
+      }
+      else if (iter.op == opRound || iter.op == opFloor || iter.op == opCeil || iter.op == opTrunc) {
+        const int rounder_flag =
+          (iter.op == opRound) ? (FROUND_TO_NEAREST_INT | FROUND_NO_EXC) :
+          (iter.op == opFloor) ? (FROUND_TO_NEG_INF | FROUND_NO_EXC) :
+          (iter.op == opCeil) ? (FROUND_TO_POS_INF | FROUND_NO_EXC) :
+          (FROUND_TO_ZERO | FROUND_NO_EXC); // opTrunc
+        if (processSingle) {
+          auto& t1 = stack1.back();
+          vroundps(t1, t1, rounder_flag);
+        }
+        else {
+          auto& t1 = stack.back();
+          vroundps(t1.first, t1.first, rounder_flag);
+          vroundps(t1.second, t1.second, rounder_flag);
         }
       }
     }
@@ -3194,7 +3852,7 @@ generated epilog example (new):
 ********************************************************************/
 
 extern const AVSFunction Exprfilter_filters[] = {
-  { "Expr", BUILTIN_FUNC_PREFIX, "c+s+[format]s[optAvx2]b[optSingleMode]b[optSSE2]b[scale_inputs]s[clamp_float]b[clamp_float_UV]b", Exprfilter::Create },
+  { "Expr", BUILTIN_FUNC_PREFIX, "c+s+[format]s[optAvx2]b[optSingleMode]b[optSSE2]b[scale_inputs]s[clamp_float]b[clamp_float_UV]b[lut]i", Exprfilter::Create },
   { 0 }
 };
 
@@ -3298,13 +3956,15 @@ AVSValue __cdecl Exprfilter::Create(AVSValue args, void* , IScriptEnvironment* e
   }
   next_paramindex++;
 
-  const std::string scale_inputs = args[next_paramindex].Defined() ? args[next_paramindex].AsString("none") : "none";
+  std::string scale_inputs = args[next_paramindex].Defined() ? args[next_paramindex].AsString("none") : "none";
+  transform(scale_inputs.begin(), scale_inputs.end(), scale_inputs.begin(), ::tolower);
   next_paramindex++;
 
   const bool clamp_float = args[next_paramindex].AsBool(false);
   next_paramindex++;
 
   const bool clamp_float_UV = args[next_paramindex].AsBool(false);
+  next_paramindex++;
 
   // clamp_float clamp_float_uv -> clamp_float_i   clamp range for Y clamp range for UV
   // false       x                 0               0..1              -0.5..+0.5
@@ -3317,14 +3977,486 @@ AVSValue __cdecl Exprfilter::Create(AVSValue args, void* , IScriptEnvironment* e
   else
     clamp_float_i = 0;
 
-  return new Exprfilter(children, expressions, newformat, optAvx2, optSingleMode, optSSE2, scale_inputs, clamp_float_i, env);
+  const int lutmode = args[next_paramindex].AsInt(0); // 0, 1, 2
+
+  return new Exprfilter(children, expressions, newformat, optAvx2, optSingleMode, optSSE2, scale_inputs, clamp_float_i, lutmode, env);
 
 }
 
+void Exprfilter::processFrame(int plane, int w, int h, int pixels_per_iter, float framecount, float relative_time, int numInputs, 
+  uint8_t*& dstp, int dst_stride,
+  std::vector<const uint8_t*>& srcp, std::vector<int>& src_stride, std::vector<intptr_t>& ptroffsets, std::vector<const uint8_t*>& srcp_orig)
+{
+#ifdef VS_TARGET_CPU_X86
+  if (optSSE2 && d.planeOptSSE2[plane]) {
+
+    int nfulliterations = w / pixels_per_iter;
+
+    ExprData::ProcessLineProc proc = d.proc[plane];
+
+#ifdef GCC
+    // the following local allocation in gcc 8.3 results in warning:
+    // alignas(32) intptr_t rwptrs[RWPTR_SIZE];
+    // requested alignment 32 is larger than 16 [-Wattributes]
+    // Some sources say this is only a bug, a false warning
+
+    // Using c++17 feature instead: new with alignment
+    intptr_t* rwptrs = new (std::align_val_t(32)) intptr_t[RWPTR_SIZE];
+
+    // Note: this method is giving immediate build error in VS2019 16.0.4 (bug?). Clang 8.0 and gcc 8.3 is O.K.
+    // error C2956: sized deallocation function 'operator delete(void*, size_t)' would be chosen as placement deallocation function.
+    // See https://developercommunity.visualstudio.com/content/problem/528320/using-c17-new-stdalign-val-tn-syntax-results-in-er.html
+    // Anyway, we are using it only for gcc)
+    // Possible MSVC 16.0 workaround: c++17: direct call of operator new with alignment-type parameters
+    //intptr_t* rwptrs = (intptr_t*) operator new[]((size_t)(sizeof(intptr_t) * RWPTR_SIZE), (std::align_val_t)(32));
+#else
+    // msvc, clang
+    alignas(32) intptr_t rwptrs[RWPTR_SIZE];
+#endif
+    
+    *reinterpret_cast<float*>(&rwptrs[RWPTR_START_OF_INTERNAL_VARIABLES + INTERNAL_VAR_CURRENT_FRAME]) = (float)framecount;
+    *reinterpret_cast<float*>(&rwptrs[RWPTR_START_OF_INTERNAL_VARIABLES + INTERNAL_VAR_RELTIME]) = (float)relative_time;
+    // refresh frame properties
+    for (auto& framePropToRead : d.frameprops[plane]) {
+      int whereToPut = framePropToRead.var_index;
+      *reinterpret_cast<float*>(&rwptrs[RWPTR_START_OF_INTERNAL_FRAMEPROP_VARIABLES + whereToPut]) = framePropToRead.value;
+    };
+    for (int y = 0; y < h; y++) {
+      rwptrs[RWPTR_START_OF_OUTPUT] = reinterpret_cast<intptr_t>(dstp + dst_stride * y);
+      rwptrs[RWPTR_START_OF_XCOUNTER] = 0; // xcounter internal variable
+      for (int i = 0; i < numInputs; i++) {
+        rwptrs[i + RWPTR_START_OF_INPUTS] = reinterpret_cast<intptr_t>(srcp[i] + src_stride[i] * y); // input pointers 1..Nth
+        rwptrs[i + RWPTR_START_OF_STRIDES] = static_cast<intptr_t>(src_stride[i]);
+      }
+
+      proc(rwptrs, ptroffsets.data(), nfulliterations, y); // parameters are put directly in registers
+    }
+#ifdef GCC
+    operator delete[](rwptrs, (std::align_val_t)(32)); // paired with aligned new
+#endif
+  }
+  else
+#endif // VS_TARGET_CPU_X86
+  {
+    // C version
+    std::vector<float> stackVector(d.maxStackSize);
+
+    const ExprOp* vops = d.ops[plane].data();
+    float* stack = stackVector.data();
+    float stacktop = 0;
+
+    std::vector<float> variable_area(MAX_USER_VARIABLES); // for C, place for expr variables A..Z
+    std::vector<float> internal_vars(INTERNAL_VARIABLES + MAX_FRAMEPROP_VARIABLES);
+    internal_vars[INTERNAL_VAR_CURRENT_FRAME] = (float)framecount;
+    internal_vars[INTERNAL_VAR_RELTIME] = (float)relative_time;
+    // followed by dynamic frame properties
+    for (auto& framePropToRead : d.frameprops[plane]) {
+      int whereToPut = framePropToRead.var_index;
+      internal_vars[INTERNAL_VAR_FRAMEPROP_VARIABLES_START + whereToPut] = framePropToRead.value;
+    };
+
+    for (int y = 0; y < h; y++) {
+      for (int x = 0; x < w; x++) {
+        int si = 0;
+        int i = -1;
+        while (true) {
+          i++;
+          switch (vops[i].op) {
+          case opLoadSpatialX:
+            stack[si] = stacktop;
+            stacktop = (float)x;
+            ++si;
+            break;
+          case opLoadSpatialY:
+            stack[si] = stacktop;
+            stacktop = (float)y;
+            ++si;
+            break;
+          case opLoadInternalVar:
+            stack[si] = stacktop;
+            stacktop = internal_vars[vops[i].e.ival];
+            ++si;
+            break;
+          case opLoadFramePropVar:
+            stack[si] = stacktop;
+            stacktop = internal_vars[INTERNAL_VAR_FRAMEPROP_VARIABLES_START + vops[i].e.ival];
+            ++si;
+            break;
+          case opLoadSrc8:
+            stack[si] = stacktop;
+            stacktop = srcp[vops[i].e.ival][x];
+            ++si;
+            break;
+          case opLoadSrc16:
+            stack[si] = stacktop;
+            stacktop = reinterpret_cast<const uint16_t*>(srcp[vops[i].e.ival])[x];
+            ++si;
+            break;
+          case opLoadSrcF32:
+            stack[si] = stacktop;
+            stacktop = reinterpret_cast<const float*>(srcp[vops[i].e.ival])[x];
+            ++si;
+            break;
+          case opLoadRelSrc8:
+            stack[si] = stacktop;
+            {
+              const int newx = x + vops[i].dx;
+              const int newy = y + vops[i].dy;
+              const int clipIndex = vops[i].e.ival;
+              const uint8_t* srcp2 = srcp_orig[clipIndex] + max(0, min(newy, h - 1)) * src_stride[clipIndex];
+              stacktop = srcp2[max(0, min(newx, w - 1))];
+            }
+            ++si;
+            break;
+          case opLoadRelSrc16:
+            stack[si] = stacktop;
+            {
+              const int newx = x + vops[i].dx;
+              const int newy = y + vops[i].dy;
+              const int clipIndex = vops[i].e.ival;
+              const uint16_t* srcp2 = reinterpret_cast<const uint16_t*>(srcp_orig[clipIndex] + max(0, min(newy, h - 1)) * src_stride[clipIndex]);
+              stacktop = srcp2[max(0, min(newx, w - 1))];
+            }
+            ++si;
+            break;
+          case opLoadRelSrcF32:
+            stack[si] = stacktop;
+            {
+              const int newx = x + vops[i].dx;
+              const int newy = y + vops[i].dy;
+              const int clipIndex = vops[i].e.ival;
+              const float* srcp2 = reinterpret_cast<const float*>(srcp_orig[clipIndex] + max(0, min(newy, h - 1)) * src_stride[clipIndex]);
+              stacktop = srcp2[max(0, min(newx, w - 1))];
+            }
+            ++si;
+            break;
+          case opLoadConst:
+            stack[si] = stacktop;
+            stacktop = vops[i].e.fval;
+            ++si;
+            break;
+          case opLoadVar:
+            stack[si] = stacktop;
+            stacktop = variable_area[vops[i].e.ival];
+            ++si;
+            break;
+          case opDup:
+            stack[si] = stacktop;
+            stacktop = stack[si - vops[i].e.ival];
+            ++si;
+            break;
+          case opSwap:
+            std::swap(stacktop, stack[si - vops[i].e.ival]);
+            break;
+          case opAdd:
+            --si;
+            stacktop += stack[si];
+            break;
+          case opSub:
+            --si;
+            stacktop = stack[si] - stacktop;
+            break;
+          case opMul:
+            --si;
+            stacktop *= stack[si];
+            break;
+          case opDiv:
+            --si;
+            stacktop = stack[si] / stacktop;
+            break;
+          case opFmod:
+            --si;
+            stacktop = std::fmod(stack[si], stacktop);
+            break;
+          case opMax:
+            --si;
+            stacktop = std::max(stacktop, stack[si]);
+            break;
+          case opMin:
+            --si;
+            stacktop = std::min(stacktop, stack[si]);
+            break;
+          case opExp:
+            stacktop = std::exp(stacktop);
+            break;
+          case opLog:
+            stacktop = std::log(stacktop);
+            break;
+          case opPow:
+            --si;
+            stacktop = std::pow(stack[si], stacktop);
+            break;
+          case opClip:
+            // clip(a, low, high) = min(max(a, low),high)
+            si -= 2;
+            stacktop = std::max(std::min(stack[si], stacktop), stack[si + 1]);
+            break;
+          case opRound:
+            stacktop = std::round(stacktop);
+            break;
+          case opFloor:
+            stacktop = std::floor(stacktop);
+            break;
+          case opCeil:
+            stacktop = std::ceil(stacktop);
+            break;
+          case opTrunc:
+            stacktop = std::trunc(stacktop);
+            break;
+          case opSqrt:
+            stacktop = std::sqrt(stacktop);
+            break;
+          case opAbs:
+            stacktop = std::abs(stacktop);
+            break;
+          case opSgn:
+            stacktop = stacktop < 0 ? -1.0f : stacktop > 0 ? 1.0f : 0.0f;
+            break;
+          case opSin:
+            stacktop = std::sin(stacktop);
+            break;
+          case opCos:
+            stacktop = std::cos(stacktop);
+            break;
+          case opTan:
+            stacktop = std::tan(stacktop);
+            break;
+          case opAsin:
+            stacktop = std::asin(stacktop);
+            break;
+          case opAcos:
+            stacktop = std::acos(stacktop);
+            break;
+          case opAtan:
+            stacktop = std::atan(stacktop);
+            break;
+          case opAtan2:
+            --si;
+            stacktop = std::atan2(stack[si], stacktop); // y, x -> -Pi..+Pi
+            break;
+          case opGt:
+            --si;
+            stacktop = (stack[si] > stacktop) ? 1.0f : 0.0f;
+            break;
+          case opLt:
+            --si;
+            stacktop = (stack[si] < stacktop) ? 1.0f : 0.0f;
+            break;
+          case opEq:
+            --si;
+            stacktop = (stack[si] == stacktop) ? 1.0f : 0.0f;
+            break;
+          case opNotEq:
+            --si;
+            stacktop = (stack[si] != stacktop) ? 1.0f : 0.0f;
+            break;
+          case opLE:
+            --si;
+            stacktop = (stack[si] <= stacktop) ? 1.0f : 0.0f;
+            break;
+          case opGE:
+            --si;
+            stacktop = (stack[si] >= stacktop) ? 1.0f : 0.0f;
+            break;
+          case opTernary:
+            si -= 2;
+            stacktop = (stack[si] > 0) ? stack[si + 1] : stacktop;
+            break;
+          case opAnd:
+            --si;
+            stacktop = (stacktop > 0 && stack[si] > 0) ? 1.0f : 0.0f;
+            break;
+          case opOr:
+            --si;
+            stacktop = (stacktop > 0 || stack[si] > 0) ? 1.0f : 0.0f;
+            break;
+          case opXor:
+            --si;
+            stacktop = ((stacktop > 0) != (stack[si] > 0)) ? 1.0f : 0.0f;
+            break;
+          case opNeg:
+            stacktop = (stacktop > 0) ? 0.0f : 1.0f;
+            break;
+          case opNegSign:
+            stacktop = -stacktop;
+            break;
+          case opStore8:
+            dstp[x] = (uint8_t)(std::max(0.0f, std::min(stacktop, 255.0f)) + 0.5f);
+            goto loopend;
+          case opStore10:
+            reinterpret_cast<uint16_t*>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 1023.0f)) + 0.5f);
+            goto loopend;
+          case opStore12:
+            reinterpret_cast<uint16_t*>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 4095.0f)) + 0.5f);
+            goto loopend;
+          case opStore14:
+            reinterpret_cast<uint16_t*>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 16383.0f)) + 0.5f);
+            goto loopend;
+          case opStore16:
+            reinterpret_cast<uint16_t*>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 65535.0f)) + 0.5f);
+            goto loopend;
+          case opStoreF32:
+            reinterpret_cast<float*>(dstp)[x] = stacktop;
+            goto loopend;
+          case opStoreVar:
+            variable_area[vops[i].e.ival] = stacktop;
+            break;
+          case opStoreVarAndDrop1:
+            variable_area[vops[i].e.ival] = stacktop;
+            --si;
+            if (si >= 0)
+              stacktop = stack[si];
+            break;
+          }
+        }
+      loopend:;
+      }
+      dstp += dst_stride;
+      if (d.lutmode == 0) {
+        for (int i = 0; i < numInputs; i++)
+          srcp[i] += src_stride[i];
+      }
+    }
+  }
+}
+
+void Exprfilter::preReadFrameProps(int plane, std::vector<PVideoFrame>& src, IScriptEnvironment* env)
+{
+  for (auto& framePropToRead : d.frameprops[plane]) {
+    int srcIndex = framePropToRead.srcIndex;
+    auto fpname = framePropToRead.name;
+
+    const AVSMap* avsmap = env->getFramePropsRO(src[srcIndex]);
+
+    // default is 0f
+    float varToStore = 0.0f; //  std::numeric_limits<float>::quiet_NaN();
+
+    char res = env->propGetType(avsmap, fpname.c_str());
+    // 'u'nset, 'i'nteger, 'f'loat, 's'string, 'c'lip, 'v'ideoframe, 'm'ethod };
+
+    int error;
+    // only float and int are valid
+    if (res == 'i') {
+      int64_t result = env->propGetInt(avsmap, fpname.c_str(), 0, &error);
+      if (!error) varToStore = static_cast<float>(result);
+    }
+    else if (res == 'f') {
+      double result = env->propGetFloat(avsmap, fpname.c_str(), 0, &error);
+      if (!error) varToStore = static_cast<float>(result);
+    }
+
+    framePropToRead.value = varToStore;
+  }
+}
+
+void Exprfilter::calculate_lut(IScriptEnvironment* env)
+{
+  // ExprData d class variable already filled
+
+  // Only when there are frame props.
+  // frame property set from GetFrame(0) is treated as Clip prop
+
+  std::vector<PVideoFrame> src;
+
+  bool frameprops = false;
+  for (int plane = 0; plane < d.vi.NumComponents(); plane++) {
+    if (d.frameprops[plane].size() > 0) {
+      frameprops = true;
+      break;
+    }
+  }
+
+  if (frameprops) {
+    src.reserve(children.size());
+    // fetch 0th frame only when needed in lut
+    for (size_t i = 0; i < children.size(); i++) {
+      const auto& child = children[i];
+      src.emplace_back(child->GetFrame(0, env));
+    }
+  }
+
+  std::vector<const uint8_t*> srcp(MAX_EXPR_INPUTS);
+  std::vector<const uint8_t*> srcp_orig(MAX_EXPR_INPUTS);
+  std::vector<int> src_stride(MAX_EXPR_INPUTS);
+
+  for (int plane = 0; plane < d.vi.NumComponents(); plane++) {
+    // calculate only if plane is processed
+    if (d.plane[plane] != poProcess)
+      continue;
+
+    // read actually needed frame properties into the variable storage area
+    preReadFrameProps(plane, src, env);
+
+    uint8_t* dstp;
+    int dst_stride;
+    int h, w;
+
+    // no buffer allocated yet, prepare lut target buffer, and fake input frame dimensions
+    const int bits_per_pixel = d.vi.BitsPerComponent();
+    const int pixelsize = d.vi.ComponentSize();
+    const auto lut1d_size = (1 << bits_per_pixel); // 1 or 2 bytes per entry
+    const auto lut1d_bytesize = lut1d_size * pixelsize;
+    const auto lut_size = d.lutmode == 1 ? lut1d_bytesize : lut1d_bytesize * lut1d_bytesize;
+    // buffer start must be aligned to at least 32 bytes for avx2.
+    // Size must be mod64 but it is fulfilled always.
+    d.luts[plane] = (uint8_t *)avs_malloc(lut_size, 32); // 256 lut_x    65536: lut_xy (8 bit)
+    dstp = d.luts[plane];
+    dst_stride = lut1d_bytesize;
+    h = lutmode == 1 ? 1 : lut1d_size; // 1x256, 256x256. 10 bit: 1024, 1024x1024
+    w = lut1d_size;
+
+    // for simd:
+    // same as in GetFrame
+    const int pixels_per_iter = (optAvx2 && d.planeOptAvx2[plane]) ? (optSingleMode ? 8 : 16) : (optSingleMode ? 4 : 8);
+    std::vector<intptr_t> ptroffsets(1 + 1 + MAX_EXPR_INPUTS);
+    ptroffsets[RWPTR_START_OF_OUTPUT] = d.vi.ComponentSize() * pixels_per_iter; // stepping for output pointer
+    ptroffsets[RWPTR_START_OF_XCOUNTER] = pixels_per_iter; // stepping for xcounter
+
+    // no srcp pointers in lut. Technically only inputless sx,sy relative coordinates are in there
+    for (int i = 0; i < d.numInputs; i++) {
+      srcp[i] = nullptr;
+      srcp_orig[i] = nullptr;
+      src_stride[i] = 0;
+      ptroffsets[RWPTR_START_OF_INPUTS + i] = 0;
+    }
+
+    const int dummy_framecount = 0;
+    const int dummy_relative_time = 0;
+    processFrame(plane, w, h, pixels_per_iter, dummy_framecount, dummy_relative_time, d.numInputs, dstp, dst_stride, srcp, src_stride, ptroffsets, srcp_orig);
+  } // for planes
+}
+
+template<typename pixel_t, int bits_per_pixel>
+static void do_lut_xy(const uint8_t* lut8, uint8_t* dstp, int dst_stride, const uint8_t** srcp, const int* src_stride, int w, int h)
+{
+  const int max_pixel_value = (1 << bits_per_pixel) - 1;
+  const pixel_t* lut = reinterpret_cast<const pixel_t*>(lut8);
+  const uint8_t* src0 = srcp[0];
+  const uint8_t* src1 = srcp[1];
+  const auto pitch0 = src_stride[0];
+  const auto pitch1 = src_stride[1];
+  for (auto y = 0; y < h; y++) {
+    for (auto x = 0; x < w; x++) {
+      if constexpr (bits_per_pixel == 8 || bits_per_pixel == 16) {
+        // no limit check
+        const int pixel0 = reinterpret_cast<const pixel_t*>(src0)[x];
+        const int pixel1 = reinterpret_cast<const pixel_t*>(src1)[x];
+        reinterpret_cast<pixel_t*>(dstp)[x] = lut[(pixel1 << bits_per_pixel) + pixel0];
+      }
+      else {
+        const int pixel0 = min((int)reinterpret_cast<const pixel_t*>(src0)[x], max_pixel_value);
+        const int pixel1 = min((int)reinterpret_cast<const pixel_t*>(src1)[x], max_pixel_value);
+        reinterpret_cast<pixel_t*>(dstp)[x] = lut[(pixel1 << bits_per_pixel) + pixel0];
+      }
+    }
+    src0 += pitch0;
+    src1 += pitch1;
+    dstp += dst_stride;
+  }
+}
 
 PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
   // ExprData d class variable already filled
-  int numInputs = d.numInputs;
 
   std::vector<PVideoFrame> src;
   src.reserve(children.size());
@@ -3335,7 +4467,7 @@ PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
     src.emplace_back(d.clipsUsed[i] ? child->GetFrame(n, env) : nullptr); // GetFrame only when really referenced
     if (first_used_clip_index < 0) {
       if (d.clipsUsed[i])
-        first_used_clip_index = (int)i;
+        first_used_clip_index = (int)i; // inherit frameprop from
     }
   }
 
@@ -3345,10 +4477,9 @@ PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
   else
     dst = env->NewVideoFrame(d.vi);
 
-  const uint8_t *srcp[MAX_EXPR_INPUTS] = {};
-  const uint8_t *srcp_orig[MAX_EXPR_INPUTS] = {}; // for C
-  int src_stride[MAX_EXPR_INPUTS] = {};
-  float variable_area[MAX_USER_VARIABLES] = {}; // for C, place for expr variables A..Z
+  std::vector<const uint8_t*> srcp(MAX_EXPR_INPUTS);
+  std::vector<const uint8_t*> srcp_orig(MAX_EXPR_INPUTS);
+  std::vector<int> src_stride(MAX_EXPR_INPUTS);
 
   const float framecount = (float)n; // max precision: 2^24 (16M) frames (32 bit float precision)
   const float relative_time = vi.num_frames > 1 ? (float)((double)n / (vi.num_frames - 1)) : 0.0f; // 0 <= time <= 1
@@ -3361,23 +4492,31 @@ PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
     const int plane_enum_d = plane_enums_d[plane];
 
     if (d.plane[plane] == poProcess) {
-      uint8_t *dstp = dst->GetWritePtr(plane_enum_d);
-      int dst_stride = dst->GetPitch(plane_enum_d);
-      int h = d.vi.height >> d.vi.GetPlaneHeightSubsampling(plane_enum_d);
-      int w = d.vi.width >> d.vi.GetPlaneWidthSubsampling(plane_enum_d);
+
+      // read actually needed frame properties into the variable storage area
+      preReadFrameProps(plane, src, env);
+
+      uint8_t* dstp;
+      int dst_stride;
+      int h, w;
+
+      dstp = dst->GetWritePtr(plane_enum_d);
+      dst_stride = dst->GetPitch(plane_enum_d);
+      h = d.vi.height >> d.vi.GetPlaneHeightSubsampling(plane_enum_d);
+      w = d.vi.width >> d.vi.GetPlaneWidthSubsampling(plane_enum_d);
 
       // for simd:
       const int pixels_per_iter = (optAvx2 && d.planeOptAvx2[plane]) ? (optSingleMode ? 8 : 16) : (optSingleMode ? 4 : 8);
-      intptr_t ptroffsets[1 + 1 + MAX_EXPR_INPUTS];
+      std::vector<intptr_t> ptroffsets(1 + 1 + MAX_EXPR_INPUTS);
       ptroffsets[RWPTR_START_OF_OUTPUT] = d.vi.ComponentSize() * pixels_per_iter; // stepping for output pointer
       ptroffsets[RWPTR_START_OF_XCOUNTER] = pixels_per_iter; // stepping for xcounter
 
-      for (int i = 0; i < numInputs; i++) {
-        if (d.node[i]) {
+      for (int i = 0; i < d.numInputs; i++) {
+        if (d.clips[i]) {
           if (d.clipsUsed[i]) {
             // when input is a single Y, use PLANAR_Y instead of the plane matching to the output
-            const VideoInfo& vi_src = d.node[i]->GetVideoInfo();
-            const int *plane_enums_s = (vi_src.IsYUV() || d.vi.IsYUVA()) ? planes_y : planes_r;
+            const VideoInfo& vi_src = d.clips[i]->GetVideoInfo();
+            const int* plane_enums_s = (vi_src.IsYUV() || d.vi.IsYUVA()) ? planes_y : planes_r;
             const int plane_enum_s = vi_src.IsY() ? PLANAR_Y : plane_enums_s[plane];
 
             srcp[i] = src[i]->GetReadPtr(plane_enum_s);
@@ -3385,7 +4524,7 @@ PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
             srcp_orig[i] = srcp[i];
             src_stride[i] = src[i]->GetPitch(plane_enum_s);
             // SIMD only
-            ptroffsets[RWPTR_START_OF_INPUTS + i] = d.node[i]->GetVideoInfo().ComponentSize() * pixels_per_iter; // 1..Nth: inputs
+            ptroffsets[RWPTR_START_OF_INPUTS + i] = d.clips[i]->GetVideoInfo().ComponentSize() * pixels_per_iter; // 1..Nth: inputs
           }
           else {
             srcp[i] = nullptr;
@@ -3396,301 +4535,84 @@ PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
         }
       }
 
-#ifdef VS_TARGET_CPU_X86
-      if (optSSE2 && d.planeOptSSE2[plane]) {
+      if (lutmode == 0) {
+        processFrame(plane, w, h, pixels_per_iter, framecount, relative_time, d.numInputs, dstp, dst_stride, srcp, src_stride, ptroffsets, srcp_orig);
+      } else {
+        // lut table for plane is filled, do lookup now
+        const int bits_per_pixel = d.vi.BitsPerComponent();
 
-        int nfulliterations = w / pixels_per_iter;
-
-        ExprData::ProcessLineProc proc = d.proc[plane];
-
-#ifdef GCC
-        // the following local allocation in gcc 8.3 results in warning:
-        // alignas(32) intptr_t rwptrs[RWPTR_SIZE];
-        // requested alignment 32 is larger than 16 [-Wattributes]
-
-        // Using c++17 feature instead: new with alignment
-        intptr_t* rwptrs = new (std::align_val_t(32)) intptr_t[RWPTR_SIZE];
-
-        // Note: this method is giving immediate build error in VS2019 16.0.4 (bug?). Clang 8.0 and gcc 8.3 is O.K.
-        // error C2956: sized deallocation function 'operator delete(void*, size_t)' would be chosen as placement deallocation function.
-        // See https://developercommunity.visualstudio.com/content/problem/528320/using-c17-new-stdalign-val-tn-syntax-results-in-er.html
-        // Anyway, we are using it only for gcc)
-        // Possible MSVC 16.0 workaround: c++17: direct call of operator new with alignment-type parameters
-        //intptr_t* rwptrs = (intptr_t*) operator new[]((size_t)(sizeof(intptr_t) * RWPTR_SIZE), (std::align_val_t)(32));
-#else
-        // msvc, clang
-        alignas(32) intptr_t rwptrs[RWPTR_SIZE];
-#endif
-        *reinterpret_cast<float *>(&rwptrs[RWPTR_START_OF_INTERNAL_VARIABLES + INTERNAL_VAR_CURRENT_FRAME]) = (float)framecount;
-        *reinterpret_cast<float *>(&rwptrs[RWPTR_START_OF_INTERNAL_VARIABLES + INTERNAL_VAR_RELTIME]) = (float)relative_time;
-        for (int y = 0; y < h; y++) {
-          rwptrs[RWPTR_START_OF_OUTPUT] = reinterpret_cast<intptr_t>(dstp + dst_stride * y);
-          rwptrs[RWPTR_START_OF_XCOUNTER] = 0; // xcounter internal variable
-          for (int i = 0; i < numInputs; i++) {
-            rwptrs[i + RWPTR_START_OF_INPUTS] = reinterpret_cast<intptr_t>(srcp[i] + src_stride[i] * y); // input pointers 1..Nth
-            rwptrs[i + RWPTR_START_OF_STRIDES] = static_cast<intptr_t>(src_stride[i]);
+        if (d.lutmode == 1) {
+          // lut_x
+          if (bits_per_pixel == 8)
+          {
+            uint8_t* lut = d.luts[plane];
+            const uint8_t* src0 = srcp[0];
+            const auto pitch0 = src_stride[0];
+            for (auto y = 0; y < h; y++) {
+              for (auto x = 0; x < w; x++) {
+                const int pixel = src0[x];
+                dstp[x] = lut[pixel];
+              }
+              src0 += pitch0;
+              dstp += dst_stride;
+            }
           }
-          proc(rwptrs, ptroffsets, nfulliterations, y); // parameters are put directly in registers
-        }
-#ifdef GCC
-        operator delete[](rwptrs, (std::align_val_t)(32)); // paired with aligned new
-#endif
-      }
-      else
-#endif // VS_TARGET_CPU_X86
-      {
-        // C version
-        std::vector<float> stackVector(d.maxStackSize);
-
-        const ExprOp *vops = d.ops[plane].data();
-        float *stack = stackVector.data();
-        float stacktop = 0;
-
-        float internal_vars[6];
-        internal_vars[INTERNAL_VAR_CURRENT_FRAME] = (float)framecount;
-        internal_vars[INTERNAL_VAR_RELTIME] = (float)relative_time;
-
-        for (int y = 0; y < h; y++) {
-          for (int x = 0; x < w; x++) {
-            int si = 0;
-            int i = -1;
-            while (true) {
-              i++;
-              switch (vops[i].op) {
-              case opLoadSpatialX:
-                stack[si] = stacktop;
-                stacktop = (float)x;
-                ++si;
-                break;
-              case opLoadSpatialY:
-                stack[si] = stacktop;
-                stacktop = (float)y;
-                ++si;
-                break;
-              case opLoadInternalVar:
-                stack[si] = stacktop;
-                stacktop = internal_vars[vops[i].e.ival];
-                ++si;
-                break;
-              case opLoadSrc8:
-                stack[si] = stacktop;
-                stacktop = srcp[vops[i].e.ival][x];
-                ++si;
-                break;
-              case opLoadSrc16:
-                stack[si] = stacktop;
-                stacktop = reinterpret_cast<const uint16_t *>(srcp[vops[i].e.ival])[x];
-                ++si;
-                break;
-              case opLoadSrcF32:
-                stack[si] = stacktop;
-                stacktop = reinterpret_cast<const float *>(srcp[vops[i].e.ival])[x];
-                ++si;
-                break;
-              case opLoadRelSrc8:
-                stack[si] = stacktop;
-                {
-                  const int newx = x + vops[i].dx;
-                  const int newy = y + vops[i].dy;
-                  const int clipIndex = vops[i].e.ival;
-                  const uint8_t* srcp2 = srcp_orig[clipIndex] + max(0, min(newy, h - 1)) * src_stride[clipIndex];
-                  stacktop = srcp2[max(0, min(newx, w - 1))];
+          else {
+            const int max_pixel_value = (1 << bits_per_pixel) - 1;
+            uint16_t* lut = reinterpret_cast<uint16_t*>(d.luts[plane]);
+            const uint8_t* src0 = srcp[0];
+            const auto pitch0 = src_stride[0];
+            if (bits_per_pixel == 16) {
+              // no limit check
+              for (auto y = 0; y < h; y++) {
+                for (auto x = 0; x < w; x++) {
+                  const int pixel = reinterpret_cast<const uint16_t*>(src0)[x];
+                  reinterpret_cast<uint16_t*>(dstp)[x] = lut[pixel];
                 }
-                ++si;
-                break;
-              case opLoadRelSrc16:
-                stack[si] = stacktop;
-                {
-                  const int newx = x + vops[i].dx;
-                  const int newy = y + vops[i].dy;
-                  const int clipIndex = vops[i].e.ival;
-                  const uint16_t* srcp2 = reinterpret_cast<const uint16_t *>(srcp_orig[clipIndex] + max(0, min(newy, h - 1)) * src_stride[clipIndex]);
-                  stacktop = srcp2[max(0, min(newx, w - 1))];
-                }
-                ++si;
-                break;
-              case opLoadRelSrcF32:
-                stack[si] = stacktop;
-                {
-                  const int newx = x + vops[i].dx;
-                  const int newy = y + vops[i].dy;
-                  const int clipIndex = vops[i].e.ival;
-                  const float* srcp2 = reinterpret_cast<const float *>(srcp_orig[clipIndex] + max(0, min(newy, h - 1)) * src_stride[clipIndex]);
-                  stacktop = srcp2[max(0, min(newx, w - 1))];
-                }
-                ++si;
-                break;
-              case opLoadConst:
-                stack[si] = stacktop;
-                stacktop = vops[i].e.fval;
-                ++si;
-                break;
-              case opLoadVar:
-                stack[si] = stacktop;
-                stacktop = variable_area[vops[i].e.ival];
-                ++si;
-                break;
-              case opDup:
-                stack[si] = stacktop;
-                stacktop = stack[si - vops[i].e.ival];
-                ++si;
-                break;
-              case opSwap:
-                std::swap(stacktop, stack[si - vops[i].e.ival]);
-                break;
-              case opAdd:
-                --si;
-                stacktop += stack[si];
-                break;
-              case opSub:
-                --si;
-                stacktop = stack[si] - stacktop;
-                break;
-              case opMul:
-                --si;
-                stacktop *= stack[si];
-                break;
-              case opDiv:
-                --si;
-                stacktop = stack[si] / stacktop;
-                break;
-              case opFmod:
-                --si;
-                stacktop = std::fmod(stack[si], stacktop);
-                break;
-              case opMax:
-                --si;
-                stacktop = std::max(stacktop, stack[si]);
-                break;
-              case opMin:
-                --si;
-                stacktop = std::min(stacktop, stack[si]);
-                break;
-              case opExp:
-                stacktop = std::exp(stacktop);
-                break;
-              case opLog:
-                stacktop = std::log(stacktop);
-                break;
-              case opPow:
-                --si;
-                stacktop = std::pow(stack[si], stacktop);
-                break;
-              case opClip:
-                // clip(a, low, high) = min(max(a, low),high)
-                si -= 2;
-                stacktop = std::max(std::min(stack[si], stacktop), stack[si + 1]);
-                break;
-              case opSqrt:
-                stacktop = std::sqrt(stacktop);
-                break;
-              case opAbs:
-                stacktop = std::abs(stacktop);
-                break;
-              case opSin:
-                stacktop = std::sin(stacktop);
-                break;
-              case opCos:
-                stacktop = std::cos(stacktop);
-                break;
-              case opTan:
-                stacktop = std::tan(stacktop);
-                break;
-              case opAsin:
-                stacktop = std::asin(stacktop);
-                break;
-              case opAcos:
-                stacktop = std::acos(stacktop);
-                break;
-              case opAtan:
-                stacktop = std::atan(stacktop);
-                break;
-              case opGt:
-                --si;
-                stacktop = (stack[si] > stacktop) ? 1.0f : 0.0f;
-                break;
-              case opLt:
-                --si;
-                stacktop = (stack[si] < stacktop) ? 1.0f : 0.0f;
-                break;
-              case opEq:
-                --si;
-                stacktop = (stack[si] == stacktop) ? 1.0f : 0.0f;
-                break;
-              case opNotEq:
-                --si;
-                stacktop = (stack[si] != stacktop) ? 1.0f : 0.0f;
-                break;
-              case opLE:
-                --si;
-                stacktop = (stack[si] <= stacktop) ? 1.0f : 0.0f;
-                break;
-              case opGE:
-                --si;
-                stacktop = (stack[si] >= stacktop) ? 1.0f : 0.0f;
-                break;
-              case opTernary:
-                si -= 2;
-                stacktop = (stack[si] > 0) ? stack[si + 1] : stacktop;
-                break;
-              case opAnd:
-                --si;
-                stacktop = (stacktop > 0 && stack[si] > 0) ? 1.0f : 0.0f;
-                break;
-              case opOr:
-                --si;
-                stacktop = (stacktop > 0 || stack[si] > 0) ? 1.0f : 0.0f;
-                break;
-              case opXor:
-                --si;
-                stacktop = ((stacktop > 0) != (stack[si] > 0)) ? 1.0f : 0.0f;
-                break;
-              case opNeg:
-                stacktop = (stacktop > 0) ? 0.0f : 1.0f;
-                break;
-              case opStore8:
-                dstp[x] = (uint8_t)(std::max(0.0f, std::min(stacktop, 255.0f)) + 0.5f);
-                goto loopend;
-              case opStore10:
-                reinterpret_cast<uint16_t *>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 1023.0f)) + 0.5f);
-                goto loopend;
-              case opStore12:
-                reinterpret_cast<uint16_t *>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 4095.0f)) + 0.5f);
-                goto loopend;
-              case opStore14:
-                reinterpret_cast<uint16_t *>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 16383.0f)) + 0.5f);
-                goto loopend;
-              case opStore16:
-                reinterpret_cast<uint16_t *>(dstp)[x] = (uint16_t)(std::max(0.0f, std::min(stacktop, 65535.0f)) + 0.5f);
-                goto loopend;
-              case opStoreF32:
-                reinterpret_cast<float *>(dstp)[x] = stacktop;
-                goto loopend;
-              case opStoreVar:
-                variable_area[vops[i].e.ival] = stacktop;
-                break;
-              case opStoreAndPopVar:
-                variable_area[vops[i].e.ival] = stacktop;
-                --si;
-                if(si >= 0)
-                  stacktop = stack[si];
-                break;
+                src0 += pitch0;
+                dstp += dst_stride;
               }
             }
-          loopend:;
+            else {
+              for (auto y = 0; y < h; y++) {
+                for (auto x = 0; x < w; x++) {
+                  const int pixel = reinterpret_cast<const uint16_t*>(src0)[x];
+                  reinterpret_cast<uint16_t*>(dstp)[x] = lut[min(pixel, max_pixel_value)]; // e.g. 10 bits in 2 byte safety
+                }
+                src0 += pitch0;
+                dstp += dst_stride;
+              }
+            }
           }
-          dstp += dst_stride;
-          for (int i = 0; i < numInputs; i++)
-            srcp[i] += src_stride[i];
         }
-      }
+        else if (d.lutmode == 2) {
+          // lut_xy
+          // templates for speed: bitshift with immediate constant
+          const uint8_t* lut = d.luts[plane];
+          if (bits_per_pixel == 8)
+            do_lut_xy<uint8_t, 8>(lut, dstp, dst_stride, srcp_orig.data(), src_stride.data(), w, h);
+          else if (bits_per_pixel == 10)
+            do_lut_xy<uint16_t, 10>(lut, dstp, dst_stride, srcp_orig.data(), src_stride.data(), w, h);
+          else if (bits_per_pixel == 12)
+            do_lut_xy<uint16_t, 12>(lut, dstp, dst_stride, srcp_orig.data(), src_stride.data(), w, h);
+          else if (bits_per_pixel == 14)
+            do_lut_xy<uint16_t, 14>(lut, dstp, dst_stride, srcp_orig.data(), src_stride.data(), w, h);
+          else if (bits_per_pixel == 16) // well, this is not enabled 16bit lutxy would take a 8GB table
+            do_lut_xy<uint16_t, 16>(lut, dstp, dst_stride, srcp_orig.data(), src_stride.data(), w, h);
+          else
+            assert(0);
+        }
+        else { // 1d lut, 2d lut
+          assert(0); // no lut_xyz
+        }
+      } // lut branch
     }
     // avs+: copy plane here
     else if (d.plane[plane] == poCopy) {
       // avs+ copy from Nth clip
       const int copySource = d.planeCopySourceClip[plane];
       // when input is a single Y, use PLANAR_Y instead of the plane matching to the output
-      const VideoInfo& vi_src = d.node[copySource]->GetVideoInfo();
+      const VideoInfo& vi_src = d.clips[copySource]->GetVideoInfo();
       const int plane_enum_s = vi_src.IsY() ? PLANAR_Y : plane_enums_d[plane];
 
       env->BitBlt(dst->GetWritePtr(plane_enum_d), dst->GetPitch(plane_enum_d),
@@ -3705,34 +4627,22 @@ PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
       const int dst_stride = dst->GetPitch(plane_enum_d);
       const int h = dst->GetHeight(plane_enum_d);
 
-      int val;
+      const int bits_per_pixel = vi.BitsPerComponent();
 
-      switch (vi.BitsPerComponent())
-      {
-      case 8:
-        val = (uint8_t)(std::max(0.0f, std::min(d.planeFillValue[plane], 255.0f)) + 0.5f);
-        fill_plane<BYTE>(dstp, h, dst_stride, val);
-        break;
-      case 10:
-        val = (uint16_t)(std::max(0.0f, std::min(d.planeFillValue[plane], 1023.0f)) + 0.5f);
-        fill_plane<uint16_t>(dstp, h, dst_stride, val);
-        break;
-      case 12:
-        val = (uint16_t)(std::max(0.0f, std::min(d.planeFillValue[plane], 4095.0f)) + 0.5f);
-        fill_plane<uint16_t>(dstp, h, dst_stride, val);
-        break;
-      case 14:
-        val = (uint16_t)(std::max(0.0f, std::min(d.planeFillValue[plane], 16383.0f)) + 0.5f);
-        fill_plane<uint16_t>(dstp, h, dst_stride, val);
-        break;
-      case 16:
-        val = (uint16_t)(std::max(0.0f, std::min(d.planeFillValue[plane], 65535.0f)) + 0.5f);
-        fill_plane<uint16_t>(dstp, h, dst_stride, val);
-        break;
-      case 32:
-        fill_plane<float>(dstp, h, dst_stride, d.planeFillValue[plane]);
-        break;
+      float val = d.planeFillValue[plane];
+      int val_i = 0;
+      if (bits_per_pixel <= 16) {
+        const int max_pixel_value = (1 << bits_per_pixel) - 1;
+        val_i = (int)(std::max(0.0f, std::min(val, (float)max_pixel_value)) + 0.5f);
       }
+
+      if(bits_per_pixel == 8)
+        fill_plane<BYTE>(dstp, h, dst_stride, val_i);
+      else if(bits_per_pixel <= 16)
+        fill_plane<uint16_t>(dstp, h, dst_stride, val_i);
+      else // 32 bit float
+        fill_plane<float>(dstp, h, dst_stride, val);
+
     } // plane modes
   } // for planes
 
@@ -3741,7 +4651,9 @@ PVideoFrame __stdcall Exprfilter::GetFrame(int n, IScriptEnvironment *env) {
 
 Exprfilter::~Exprfilter() {
   for (int i = 0; i < MAX_EXPR_INPUTS; i++)
-    d.node[i] = nullptr;
+    d.clips[i] = nullptr;
+  for (int i = 0; i < 4; i++)
+    if(d.luts[i]) avs_free(d.luts[i]); // aligned free
 }
 
 static SOperation getLoadOp(const VideoInfo *vi, bool relativeKind) {
@@ -3781,6 +4693,27 @@ static SOperation getStoreOp(const VideoInfo *vi) {
 #define GENERAL_OP_NOTOKEN(op, v, req, dec) do { if (stackSize < req) env->ThrowError("Expr: Not enough elements on stack to perform an operation"); ops.push_back(ExprOp(op, (v))); stackSize-=(dec); } while(0)
 #define TWO_ARG_OP_NOTOKEN(op) GENERAL_OP_NOTOKEN(op, 0, 2, 1)
 
+static inline bool isAlphaUnderscore(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_';
+}
+
+static inline bool isAlphaNumUnderscore(char c) {
+  return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_';
+}
+
+static bool isValidVarName(const std::string& s) {
+  size_t len = s.length();
+  if (!len)
+    return false;
+
+  if (!isAlphaUnderscore(s[0]))
+    return false;
+  for (size_t i = 1; i < len; i++)
+    if (!isAlphaNumUnderscore(s[i]))
+      return false;
+  return true;
+}
+
 
 // finds _X suffix (clip letter) and returns 0..25 for x,y,z,a,b,...w
 // no suffix means 0
@@ -3814,8 +4747,8 @@ static int getEffectiveBitsPerComponent(int bitsPerComponent, bool autoconv_conv
   return bitsPerComponent;
 }
 
-static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops, const VideoInfo **vi, const VideoInfo *vi_output, const SOperation storeOp, int numInputs, int planewidth, int planeheight, bool chroma,
-  const bool autoconv_full_scale, const bool autoconv_conv_int, const bool autoconv_conv_float, const int clamp_float_i, const bool shift_float,
+static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops, std::vector<ExprFramePropData>& fp, const VideoInfo **vi, const VideoInfo *vi_output, const SOperation storeOp, int numInputs, int planewidth, int planeheight, bool chroma,
+  const bool autoconv_full_scale, const bool autoconv_conv_int, const bool autoconv_conv_float, const int clamp_float_i, const bool shift_float, const int lutmode,
   IScriptEnvironment *env)
 {
     // vi_output is new in avs+, and is not used yet
@@ -3825,12 +4758,18 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
     int autoScaleSourceBitDepth = 8; // avs+ scalable constants are in 8 bit range by default
 
     std::vector<std::string> tokens;
-    split(tokens, expr, " ", split1::no_empties);
+    split(tokens, expr, " \r\n\t", split1::no_empties);
+
+    std::unordered_map<std::string, int> varnames;
+    int varindex = 0;
+    std::unordered_map<std::string, int> fpnames;
+    int fpindex = 0;
 
     size_t maxStackSize = 0;
     size_t stackSize = 0;
 
     for (size_t i = 0; i < tokens.size(); i++) {
+        const size_t tokenlen = tokens[i].length();
         if (tokens[i] == "+")
             TWO_ARG_OP(opAdd);
         else if (tokens[i] == "-")
@@ -3855,6 +4794,8 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
             ONE_ARG_OP(opSqrt);
         else if (tokens[i] == "abs")
             ONE_ARG_OP(opAbs);
+        else if (tokens[i] == "sgn")
+          ONE_ARG_OP(opSgn);
         else if (tokens[i] == "sin")
           ONE_ARG_OP(opSin);
         else if (tokens[i] == "cos")
@@ -3867,8 +4808,18 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
           ONE_ARG_OP(opAcos);
         else if (tokens[i] == "atan")
           ONE_ARG_OP(opAtan);
+        else if (tokens[i] == "atan2")
+          TWO_ARG_OP(opAtan2);
         else if (tokens[i] == "clip")
           THREE_ARG_OP(opClip);
+        else if (tokens[i] == "round")
+          ONE_ARG_OP(opRound);
+        else if (tokens[i] == "floor")
+          ONE_ARG_OP(opFloor);
+        else if (tokens[i] == "ceil")
+          ONE_ARG_OP(opCeil);
+        else if (tokens[i] == "trunc")
+          ONE_ARG_OP(opTrunc);
         else if (tokens[i] == ">")
             TWO_ARG_OP(opGt);
         else if (tokens[i] == "<")
@@ -3891,6 +4842,8 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
             TWO_ARG_OP(opXor);
         else if (tokens[i] == "not")
             ONE_ARG_OP(opNeg);
+        else if (tokens[i] == "neg")
+            ONE_ARG_OP(opNegSign);
         else if (tokens[i].substr(0, 3) == "dup")
             if (tokens[i].size() == 3) {
                 LOAD_OP(opDup, 0, 1);
@@ -3923,14 +4876,20 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
             }
         else if (tokens[i] == "sx") { // avs+
           // spatial
+          if (lutmode > 0)
+            env->ThrowError("Expr: 'sx' is forbidden in lut mode");
           LOAD_OP(opLoadSpatialX, 0, 0);
         }
         else if (tokens[i] == "sy") { // avs+
           // spatial
+          if (lutmode > 0)
+            env->ThrowError("Expr: 'sy' is forbidden in lut mode");
           LOAD_OP(opLoadSpatialY, 0, 0);
         }
         else if (tokens[i] == "sxr") { // avs+
           // spatial X relative 0..1
+          if (lutmode > 0)
+            env->ThrowError("Expr: 'sxr' is forbidden in lut mode");
           LOAD_OP(opLoadSpatialX, 0, 0);
           /* Paranoia: precision at rightmost position? Ensure that sxr == 1.0 there
           Multiply by 1/x is different.
@@ -3949,7 +4908,9 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
           TWO_ARG_OP(opDiv);
         }
         else if (tokens[i] == "syr") { // avs+
-        // spatial Y relative 0..1
+          // spatial Y relative 0..1
+          if (lutmode > 0)
+            env->ThrowError("Expr: 'syr' is forbidden in lut mode");
           LOAD_OP(opLoadSpatialY, 0, 0);
           /* Multiply by 1/x is different
           const float p = planeheight > 1 ? 1.0f / ((float)planeheight - 1.0f) : 1.0f;
@@ -3961,9 +4922,13 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
           TWO_ARG_OP(opDiv);
         }
         else if (tokens[i] == "frameno") { // avs+
+          if (lutmode > 0)
+            env->ThrowError("Expr: 'frameno' is forbidden in lut mode");
           LOAD_OP(opLoadInternalVar, INTERNAL_VAR_CURRENT_FRAME, 0);
         }
         else if (tokens[i] == "time") { // avs+
+          if (lutmode > 0)
+            env->ThrowError("Expr: 'time' is forbidden in lut mode");
           LOAD_OP(opLoadInternalVar, INTERNAL_VAR_RELTIME, 0);
         }
         else if (tokens[i] == "width") { // avs+
@@ -3972,7 +4937,8 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
         else if (tokens[i] == "height") { // avs+
           LOAD_OP(opLoadConst, (float)planeheight, 0);
         }
-        else if (tokens[i].length() == 1 && tokens[i][0] >= 'a' && tokens[i][0] <= 'z') {
+        else if ((tokens[i].length() == 1 || (tokens[i].length() > 1 && tokens[i][1] == '[')) && tokens[i][0] >= 'a' && tokens[i][0] <= 'z') {
+          const bool rel = tokens[i].length() > 1; // relative pixel addressing; indexed clips e.g. x[-1,-2]
           // loading source clip pixels
           char srcChar = tokens[i][0];
           int loadIndex;
@@ -3982,137 +4948,96 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
             loadIndex = srcChar - 'a' + 3;
           if (loadIndex >= numInputs)
             env->ThrowError("Expr: Too few input clips supplied to reference '%s'", tokens[i].c_str());
-          LOAD_OP(getLoadOp(vi[loadIndex], false), loadIndex, 0);
 
-          // avs+: 'scale_inputs': converts input pixels to a common specified range
-          // Apply to integer and/or float bit depths.
-          // For integers bit-shift or full-scale-stretch method can be chosen
-          // There is no precision loss, since the multiplication/division occurs when original pixels
-          // are already loaded as float
-          const int realSourceBitdepth = vi[loadIndex]->BitsPerComponent();
-          // need any conversion?
-          if (autoScaleSourceBitDepth != realSourceBitdepth && (autoconv_conv_int || autoconv_conv_float)) {
-            if (autoconv_conv_int && realSourceBitdepth != 32) {
-              // convert from integer to other integer (float: not supported as an internal scale target)
-              if (autoScaleSourceBitDepth == 32)
-                env->ThrowError("Expr: cannot use scale_inputs with 32bit float as internal scale target (f32)");
-              if (autoconv_full_scale) {
-                // e.g. conversion from 8 to 16 bits fullscale: /255.0*65535.0
-                const float strech_mul = (float)(1 << (autoScaleSourceBitDepth - 1)) / (float)(1 << (realSourceBitdepth - 1));
-                LOAD_OP(opLoadConst, strech_mul, 0);
-                TWO_ARG_OP(opMul);
-              }
-              else {
-                if (autoScaleSourceBitDepth > realSourceBitdepth)
-                {
-                  // not fullscale, e.g. conversion from 8 to 16 bits YUV: *256
-                  const float shift_mul = (float)(1 << (autoScaleSourceBitDepth - realSourceBitdepth));
-                  LOAD_OP(opLoadConst, shift_mul, 0);
-                  TWO_ARG_OP(opMul);
-                }
-                else {
-                  // not fullscale, e.g. conversion from 16 to 8 bits YUV: /256
-                  const float shift_mul = 1.0f / (float)(1 << (realSourceBitdepth - autoScaleSourceBitDepth));
-                  LOAD_OP(opLoadConst, shift_mul, 0);
-                  TWO_ARG_OP(opMul);
-                }
-              }
+          if (rel) {
+            int dx, dy;
+            std::string s;
+            std::istringstream numStream(tokens[i].substr(2)); // after '['
+            numStream.imbue(std::locale::classic());
+            // first coord
+            if (!(numStream >> dx))
+              env->ThrowError("Expr: Failed to convert '%s' to integer, relative index dx", tokens[i].c_str());
+            // separator ','
+            if (numStream.get() != ',')
+              env->ThrowError("Expr: Failed to convert '%s', character ',' expected between the coordinates", tokens[i].c_str());
+            // second coord
+            if (!(numStream >> dy))
+              env->ThrowError("Expr: Failed to convert '%s' to integer, relative index dy", tokens[i].c_str());
+            // ending ']'
+            if (numStream.get() != ']')
+              env->ThrowError("Expr: Failed to convert '%s' to [x,y], closing ']' expected ", tokens[i].c_str());
+            if (numStream >> s)
+              env->ThrowError("Expr: Failed to convert '%s' to [x,y], invalid character after ']'", tokens[i].c_str());
+
+            if (lutmode > 0)
+              env->ThrowError("Expr: relative pixel addressing is forbidden in lut mode");
+
+            if (dx <= -vi_output->width || dx >= vi_output->width)
+              env->ThrowError("Expr: dx must be between +/- (width-1) in '%s'", tokens[i].c_str());
+            if (dy <= -vi_output->height || dy >= vi_output->height)
+              env->ThrowError("Expr: dy must be between +/- (height-1) in '%s'", tokens[i].c_str());
+            LOAD_REL_OP(getLoadOp(vi[loadIndex], true), loadIndex, 0, dx, dy);
+          }
+          else {
+            // not relative, single clip letter
+            if (lutmode == 0) {
+              LOAD_OP(getLoadOp(vi[loadIndex], false), loadIndex, 0);
             }
-            else if (autoconv_conv_float && realSourceBitdepth == 32) {
-              // convert from float to 8-16 bit integer
-              // no difference between autoconv_full_scale or not
-              // scale 32 bits (0..1.0) -> 8-16 bits
-              // for new 0-based chroma: -0.5..0.5 -> 8*16 bits 0..max-1;
-              // for old 0.5-based chroma: 0.0..1.0 -> 8*16 bits 0..max-1;
-              if (chroma) {
-                // (x-src_middle_chroma)*factor + target_middle_chroma
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-                LOAD_OP(opLoadConst, 0.5f, 0);
-                TWO_ARG_OP(opSub);
-#endif
-                float q = (float)((1 << autoScaleSourceBitDepth) - 1);
-                LOAD_OP(opLoadConst, q, 0);
-                TWO_ARG_OP(opMul);
-
-                int target_middle_chroma = 1 << (autoScaleSourceBitDepth - 1);
-                LOAD_OP(opLoadConst, (float)target_middle_chroma, 0);
-                TWO_ARG_OP(opAdd);
-              }
-              else
-              {
-                // conversion from float: mul by max_pixel_value
-                float q = (float)((1 << autoScaleSourceBitDepth) - 1);
-                LOAD_OP(opLoadConst, q, 0);
-                TWO_ARG_OP(opMul);
-              }
-            }
-          } // end of scale inputs
-
-          // "floatUV" - shifts -0.5 .. +0.5 chroma range to 0 .. 1.0 only when no other autoscaling is active
-          // the effect of this pre-shift is reversed at the storage phase
-          if ((!autoconv_conv_float || autoScaleSourceBitDepth == 32) && realSourceBitdepth == 32) {
-            if (chroma && shift_float) {
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
-              LOAD_OP(opLoadConst, 0.5f, 0);
-              TWO_ARG_OP(opAdd);
-#endif
+            else {
+              // for lut we replace x and y to sx and sy to make the initialization
+              if (loadIndex >= lutmode) // lutx
+                env->ThrowError("Expr: more input clips than lut's dimension. Problematic clip: '%s'", tokens[i].c_str());
+              // spatial
+              if (loadIndex == 0)
+                LOAD_OP(opLoadSpatialX, 0, 0);
+              else // if (loadIndex == 1)
+                LOAD_OP(opLoadSpatialY, 0, 0);
             }
           }
 
-        }
-        else if (tokens[i].length() == 1 && tokens[i][0] >= 'A' && tokens[i][0] <= 'Z') { // avs+
-          // use of a variable: single uppercase letter A..Z
-          char srcChar = tokens[i][0];
-          int loadIndex = srcChar - 'A';
-          LOAD_OP(opLoadVar, loadIndex, 0);
-        }
-        else if (tokens[i].length() == 2 && tokens[i][0] >= 'A' && tokens[i][0] <= 'Z') { // avs+
-          // storing a variable: A@ .. Z@
-          // storing a variable and remove from stack: A^..Z^
-          char srcChar = tokens[i][0];
-          int loadIndex = srcChar - 'A';
-          if (tokens[i][1] == '^')
-            VAR_STORE_SPEC_OP(opStoreAndPopVar, loadIndex);
-          else if (tokens[i][1] == '@')
-            VAR_STORE_OP(opStoreVar, loadIndex);
-          else
-            env->ThrowError("Expr: Invalid character, '^' or '@' expected in '%s'", tokens[i].c_str());
-        }
-        // indexed clips e.g. x[-1,-2]
-        else if (tokens[i].length() > 1 && tokens[i][0] >= 'a' && tokens[i][0] <= 'z' && tokens[i][1] == '[') {
-          char srcChar = tokens[i][0];
-          int loadIndex;
-          if (srcChar >= 'x')
-            loadIndex = srcChar - 'x';
-          else
-            loadIndex = srcChar - 'a' + 3;
-          if (loadIndex >= numInputs)
-            env->ThrowError("Expr: Too few input clips supplied to reference '%s'", tokens[i].c_str());
+          // avs+: 'scale_inputs': converts input pixels to a common specified range
+          // Apply full or limited conversion to integer and/or float bit depths.
+          // For integers bit-shift or full-scale-stretch method can be chosen
+          // There is no precision loss, since the multiplication/division occurs when original pixels
+          // are already loaded as float
+          const int srcBitDepth = vi[loadIndex]->BitsPerComponent();
+          const int dstBitDepth = autoScaleSourceBitDepth; // internal precision
 
-          int dx, dy;
-          std::string s;
-          std::istringstream numStream(tokens[i].substr(2)); // after '['
-          numStream.imbue(std::locale::classic());
-          // first coord
-          if (!(numStream >> dx))
-            env->ThrowError("Expr: Failed to convert '%s' to integer, relative index dx", tokens[i].c_str());
-          // separator ','
-          if (numStream.get() != ',')
-            env->ThrowError("Expr: Failed to convert '%s', character ',' expected between the coordinates", tokens[i].c_str());
-          // second coord
-          if (!(numStream >> dy))
-            env->ThrowError("Expr: Failed to convert '%s' to integer, relative index dy", tokens[i].c_str());
-          // ending ']'
-          if (numStream.get() != ']')
-            env->ThrowError("Expr: Failed to convert '%s' to [x,y], closing ']' expected ", tokens[i].c_str());
-          if(numStream >> s)
-            env->ThrowError("Expr: Failed to convert '%s' to [x,y], invalid character after ']'", tokens[i].c_str());
+          const bool use_chroma = chroma; // && !forceNonUV;
+          const bool isfull = autoconv_full_scale;
 
-          if(dx <= -vi_output->width || dx >= vi_output->width)
-            env->ThrowError("Expr: dx must be between +/- (width-1) in '%s'", tokens[i].c_str());
-          if (dy <= -vi_output->height || dy >= vi_output->height)
-            env->ThrowError("Expr: dy must be between +/- (height-1) in '%s'", tokens[i].c_str());
-          LOAD_REL_OP(getLoadOp(vi[loadIndex], true), loadIndex, 0, dx, dy);
+          if (autoconv_conv_int || autoconv_conv_float) {
+
+            if ((srcBitDepth != 32 && autoconv_conv_int) ||
+              ((srcBitDepth == 32 && autoconv_conv_float))) {
+
+              bits_conv_constants d;
+              get_bits_conv_constants(d, use_chroma, isfull, isfull, srcBitDepth, dstBitDepth);
+              // chroma is spec: signed. Limited:16-240 is really 128 +/-112. Full:1-255 is really 128+/-127
+
+              if (d.src_offset != 0) {
+                LOAD_OP(opLoadConst, (float)d.src_offset, 0);
+                TWO_ARG_OP(opSub);
+              }
+              if (d.mul_factor != 1.0f) {
+                LOAD_OP(opLoadConst, d.mul_factor, 0);
+                TWO_ARG_OP(opMul);
+              }
+              if (d.dst_offset != 0) {
+                LOAD_OP(opLoadConst, (float)d.dst_offset, 0);
+                TWO_ARG_OP(opAdd);
+              }
+            }
+          }
+
+          // "floatUV" - shifts -0.5 .. +0.5 chroma range to 0 .. 1.0 only when no other autoscaling is active
+          // the effect of this pre-shift is reversed at the storage phase
+          if ((!autoconv_conv_float || dstBitDepth == 32) && srcBitDepth == 32) {
+            if (chroma && shift_float) {
+              LOAD_OP(opLoadConst, 0.5f, 0);
+              TWO_ARG_OP(opAdd); // at the end pixel exit: opSub
+            }
+          }
         }
         else if (tokens[i] == "pi") // avs+
         {
@@ -4201,9 +5126,7 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
           int bitsPerComponent = getEffectiveBitsPerComponent(vi[loadIndex]->BitsPerComponent(), autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
 
           float q = bitsPerComponent == 32 ? uv8tof(16) : (16 << (bitsPerComponent - 8)); // scale chroma min 16
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
           if (shift_float && bitsPerComponent) q += 0.5f;
-#endif
           LOAD_OP(opLoadConst, q, 0);
         }
         else if (tokens[i].substr(0, 4) == "cmax") // avs+
@@ -4219,9 +5142,7 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
 
           int bitsPerComponent = getEffectiveBitsPerComponent(vi[loadIndex]->BitsPerComponent(), autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
           float q = bitsPerComponent == 32 ? uv8tof(240) : (240 << (bitsPerComponent - 8)); // scale chroma max 240
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
           if (shift_float && bitsPerComponent == 32) q += 0.5f;
-#endif
           LOAD_OP(opLoadConst, q, 0);
         }
         else if (tokens[i].substr(0, 10) == "range_size") // avs+
@@ -4251,11 +5172,9 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
             env->ThrowError("Expr: Too few input clips supplied for reference '%s'", tokens[i].c_str());
 
           int bitsPerComponent = getEffectiveBitsPerComponent(vi[loadIndex]->BitsPerComponent(), autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
-          // 0.0 (or -0.5 for zero based 32bit float chroma)
-          float q = bitsPerComponent == 32 ? (chroma ? uv8tof(128) - 0.5f : 0.0f) : 0;
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
+          // 0.0 (or -0.5 for 32bit float chroma)
+          float q = bitsPerComponent == 32 ? (chroma ? -0.5f : 0.0f) : 0;
           if (chroma && shift_float && bitsPerComponent == 32) q += 0.5f;
-#endif
           LOAD_OP(opLoadConst, q, 0);
         }
         else if (tokens[i].substr(0, 10) == "yrange_min")
@@ -4285,11 +5204,9 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
             env->ThrowError("Expr: Too few input clips supplied for reference '%s'", tokens[i].c_str());
 
           int bitsPerComponent = getEffectiveBitsPerComponent(vi[loadIndex]->BitsPerComponent(), autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
-          // 1.0 (or 0.5 for zero based 32bit float chroma), 255, 1023,... 65535
-          float q = bitsPerComponent == 32 ? (chroma ? uv8tof(128) + 0.5f : 1.0f) : ((1 << bitsPerComponent) - 1);
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
+          // 1.0 (or 0.5 for 32bit float chroma), 255, 1023,... 65535
+          float q = bitsPerComponent == 32 ? (chroma ? + 0.5f : 1.0f) : ((1 << bitsPerComponent) - 1);
           if (chroma && shift_float && bitsPerComponent == 32) q += 0.5f;
-#endif
           LOAD_OP(opLoadConst, q, 0);
         }
         else if (tokens[i].substr(0, 10) == "yrange_max")
@@ -4322,9 +5239,7 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
           // for chroma: range_half is 0.0 for 32bit float (or 0.5 for old float chroma representation)
           int bitsPerComponent = getEffectiveBitsPerComponent(vi[loadIndex]->BitsPerComponent(), autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
           float q = bitsPerComponent == 32 ? (chroma ? uv8tof(128) : 0.5f) : (1 << (bitsPerComponent - 1)); // 0.5f, 128, 512, ... 32768
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
           if (chroma && shift_float && bitsPerComponent == 32) q += 0.5f;
-#endif
           LOAD_OP(opLoadConst, q, 0);
         }
         else if (tokens[i].substr(0, 11) == "yrange_half") // avs+
@@ -4345,173 +5260,40 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
         // "scaleb" and "scalef" functions scale their operand from 8 bit to the bit depth of the first clip.
         // "i8", "i10", "i14", "i16" and "f32" (typically at the beginning of the expression) sets the scale-base to 8..16 bits or float, respectively.
         // "i8".."f32" keywords can appear anywhere in the expression, but only the last occurence will be effective for the whole expression.
-        else if (tokens[i] == "scaleb" || tokens[i] == "yscaleb") // avs+, scale by bit shift
+        else if (tokens[i] == "scaleb" || tokens[i] == "yscaleb" || tokens[i] == "scalef" || tokens[i] == "yscalef") // avs+, scale by bit shift
         {
-          int effectivetargetBitDepth = getEffectiveBitsPerComponent(targetBitDepth, autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
-          const bool forceNonUV = (tokens[i] == "yscaleb");
-
-          if (effectivetargetBitDepth > autoScaleSourceBitDepth) // scale constant from 8 bits to 10 bit target: *4
-          {
-            // upscale
-            if (effectivetargetBitDepth == 32) { // upscale to float
-              // divide by max, e.g. x -> x/255
-              // for new 0-based chroma  : x -> (x-src_chroma_middle)/factor;
-              // for old 0.5 based chroma: x -> (x-src_chroma_middle)/factor + 0.5;
-              if (chroma && !forceNonUV) {
-                int src_middle_chroma = 1 << (autoScaleSourceBitDepth - 1);
-                LOAD_OP(opLoadConst, (float)src_middle_chroma, 0);
-                TWO_ARG_OP(opSub);
-
-                float q = (float)((1 << autoScaleSourceBitDepth) - 1);
-                LOAD_OP(opLoadConst, 1.0f / q, 0);
-                TWO_ARG_OP(opMul);
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-                LOAD_OP(opLoadConst, 0.5f, 0);
-                TWO_ARG_OP(opAdd);
-#else
-                if (shift_float) { // floatUV
-                  LOAD_OP(opLoadConst, 0.5f, 0);
-                  TWO_ARG_OP(opAdd);
-                }
-#endif
-                // (x-src_middle_chroma)/factor + target_chroma_middle
-              }
-              else
-              {
-                float q = (float)((1 << autoScaleSourceBitDepth) - 1);
-                LOAD_OP(opLoadConst, 1.0f / q, 0);
-                TWO_ARG_OP(opMul);
-              }
-            }
-            else {
-              // shift left by (targetBitDepth - currentBaseBitDepth), that is mul by (1 << (targetBitDepth - currentBaseBitDepth))
-              int shifts_to_left = effectivetargetBitDepth - autoScaleSourceBitDepth;
-              float q = (float)(1 << shifts_to_left);
-              LOAD_OP(opLoadConst, q, 0);
-              TWO_ARG_OP(opMul);
-            }
-          }
-          else if (effectivetargetBitDepth < autoScaleSourceBitDepth) // scale constant from 12 bits to 8 bit target: /16
-          {
-            // downscale
-            if (autoScaleSourceBitDepth == 32) {
-              // scale 32 bits (0..1.0) -> 8-16 bits
-              // for new 0-based chroma: -0.5..0.5 -> 8*16 bits 0..max-1;
-              // for old 0.5-based chroma: 0.0..1.0 -> 8*16 bits 0..max-1;
-              if (chroma && !forceNonUV) {
-                // (x-src_middle_chroma)*factor + target_middle_chroma
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-                LOAD_OP(opLoadConst, 0.5f, 0);
-                TWO_ARG_OP(opSub);
-#endif
-                float q = (float)((1 << effectivetargetBitDepth) - 1);
-                LOAD_OP(opLoadConst, q, 0);
-                TWO_ARG_OP(opMul);
-
-                int target_middle_chroma = 1 << (effectivetargetBitDepth - 1);
-                LOAD_OP(opLoadConst, (float)target_middle_chroma, 0);
-                TWO_ARG_OP(opAdd);
-              }
-              else
-              {
-                float q = (float)((1 << effectivetargetBitDepth) - 1);
-                LOAD_OP(opLoadConst, q, 0);
-                TWO_ARG_OP(opMul);
-              }
-            }
-            else {
-              // shift right by (targetBitDepth - currentBaseBitDepth), that is div by (1 << (currentBaseBitDepth - targetBitDepth))
-              int shifts_to_right = autoScaleSourceBitDepth - effectivetargetBitDepth;
-              float q = (float)(1 << shifts_to_right); // e.g. / 4.0  -> mul by 1/4.0 faster
-              LOAD_OP(opLoadConst, 1.0f / q, 0);
-              TWO_ARG_OP(opMul);
-            }
-          }
-          else {
-            // no scaling is needed. Bit depth of constant is the same as of the reference clip
-          }
-        }
-        else if (tokens[i] == "scalef" || tokens[i] == "yscalef") // avs+, scale by full scale
-        {
-          // if scale_float is used then all float input is automatically converted to integer
+          // Note: if 'scale_float' is used then all float input is automatically converted to integer
           // in this case the targetBitDepth is not 32 for float clips but the actual autoscaleSourceBitDepth
           int effectivetargetBitDepth = getEffectiveBitsPerComponent(targetBitDepth, autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
-          const bool forceNonUV = (tokens[i] == "yscalef");
+          // number to scale is not chroma-related one even if we are in chroma (U,V) plane
+          const bool forceNonUV = (tokens[i] == "yscaleb") || (tokens[i] == "yscalef");
 
-          if (effectivetargetBitDepth > autoScaleSourceBitDepth) // scale constant from 8 bits to 10 bit target: *4
-          {
-            // upscale
-            if (effectivetargetBitDepth == 32) { // upscale to float
-              if (chroma && !forceNonUV) {
-                int src_middle_chroma = 1 << (autoScaleSourceBitDepth - 1);
-                LOAD_OP(opLoadConst, (float)src_middle_chroma, 0);
-                TWO_ARG_OP(opSub);
+          const int srcBitDepth = autoScaleSourceBitDepth;
+          const int dstBitDepth = effectivetargetBitDepth;
+          const bool use_chroma = chroma && !forceNonUV;
 
-                float q = (float)((1 << autoScaleSourceBitDepth) - 1); // divide by max, e.g. x -> x/255
-                LOAD_OP(opLoadConst, 1.0f / q, 0);
-                TWO_ARG_OP(opMul);
-                // (x-src_middle_chroma)*factor + target_middle_chroma
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-                LOAD_OP(opLoadConst, 0.5f, 0);
-                TWO_ARG_OP(opAdd);
-#endif
-                if (shift_float) { // floatUV
-                  LOAD_OP(opLoadConst, 0.5f, 0);
-                  TWO_ARG_OP(opAdd);
-                }
-              }
-              else {
-                float q = (float)((1 << autoScaleSourceBitDepth) - 1); // divide by max, e.g. x -> x/255
-                LOAD_OP(opLoadConst, 1.0f / q, 0);
-                TWO_ARG_OP(opMul);
-              }
-            }
-            else {
-              // keep max pixel value e.g. 8->12 bits: x * 4095.0 / 255.0
-              float q = (float)((1 << effectivetargetBitDepth) - 1) / (float)((1 << autoScaleSourceBitDepth) - 1);
-              LOAD_OP(opLoadConst, q, 0);
-              TWO_ARG_OP(opMul);
-            }
+          const bool isfull = tokens[i] == "scalef" || tokens[i] == "yscalef";
+
+          bits_conv_constants d;
+          get_bits_conv_constants(d, use_chroma, isfull, isfull, srcBitDepth, dstBitDepth);
+          // chroma is spec: signed. Limited:16-240 is really 128 +/-112. Full:1-255 is really 128+/-127
+
+          // floatUV
+          if (use_chroma && shift_float && dstBitDepth == 32 && srcBitDepth < 32) {
+            d.dst_offset = 0.5f; // get out from -0.5..0.5 to 0..1
           }
-          else if (effectivetargetBitDepth < autoScaleSourceBitDepth)
-          {
-            // downscale
-            if (autoScaleSourceBitDepth == 32) {
-              // float->integer
-              // scale 32 bits (0..1.0) -> 8-16 bits
-              // for new 0-based chroma: -0.5..0.5 -> 8*16 bits 0..max-1;
-              // for old 0.5-based chroma: 0.0..1.0 -> 8*16 bits 0..max-1;
-              if (chroma && !forceNonUV) {
-                // (x-src_middle_chroma)*factor + target_middle_chroma
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-                LOAD_OP(opLoadConst, 0.5f, 0);
-                TWO_ARG_OP(opSub);
-#endif
-                const float q = (float)((1 << effectivetargetBitDepth) - 1);
-                LOAD_OP(opLoadConst, q, 0);
-                TWO_ARG_OP(opMul);
 
-                const int target_middle_chroma = 1 << (effectivetargetBitDepth - 1);
-                LOAD_OP(opLoadConst, (float)target_middle_chroma, 0);
-                TWO_ARG_OP(opAdd);
-              }
-              else
-              {
-                const float q = (float)((1 << effectivetargetBitDepth) - 1);
-                LOAD_OP(opLoadConst, q, 0);
-                TWO_ARG_OP(opMul);
-              }
-            }
-            else {
-              // integer->integer
-              // keep max pixel value e.g. 12->8 bits: x * 255.0 / 4095.0
-              const float q = (float)((1 << effectivetargetBitDepth) - 1) / (float)((1 << autoScaleSourceBitDepth) - 1);
-              LOAD_OP(opLoadConst, q, 0);
-              TWO_ARG_OP(opMul);
-            }
+          if (d.src_offset != 0) {
+            LOAD_OP(opLoadConst, (float)d.src_offset, 0);
+            TWO_ARG_OP(opSub);
           }
-          else {
-            // no scaling is needed. Bit depth of constant is the same as of the reference clip
+          if (d.mul_factor != 1.0f) {
+            LOAD_OP(opLoadConst, d.mul_factor, 0);
+            TWO_ARG_OP(opMul);
+          }
+          if (d.dst_offset != 0) {
+            LOAD_OP(opLoadConst, (float)d.dst_offset, 0);
+            TWO_ARG_OP(opAdd);
           }
         }
         else if (tokens[i] == "i8") // avs+
@@ -4538,6 +5320,85 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
         {
           autoScaleSourceBitDepth = 32;
         }
+        else if (tokens[i].length() > 1 && tokens[i][0] >= 'a' && tokens[i][0] <= 'z' && tokens[i][1] == '.') {
+          // frame property access: x.framePropName syntax
+          char srcChar = tokens[i][0];
+          int srcIndex;
+          if (srcChar >= 'x')
+            srcIndex = srcChar - 'x';
+          else
+            srcIndex = srcChar - 'a' + 3;
+          if (srcIndex >= numInputs)
+            env->ThrowError("Expr: Too few input clips supplied to reference '%s'", tokens[i].c_str());
+
+          auto fullname = tokens[i];
+          auto fpname = tokens[i].substr(2); // after '.'
+          if(fpname.length() == 0)
+            env->ThrowError("Expr: no frame property name is specified");
+          if (!isValidVarName(fpname))
+            env->ThrowError("Expr: invalid frame property name '%s'", fpname.c_str());
+
+          // check if frame property already existed in a variable slots
+          auto key = fullname;
+          auto it = fpnames.find(key);
+          int loadIndex;
+          if (it == fpnames.end()) {
+            // first occurance, insert name and actual index
+            if (fpindex >= MAX_FRAMEPROP_VARIABLES)
+              env->ThrowError("Expr: too many frame property references, maximum reached (%d)", MAX_FRAMEPROP_VARIABLES);
+            loadIndex = fpindex++;
+            fpnames[key] = loadIndex;
+            // Register into the list of frame properties to read
+            // input clip index: srcIndex
+            // name of frame property: fpname
+            // variable index to fill: loadindex
+            ExprFramePropData fpData;
+            fpData.name = fpname;
+            fpData.srcIndex = srcIndex;
+            fpData.var_index = loadIndex;
+            fp.push_back(fpData);
+          }
+          else {
+            loadIndex = it->second;
+          }
+          LOAD_OP(opLoadFramePropVar, loadIndex, 0);
+        }
+        else if (tokenlen >= 2 && (tokens[i][tokenlen - 1] == '^' || tokens[i][tokenlen - 1] == '@'))
+        {
+          // storing a variable: A@ .. Z@
+          // storing a variable and remove from stack: A^..Z^
+          auto key = tokens[i].substr(0, tokenlen - 1);
+          auto opchar = tokens[i][tokenlen - 1];
+          auto it = varnames.find(key);
+          int loadIndex;
+          if (it == varnames.end()) {
+            if(!isValidVarName(key))
+              env->ThrowError("Expr: invalid variable name '%s'", key.c_str());
+            // first occurance, insert name and actual index
+            if (varindex >= MAX_USER_VARIABLES)
+              env->ThrowError("Expr: too many variables, maximum reached (%d)", MAX_USER_VARIABLES);
+            loadIndex = varindex++;
+            varnames[key] = loadIndex;
+          }
+          else {
+            loadIndex = it->second;
+          }
+          if (opchar == '^')
+            VAR_STORE_SPEC_OP(opStoreVarAndDrop1, loadIndex);
+          else // if (opchar == '@')
+            VAR_STORE_OP(opStoreVar, loadIndex);
+        }
+        else if (isValidVarName(tokens[i]))
+        {
+          // variable names
+          // the very end, all reserved expr words were processed
+          auto key = tokens[i];
+          auto it = varnames.find(key);
+          if (it == varnames.end())
+            env->ThrowError("Expr: keyword or variable not found: '%s'", key.c_str());
+          auto loadIndex = it->second;
+          LOAD_OP(opLoadVar, loadIndex, 0);
+        }
         else {
           // parse a number
             float f;
@@ -4560,76 +5421,44 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
         // we have to scale pixels before storing them back
         // need any conversion?
         // or use effectiveTargetBitDepth instead of autoScaleSourceBitDepth
+        const int srcBitDepth = autoScaleSourceBitDepth;
+        const int dstBitDepth = targetBitDepth;
+        const bool use_chroma = chroma; // && !forceNonUV;
 
-        if (autoScaleSourceBitDepth != targetBitDepth && (autoconv_conv_int || autoconv_conv_float)) {
-          // We can be sure that internal source was not 32 bits float:
-          // (was checked during input conversion)
-          if (targetBitDepth != 32 && autoconv_conv_int) {
-            // convert back internal integer to other integer
-            if (autoconv_full_scale) {
-              // e.g. conversion from 8 to 16 bits fullscale: /255.0*65535.0
-              const float strech_mul = (float)(1 << (targetBitDepth - 1)) / (float)(1 << (autoScaleSourceBitDepth - 1));
-              LOAD_OP_NOTOKEN(opLoadConst, strech_mul, 0);
-              TWO_ARG_OP_NOTOKEN(opMul);
-            }
-            else {
-              if (targetBitDepth > autoScaleSourceBitDepth)
-              {
-                // not fullscale, e.g. conversion from 8 to 16 bits YUV: *256
-                const float shift_mul = (float)(1 << (targetBitDepth - autoScaleSourceBitDepth));
-                LOAD_OP_NOTOKEN(opLoadConst, shift_mul, 0);
-                TWO_ARG_OP_NOTOKEN(opMul);
-              }
-              else {
-                // not fullscale, e.g. conversion from 16 to 8 bits YUV: *256
-                const float shift_mul = 1.0f / (float)(1 << (autoScaleSourceBitDepth - targetBitDepth));
-                LOAD_OP_NOTOKEN(opLoadConst, shift_mul, 0);
-                TWO_ARG_OP_NOTOKEN(opMul);
-              }
-            }
-          }
-          else if (targetBitDepth == 32 && autoconv_conv_float) {
-            // For targetBitDepth == 32 we are converting 8-16 bits integer back to float
-            // No difference between full_scale or not
-            // 8-16 bits -> scale 32 bits (0..1.0)
-            // for new 0-based chroma: 8*16 bits 0..max-1 -> -0.5..0.5
-            // for old 0.5-based chroma:8*16 bits 0..max-1 -> 0.0..1.0
-            if (chroma) {
-              // (x-src_middle_chroma)*factor + target_middle_chroma
-              int src_middle_chroma = 1 << (autoScaleSourceBitDepth - 1);
-              LOAD_OP_NOTOKEN(opLoadConst, (float)src_middle_chroma, 0);
+        const bool isfull = autoconv_full_scale;
+
+        if (autoconv_conv_int || autoconv_conv_float) {
+
+          if ((targetBitDepth != 32 && autoconv_conv_int) || 
+            ((targetBitDepth == 32 && autoconv_conv_float))) {
+
+            bits_conv_constants d;
+            get_bits_conv_constants(d, use_chroma, isfull, isfull, srcBitDepth, dstBitDepth);
+            // chroma is spec: signed. Limited:16-240 is really 128 +/-112. Full:1-255 is really 128+/-127
+
+            if (d.src_offset != 0) {
+              LOAD_OP_NOTOKEN(opLoadConst, (float)d.src_offset, 0);
               TWO_ARG_OP_NOTOKEN(opSub);
-
-              float q = (float)((1 << autoScaleSourceBitDepth) - 1);
-              LOAD_OP_NOTOKEN(opLoadConst, 1.0f / q, 0);
-              TWO_ARG_OP_NOTOKEN(opMul);
-
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-              LOAD_OP_NOTOKEN(opLoadConst, 0.5f, 0);
-              TWO_ARG_OP_NOTOKEN(opAdd);
-#endif
             }
-            else
-            {
-              // 0..max-1 -> 0.0..1.0
-              float q = (float)((1 << autoScaleSourceBitDepth) - 1);
-              LOAD_OP_NOTOKEN(opLoadConst, 1.0f / q, 0);
+            if (d.mul_factor != 1.0f) {
+              LOAD_OP_NOTOKEN(opLoadConst, d.mul_factor, 0);
               TWO_ARG_OP_NOTOKEN(opMul);
+            }
+            if (d.dst_offset != 0) {
+              LOAD_OP_NOTOKEN(opLoadConst, (float)d.dst_offset, 0);
+              TWO_ARG_OP_NOTOKEN(opAdd);
             }
           }
-        } // end of scale inputs
-
+        }
         // "floatUV" -
         // this reverses the effect of the 0.5 float-type pre-shift is the pixel load phase
         // pre-shifts chroma pixels by +0.5 before applying the expression (see at pixel load),
         // then here the result is shifted back by -0.5
         // Thus expressions, which rely on a working range of 0..1.0 will work transparently
-        if ((!autoconv_conv_float || autoScaleSourceBitDepth == 32) && targetBitDepth == 32) {
+        if ((!autoconv_conv_float || srcBitDepth == 32) && targetBitDepth == 32) {
           if (chroma && shift_float) {
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
             LOAD_OP_NOTOKEN(opLoadConst, 0.5f, 0);
-            TWO_ARG_OP_NOTOKEN(opSub);
-#endif
+            TWO_ARG_OP_NOTOKEN(opSub); // at pixel load it was opAdd
           }
         }
 
@@ -4639,17 +5468,10 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
             // false       x                 0               0..1              -0.5..+0.5
             // true        false             1               0..1              -0.5..+0.5
             // true        true              2               0..1              0..1
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-            LOAD_OP_NOTOKEN(opLoadConst, 0.0f, 0);
-            TWO_ARG_OP_NOTOKEN(opMax);
-            LOAD_OP_NOTOKEN(opLoadConst, 1.0f, 0);
-            TWO_ARG_OP_NOTOKEN(opMin);
-#else
             LOAD_OP_NOTOKEN(opLoadConst, clamp_float_i == 2 ? 0.0f : -0.5f, 0);
             TWO_ARG_OP_NOTOKEN(opMax);
             LOAD_OP_NOTOKEN(opLoadConst, clamp_float_i == 2 ? 1.0f : 0.5f, 0);
             TWO_ARG_OP_NOTOKEN(opMin);
-#endif
           }
           else
           { // luma
@@ -4673,8 +5495,12 @@ static float calculateOneOperand(uint32_t op, float a) {
             return std::sqrt(a);
         case opAbs:
             return std::abs(a);
-        case opNeg:
+        case opSgn:
+            return (a < 0) ? -1.0f : (a > 0) ? 1.0f : 0.0f;
+        case opNeg: // Expr "boolean": not
             return (a > 0) ? 0.0f : 1.0f;
+        case opNegSign:
+            return -a;
         case opExp:
             return std::exp(a);
         case opLog:
@@ -4691,6 +5517,14 @@ static float calculateOneOperand(uint32_t op, float a) {
           return std::acos(a);
         case opAtan:
           return std::atan(a);
+        case opRound:
+          return std::round(a);
+        case opFloor:
+          return std::floor(a);
+        case opCeil:
+          return std::ceil(a);
+        case opTrunc:
+          return std::trunc(a);
     }
 
     return 0.0f;
@@ -4732,6 +5566,8 @@ static float calculateTwoOperands(uint32_t op, float a, float b) {
             return ((a > 0) != (b > 0)) ? 1.0f : 0.0f;
         case opPow:
             return std::pow(a, b);
+        case opAtan2:
+            return std::atan2(a, b);
     }
 
     return 0.0f;
@@ -4751,25 +5587,32 @@ static int numOperands(uint32_t op) {
         case opLoadSpatialX:
         case opLoadSpatialY:
         case opLoadVar:
+        case opLoadFramePropVar:
         case opLoadInternalVar:
+        case opSwap:
+        case opStoreVar:
+        case opStoreVarAndDrop1:
           return 0;
 
         case opSqrt:
         case opAbs:
+        case opSgn:
         case opNeg:
+        case opNegSign:
         case opExp:
         case opLog:
-        case opStoreVar:
-        case opStoreAndPopVar:
         case opSin:
         case opCos:
         case opTan:
         case opAsin:
         case opAcos:
         case opAtan:
+        case opRound:
+        case opFloor:
+        case opCeil:
+        case opTrunc:
           return 1;
 
-        case opSwap:
         case opAdd:
         case opSub:
         case opMul:
@@ -4787,7 +5630,8 @@ static int numOperands(uint32_t op) {
         case opOr:
         case opXor:
         case opPow:
-            return 2;
+        case opAtan2:
+          return 2;
 
         case opTernary:
         case opClip:
@@ -4810,6 +5654,7 @@ static bool isLoadOp(uint32_t op) {
         case opLoadSpatialX:
         case opLoadSpatialY:
         case opLoadVar:
+        case opLoadFramePropVar:
         case opLoadInternalVar:
           return true;
     }
@@ -4817,133 +5662,83 @@ static bool isLoadOp(uint32_t op) {
     return false;
 }
 
-static void findBranches(std::vector<ExprOp> &ops, size_t pos, size_t *start1, size_t *start2, size_t *start3) {
-    int operands = numOperands(ops[pos].op);
+static void findBranches(std::vector<ExprOp>& ops, size_t pos, size_t* start1, size_t* start2, size_t* start3) {
+  int operands = numOperands(ops[pos].op);
 
-    size_t temp1, temp2, temp3;
+  size_t temp1, temp2, temp3;
 
-    if (operands == 0) {
-        *start1 = pos;
-    } else if (operands == 1) {
-        if (isLoadOp(ops[pos - 1].op)) {
-            *start1 = pos - 1;
-        } else {
-            findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
-            *start1 = temp1;
-        }
-    } else if (operands == 2) {
-        if (isLoadOp(ops[pos - 1].op)) {
-            *start2 = pos - 1;
-        } else {
-            findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
-            *start2 = temp1;
-        }
-
-        if (isLoadOp(ops[*start2 - 1].op)) {
-            *start1 = *start2 - 1;
-        } else {
-            findBranches(ops, *start2 - 1, &temp1, &temp2, &temp3);
-            *start1 = temp1;
-        }
-    } else if (operands == 3) {
-        if (isLoadOp(ops[pos - 1].op)) {
-            *start3 = pos - 1;
-        } else {
-            findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
-            *start3 = temp1;
-        }
-
-        if (isLoadOp(ops[*start3 - 1].op)) {
-            *start2 = *start3 - 1;
-        } else {
-            findBranches(ops, *start3 - 1, &temp1, &temp2, &temp3);
-            *start2 = temp1;
-        }
-
-        if (isLoadOp(ops[*start2 - 1].op)) {
-            *start1 = *start2 - 1;
-        } else {
-            findBranches(ops, *start2 - 1, &temp1, &temp2, &temp3);
-            *start1 = temp1;
-        }
+  if (operands == 0) {
+    // dup loadsrc loadrel loadconst swap, storevar
+    if (ops[pos].op == opSwap || ops[pos].op == opStoreVar || ops[pos].op == opStoreVarAndDrop1)
+    {
+      findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
+      *start1 = temp1;
+      if (ops[pos].op == opStoreVarAndDrop1) {
+        // StoreAndPopVar: opStoreVar + Ignore topmost stack.
+        // Branch was calculated only for storing its result into var.
+        // Leaves no trace on stack.
+        // So we go on with next branch
+        pos = *start1;
+        findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
+        *start1 = temp1;
+      }
     }
-}
-
-/*
-#define PAIR(x) { x, #x }
-static std::unordered_map<uint32_t, std::string> op_strings = {
-        PAIR(opLoadSrc8),
-        PAIR(opLoadSrc16),
-        PAIR(opLoadSrcF32),
-        PAIR(opLoadSrcF16),
-        PAIR(opLoadRelSrc8),
-        PAIR(opLoadRelSrc16),
-        PAIR(opLoadRelSrcF32),
-        PAIR(opLoadSpatialX),
-        PAIR(opLoadSpatialY),
-        PAIR(opLoadConst),
-        PAIR(opLoadInternalVars),
-        PAIR(opLoadVar)
-        PAIR(opLoadAndPopVar)
-        PAIR(opStoreVar)
-        PAIR(opStore8),
-        PAIR(opStore10),
-        PAIR(opStore12),
-        PAIR(opStore14),
-        PAIR(opStore16),
-        PAIR(opStoreF32),
-        PAIR(opStoreF16),
-        PAIR(opDup),
-        PAIR(opSwap),
-        PAIR(opAdd),
-        PAIR(opSub),
-        PAIR(opMul),
-        PAIR(opDiv),
-        PAIR(opFmod),
-        PAIR(opMax),
-        PAIR(opMin),
-        PAIR(opSqrt),
-        PAIR(opAbs),
-        PAIR(opGt),
-        PAIR(opLt),
-        PAIR(opEq),
-        PAIR(opNotEq),
-        PAIR(opLE),
-        PAIR(opGE),
-        PAIR(opTernary),
-        PAIR(opClip),
-        PAIR(opAnd),
-        PAIR(opOr),
-        PAIR(opXor),
-        PAIR(opNeg),
-        PAIR(opExp),
-        PAIR(opLog),
-        PAIR(opPow)
-        PAIR(opSin)
-        PAIR(opCos)
-        PAIR(opTan)
-        PAIR(opAsin)
-        PAIR(opAcos)
-        PAIR(opAtan)
-      };
-#undef PAIR
-
-
-static void printExpression(const std::vector<ExprOp> &ops) {
-    fprintf(stderr, "Expression: '");
-
-    for (size_t i = 0; i < ops.size(); i++) {
-        fprintf(stderr, " %s", op_strings[ops[i].op].c_str());
-
-        if (ops[i].op == opLoadConst)
-            fprintf(stderr, "(%.3f)", ops[i].e.fval);
-        else if (isLoadOp(ops[i].op))
-            fprintf(stderr, "(%d)", ops[i].e.ival);
+    else
+      *start1 = pos;
+  }
+  else if (operands == 1) {
+    if (isLoadOp(ops[pos - 1].op)) {
+      *start1 = pos - 1;
+    }
+    else {
+      findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
+      *start1 = temp1;
+    }
+  }
+  else if (operands == 2) {
+    if (isLoadOp(ops[pos - 1].op)) {
+      *start2 = pos - 1;
+    }
+    else {
+      findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
+      *start2 = temp1;
     }
 
-    fprintf(stderr, "'\n");
+    if (isLoadOp(ops[*start2 - 1].op)) {
+      *start1 = *start2 - 1;
+    }
+    else {
+      findBranches(ops, *start2 - 1, &temp1, &temp2, &temp3);
+      *start1 = temp1;
+    }
+  }
+  else if (operands == 3) {
+    if (isLoadOp(ops[pos - 1].op)) {
+      *start3 = pos - 1;
+    }
+    else {
+      findBranches(ops, pos - 1, &temp1, &temp2, &temp3);
+      *start3 = temp1;
+    }
+
+    if (isLoadOp(ops[*start3 - 1].op)) {
+      *start2 = *start3 - 1;
+    }
+    else {
+      findBranches(ops, *start3 - 1, &temp1, &temp2, &temp3);
+      *start2 = temp1;
+    }
+
+    if (isLoadOp(ops[*start2 - 1].op)) {
+      *start1 = *start2 - 1;
+    }
+    else {
+      findBranches(ops, *start2 - 1, &temp1, &temp2, &temp3);
+      *start1 = temp1;
+    }
+  }
 }
-*/
+
 
 static void foldConstants(std::vector<ExprOp> &ops) {
     for (size_t i = 0; i < ops.size(); i++) {
@@ -4989,13 +5784,19 @@ static void foldConstants(std::vector<ExprOp> &ops) {
             }
           }
           break;
-          // optimize Mul 1 Div 1
+          // optimize Mul 1 Div 1, Mul -1, Div -1
         case opMul: case opDiv:
           if (ops[i - 1].op == opLoadConst) {
             if (ops[i - 1].e.fval == 1.0f) {
               // replace mul 1 or div 1 with nothing
               ops.erase(ops.begin() + i - 1, ops.begin() + i + 1);
               i -= 2;
+            }
+            else if (ops[i - 1].e.fval == -1.0f) {
+              // replace mul -1 or div -1 with neg
+              ops[i].op = opNegSign;
+              ops.erase(ops.begin() + i - 1);
+              i--;
             }
           }
           break;
@@ -5022,7 +5823,9 @@ static void foldConstants(std::vector<ExprOp> &ops) {
 
             case opSqrt:
             case opAbs:
+            case opSgn:
             case opNeg:
+            case opNegSign:
             case opExp:
             case opLog:
             case opSin:
@@ -5031,6 +5834,10 @@ static void foldConstants(std::vector<ExprOp> &ops) {
             case opAsin:
             case opAcos:
             case opAtan:
+            case opRound:
+            case opFloor:
+            case opCeil:
+            case opTrunc:
               if (ops[i - 1].op == opLoadConst) {
                 ops[i].e.fval = calculateOneOperand(ops[i].op, ops[i - 1].e.fval);
                 ops[i].op = opLoadConst;
@@ -5066,6 +5873,7 @@ static void foldConstants(std::vector<ExprOp> &ops) {
             case opOr:
             case opXor:
             case opPow:
+            case opAtan2:
               if (ops[i - 2].op == opLoadConst && ops[i - 1].op == opLoadConst) {
                 ops[i].e.fval = calculateTwoOperands(ops[i].op, ops[i - 2].e.fval, ops[i - 1].e.fval);
                 ops[i].op = opLoadConst;
@@ -5077,16 +5885,18 @@ static void foldConstants(std::vector<ExprOp> &ops) {
             case opTernary:
               size_t start1, start2, start3;
               findBranches(ops, i, &start1, &start2, &start3);
-              if (ops[start2 - 1].op == opLoadConst) {
-                ops.erase(ops.begin() + i);
-                if (ops[start1].e.fval > 0.0f) {
-                  ops.erase(ops.begin() + start3, ops.begin() + i);
+              // start1/2/3: condition/true/false branch
+              if (ops[start2 - 1].op == opLoadConst) { // condition expression is a single constant
+                ops.erase(ops.begin() + i); // erase ternary op
+                if (ops[start1].e.fval > 0.0f) { // condition is constant 'true'
+                  // start1 is start2 - 1
+                  ops.erase(ops.begin() + start3, ops.begin() + i); // erase 'false' branch
                   i = start3;
                 } else {
-                  ops.erase(ops.begin() + start2, ops.begin() + start3);
+                  ops.erase(ops.begin() + start2, ops.begin() + start3);  // erase 'true' branch
                   i -= start3 - start2;
                 }
-                ops.erase(ops.begin() + start1);
+                ops.erase(ops.begin() + start1); // erase constant
                 i -= 2;
               }
               break;
@@ -5095,11 +5905,21 @@ static void foldConstants(std::vector<ExprOp> &ops) {
 }
 
 Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector<std::string>& _expr_array, const char *_newformat, const bool _optAvx2,
-  const bool _optSingleMode, const bool _optSSE2, const std::string _scale_inputs, const int _clamp_float_i, IScriptEnvironment *env) :
-  children(_child_array), expressions(_expr_array), optAvx2(_optAvx2), optSingleMode(_optSingleMode), optSSE2(_optSSE2), scale_inputs(_scale_inputs), clamp_float_i(_clamp_float_i) {
+  const bool _optSingleMode, const bool _optSSE2, const std::string _scale_inputs, const int _clamp_float_i, const int _lutmode, IScriptEnvironment *env) :
+  children(_child_array), expressions(_expr_array), optAvx2(_optAvx2), optSingleMode(_optSingleMode), optSSE2(_optSSE2), scale_inputs(_scale_inputs), clamp_float_i(_clamp_float_i), lutmode(_lutmode) {
 
   vi = children[0]->GetVideoInfo();
   d.vi = vi;
+  if (lutmode < 0 || lutmode>2)
+    env->ThrowError("'Expr: 'lut' can be 0 (no lut), 1 (lut_x) or 2 (lut_xy)");
+  if (lutmode == 1 && vi.BitsPerComponent() == 32)
+    lutmode = 0; // fallback to realtime
+  if (lutmode == 2 && vi.BitsPerComponent() > 14)
+    lutmode = 0; // fallback to realtime
+  d.lutmode = lutmode;
+
+  for (int i = 0; i < 4; i++)
+    d.luts[i] = nullptr;
 
   // parse "scale_inputs"
   autoconv_full_scale = false;
@@ -5130,13 +5950,13 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
   else if (scale_inputs == "float") {
     autoconv_conv_float = true;
   }
-  else if (scale_inputs == "floatUV") {
+  else if (scale_inputs == "floatuv") {
     autoconv_conv_float = false; // !! really
     // like in masktools2 2.2.20+
     shift_float = true; // !!
   }
   else if (scale_inputs != "none") {
-    env->ThrowError("Expr: scale_inputs must be 'all','allf','int','intf','float','floatf' or 'none'");
+    env->ThrowError("Expr: scale_inputs must be 'all','allf','int','intf','float','floatf','floatUV' or 'none'");
   }
 
   try {
@@ -5145,13 +5965,18 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
       env->ThrowError("Expr: More than 26 input clips provided");
 
     for (int i = 0; i < d.numInputs; i++)
-      d.node[i] = children[i];
+      d.clips[i] = children[i];
+
+    if (d.lutmode > 0) {
+      if(d.numInputs != d.lutmode)
+        env->ThrowError("Expr lut: number of input clips must be the same as LUT's dimension. LUT is %dD. Passed clip(s): %d", d.lutmode, d.numInputs);
+    }
 
     // checking formats
     const VideoInfo* vi_array[MAX_EXPR_INPUTS] = {};
     for (int i = 0; i < d.numInputs; i++)
-      if (d.node[i])
-        vi_array[i] = &d.node[i]->GetVideoInfo();
+      if (d.clips[i])
+        vi_array[i] = &d.clips[i]->GetVideoInfo();
 
 
     int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
@@ -5240,7 +6065,7 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
       d.clipsUsed[i] = false;
     }
 
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < d.vi.NumComponents(); i++) {
       if (!expr[i].empty()) {
         d.plane[i] = poProcess;
       }
@@ -5264,8 +6089,8 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
       const int planewidth = d.vi.width >> d.vi.GetPlaneWidthSubsampling(plane_enum);
       const int planeheight = d.vi.height >> d.vi.GetPlaneHeightSubsampling(plane_enum);
       const bool chroma = (plane_enum_s == PLANAR_U || plane_enum_s == PLANAR_V);
-      d.maxStackSize = std::max(parseExpression(expr[i], d.ops[i], vi_array, &d.vi, getStoreOp(&d.vi), d.numInputs, planewidth, planeheight, chroma,
-        autoconv_full_scale, autoconv_conv_int, autoconv_conv_float, clamp_float_i, shift_float,
+      d.maxStackSize = std::max(parseExpression(expr[i], d.ops[i], d.frameprops[i], vi_array, &d.vi, getStoreOp(&d.vi), d.numInputs, planewidth, planeheight, chroma,
+        autoconv_full_scale, autoconv_conv_int, autoconv_conv_float, clamp_float_i, shift_float, d.lutmode,
         env), d.maxStackSize);
       foldConstants(d.ops[i]);
 
@@ -5296,19 +6121,45 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
       }
 
       // optimize: mark referenced input clips in order to not call GetFrame for unused inputs
-      for (size_t j = 0; j < d.ops[i].size(); j++) {
-        const uint32_t op = d.ops[i][j].op;
-        if (op == opLoadSrc8 || op == opLoadSrc16 || op == opLoadSrcF16 || op == opLoadSrcF32 ||
-           op == opLoadRelSrc8 || op == opLoadRelSrc16 || op == opLoadRelSrcF32)
-        {
-          const int sourceClip = d.ops[i][j].e.ival;
+      if (lutmode == 0) {
+        for (size_t j = 0; j < d.ops[i].size(); j++) {
+          const uint32_t op = d.ops[i][j].op;
+          if (op == opLoadSrc8 || op == opLoadSrc16 || op == opLoadSrcF16 || op == opLoadSrcF32 ||
+            op == opLoadRelSrc8 || op == opLoadRelSrc16 || op == opLoadRelSrcF32)
+          {
+            const int sourceClip = d.ops[i][j].e.ival;
+            d.clipsUsed[sourceClip] = true;
+          }
+        }
+        // input clips with frame property access are used as well
+        for (auto framePropToRead : d.frameprops[i]) {
+          const int sourceClip = framePropToRead.srcIndex;
           d.clipsUsed[sourceClip] = true;
         }
       }
 
+      if (lutmode > 0) {
+        for (int i = 0; i < lutmode; i++) // lut: always get. Needed for the init
+          d.clipsUsed[i] = true;
+        // * bit depth of input clip(s) and output must match
+        bool lut_ok = 
+          (d.numInputs == 1
+            && d.vi.BitsPerComponent() == vi_array[0]->BitsPerComponent())
+          ||
+          (
+            d.numInputs == 2
+            && d.vi.BitsPerComponent() == vi_array[0]->BitsPerComponent()
+            && d.vi.BitsPerComponent() == vi_array[1]->BitsPerComponent()
+            );
+        if(!lut_ok)
+          env->ThrowError("Expr: error in lut mode: input bit depths and output bit depth must be the same");
+      }
+
+
 #ifdef INTEL_INTRINSICS
       // Check CPU instuction level constraints:
       // opLoadRel8/16/32: minimum SSSE3 (pshufb, alignr) for SIMD, and no AVX2 support
+      // round, floor, ceil, trunc: minimun SSE4.1
       // Trig.func: C only
       d.planeOptAvx2[i] = optAvx2;
       d.planeOptSSE2[i] = optSSE2;
@@ -5320,10 +6171,16 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
           if(!(env->GetCPUFlags() & CPUF_SSSE3)) // required minimum (pshufb, alignr)
             d.planeOptSSE2[i] = false;
         }
-        // trig.functions C only
-        if (op == opSin || op == opCos || op == opTan || op == opAsin || op == opAcos || op == opAtan) {
+        // trig.functions C only, except Sin and Cos and Atan2
+        if (op == opTan || op == opAsin || op == opAcos || op == opAtan) {
           d.planeOptAvx2[i] = false;
           d.planeOptSSE2[i] = false;
+          break;
+        }
+        // round, trunc, ceil: minimum of SSE4.1
+        if (op == opRound || op == opFloor || op == opCeil || op == opTrunc ) {
+          if (!(env->GetCPUFlags() & CPUF_SSE4_1)) // required minimum (_mm_round_ps...)
+            d.planeOptSSE2[i] = false;
           break;
         }
       }
@@ -5341,10 +6198,14 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
         int planewidth = d.vi.width >> d.vi.GetPlaneWidthSubsampling(plane_enum);
         int planeheight = d.vi.height >> d.vi.GetPlaneHeightSubsampling(plane_enum);
 
+        const int planewidth_real_or_lut = (lutmode == 0) ? planewidth: (1 << d.vi.BitsPerComponent());
+        // to decide if partial chunk is left from the width at the end of the 4/8/16 pixel processing unit big main loops
+        // when lut: fake width (x size of lut table) of the lut-init
+
         if (optAvx2 && d.planeOptAvx2[i]) {
 
           // avx2
-          ExprEvalAvx2 ExprObj(d.ops[i], d.numInputs, env->GetCPUFlags(), planewidth, planeheight, optSingleMode);
+          ExprEvalAvx2 ExprObj(d.ops[i], d.numInputs, env->GetCPUFlags(), planewidth_real_or_lut, planeheight, optSingleMode);
           if (ExprObj.GetCode(true) && ExprObj.GetCodeSize()) { // PF modded jitasm. true: epilog with vmovaps, and vzeroupper
 #ifdef VS_TARGET_OS_WINDOWS
             d.proc[i] = (ExprData::ProcessLineProc)VirtualAlloc(nullptr, ExprObj.GetCodeSize(), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
@@ -5356,7 +6217,7 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
         }
         else if (optSSE2 && d.planeOptSSE2[i]) {
           // sse2, sse4
-          ExprEval ExprObj(d.ops[i], d.numInputs, env->GetCPUFlags(), planewidth, planeheight, optSingleMode);
+          ExprEval ExprObj(d.ops[i], d.numInputs, env->GetCPUFlags(), planewidth_real_or_lut, planeheight, optSingleMode);
           if (ExprObj.GetCode() && ExprObj.GetCodeSize()) {
 #ifdef VS_TARGET_OS_WINDOWS
             d.proc[i] = (ExprData::ProcessLineProc)VirtualAlloc(nullptr, ExprObj.GetCodeSize(), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
@@ -5367,65 +6228,6 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
           }
         }
 
-
-#if 0
-        // under construction
-
-        // check LUT possibility:
-        // * 8-16bit 1D lut, or 8-10 bit 2D lut
-        // * bit depth of input clip(s) and output must match
-        bool useLut =
-          (d.numInputs == 1
-            && d.vi.BitsPerComponent() <= 16
-            && d.vi.BitsPerComponent() == vi_array[0]->BitsPerComponent())
-          ||
-          (
-            d.numInputs == 2 && d.vi.BitsPerComponent() <= 8/*10*/
-            && d.vi.BitsPerComponent() == vi_array[0]->BitsPerComponent()
-            && d.vi.BitsPerComponent() == vi_array[1]->BitsPerComponent()
-            );
-
-        // todo:
-        // if there is a 'runtime' variable in the expression (framecount, relative_time), then lut is not possible
-
-        if (useLut) {
-          d.plane[i] = poLut; // change processing mode
-          d.planeLutIndex[i] = i;
-
-          int bits_per_pixel = d.vi.BitsPerComponent();
-          if (d.numInputs == 1 && bits_per_pixel >= 10) // 1D lut 10-16 bits: use 16bit safety area
-            bits_per_pixel = 16;
-
-          int lut_size = (1 << bits_per_pixel);
-          if (d.numInputs == 1)
-            lut_size *= (1 << bits_per_pixel);
-          lut_size *= d.vi.ComponentSize(); // bytes per entry
-
-          d.luts[i].resize(lut_size); // allocate
-
-          // fill LUT tables
-          if (d.numInputs == 1)
-          {
-            std::vector<uint8_t> pixels(lut_size);
-            uint8_t *ptr = pixels.data();
-            uint8_t *ptr_out = d.luts[i].data();
-            if (bits_per_pixel == 8) {
-              for (int i = 0; i < (1 << bits_per_pixel); i++)
-                ptr[i] = i;
-            }
-            else {
-              for (int i = 0; i < (1 << bits_per_pixel); i++)
-                reinterpret_cast<uint16_t *>(ptr)[i] = i;
-            }
-            // treat it as a clip. width=(1 << bits_per_pixel), height=1
-            // GetReadPtr is 'ptr'
-            // GetWritePtr is 'ptr_out'
-            // pitch does not count, we have height==1
-          }
-
-        }
-        // end of LUT
-#endif
       } // if plane is to be processed
     }
 #ifdef VS_TARGET_OS_WINDOWS
@@ -5434,10 +6236,12 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
 #endif
 #endif
 
+    if (lutmode > 0)
+      calculate_lut(env);
   }
   catch (std::runtime_error &e) {
     for (int i = 0; i < MAX_EXPR_INPUTS; i++)
-      d.node[i] = nullptr; //  vsapi->freeNode(d->node[i]);
+      d.clips[i] = nullptr; //  vsapi->freeNode(d->node[i]);
     std::string s = "Expr: ";
     s += e.what();
     env->ThrowError(s.c_str());

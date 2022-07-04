@@ -54,11 +54,19 @@
 #include <new>
 #include "AviHelper.h"
 
-#define FP_STATE 0x9001f
-
 
 #include <float.h>
 
+#ifdef MSVC
+constexpr uint32_t FP_STATE = 0x9001f;
+#ifdef _M_X64
+constexpr uint32_t FP_MASK = 0xffffffff & !(_MCW_PC || _MCW_IC);
+// x64 ignores _MCW_PC and _MCW_IC, Debug CRT library actually asserts when these are passed.
+// https ://docs.microsoft.com/en-us/cpp/c-runtime-library/reference/control87-controlfp-control87-2?redirectedfrom=MSDN&view=msvc-170
+#else
+constexpr uint32_t FP_MASK = 0xffffffff;
+#endif
+#endif
 
 #ifndef _DEBUG
 // Release mode logging
@@ -652,8 +660,8 @@ bool CAVIFileSynth::DelayInit() {
 bool CAVIFileSynth::DelayInit2() {
   // _RPT1(0,"Original: 0x%.4x\n", _control87( 0, 0 ) );
 #if defined(MSVC)
-  int fp_state = _controlfp( 0, 0 );
-  _controlfp( FP_STATE, 0xffffffff );
+  unsigned int fp_state = _controlfp(0, 0);
+  _controlfp(FP_STATE, FP_MASK);
 #endif
   if (szScriptNameUTF8) // unicode!
   {
@@ -753,7 +761,7 @@ bool CAVIFileSynth::DelayInit2() {
 #endif
 #if defined(MSVC)
       _clearfp();
-      _controlfp( fp_state, 0xffffffff );
+      _controlfp( fp_state, FP_MASK);
 #endif
       return true;
 #ifndef _DEBUG
@@ -766,7 +774,7 @@ bool CAVIFileSynth::DelayInit2() {
 #ifdef X86_32
       _mm_empty();
 #if defined(MSVC)
-      _controlfp( fp_state, 0xffffffff );
+      _controlfp( fp_state, FP_MASK );
 #endif
 #endif
       return false;
@@ -778,7 +786,7 @@ bool CAVIFileSynth::DelayInit2() {
 #endif
 #if defined(MSVC)
     _clearfp();
-    _controlfp( fp_state, 0xffffffff );
+    _controlfp( fp_state, FP_MASK);
 #endif
     return (env && filter_graph && vi);
   }
@@ -787,7 +795,7 @@ bool CAVIFileSynth::DelayInit2() {
 
 void CAVIFileSynth::MakeErrorStream(const char* msg) {
   error_msg = msg;
-  filter_graph = Create_MessageClip(msg, vi->width, vi->height, vi->pixel_type, false, 0xFF3333, 0, 0, env);
+  filter_graph = Create_MessageClip(msg, vi->width, vi->height, vi->pixel_type, false, 0xFF3333, 0, 0, -1, -1, -1, env);
 }
 
 void CAVIFileSynth::Lock() {
@@ -1395,8 +1403,8 @@ HRESULT CAVIStreamSynth::Read2(LONG lStart, LONG lSamples, LPVOID lpBuffer, LONG
   //  _RPT3(0,"%p->CAVIStreamSynth::Read(%ld samples at %ld)\n", this, lSamples, lStart);
   //  _RPT2(0,"\tbuffer: %ld bytes at %p\n", cbBuffer, lpBuffer);
 #ifdef MSVC
-  int fp_state = _controlfp( 0, 0 );
-  _controlfp( FP_STATE, 0xffffffff );
+  unsigned int fp_state = _controlfp( 0, 0 );
+  _controlfp( FP_STATE, FP_MASK);
 #endif
 
   const VideoInfo* const vi = parent->vi;
@@ -1500,7 +1508,7 @@ HRESULT CAVIStreamSynth::Read2(LONG lStart, LONG lSamples, LPVOID lpBuffer, LONG
 #endif
 #ifdef MSVC
     _clearfp();
-    _controlfp( fp_state, 0xffffffff );
+    _controlfp( fp_state, FP_MASK);
 #endif
     return E_FAIL;
   }
@@ -1510,7 +1518,7 @@ HRESULT CAVIStreamSynth::Read2(LONG lStart, LONG lSamples, LPVOID lpBuffer, LONG
 #endif
 #ifdef MSVC
   _clearfp();
-  _controlfp( fp_state, 0xffffffff );
+  _controlfp( fp_state, FP_MASK);
 #endif
   return S_OK;
 }

@@ -45,7 +45,7 @@ class RGBtoRGBA : public GenericVideoFilter
 {
 public:
   RGBtoRGBA(PClip src);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -61,7 +61,7 @@ class RGBAtoRGB : public GenericVideoFilter
 {
 public:
   RGBAtoRGB(PClip src);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -76,7 +76,7 @@ class PackedRGBtoPlanarRGB : public GenericVideoFilter
 {
 public:
   PackedRGBtoPlanarRGB(PClip src, bool _sourceHasAlpha, bool _targetHasAlpha);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -94,7 +94,7 @@ class PlanarRGBtoPackedRGB : public GenericVideoFilter
 {
 public:
   PlanarRGBtoPackedRGB(PClip src, bool _targetHasAlpha);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

@@ -41,7 +41,7 @@ class Limiter : public GenericVideoFilter
 {
 public:
     Limiter(PClip _child, float _min_luma, float _max_luma, float _min_chroma, float _max_chroma, int _show, bool paramscale, IScriptEnvironment* env);
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
     int __stdcall SetCacheHints(int cachehints, int frame_range) override {
       AVS_UNUSED(frame_range);

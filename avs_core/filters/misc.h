@@ -50,7 +50,7 @@ class FixLuminance : public GenericVideoFilter
 {
 public:
   FixLuminance(PClip _child, int _vertex, int _slope, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -71,7 +71,7 @@ class FixBrokenChromaUpsampling : public GenericVideoFilter
 {
 public:
   FixBrokenChromaUpsampling(PClip _clip, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -89,7 +89,7 @@ class PeculiarBlend : public GenericVideoFilter
 {
 public:
   PeculiarBlend(PClip _child, int _cutoff, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -110,7 +110,7 @@ class SkewRows : public GenericVideoFilter
 {
 public:
   SkewRows(PClip _child, int skew, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

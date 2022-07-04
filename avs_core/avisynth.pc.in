@@ -1,12 +1,13 @@
 prefix=@CMAKE_INSTALL_PREFIX@
 exec_prefix=@CMAKE_INSTALL_PREFIX@
 libdir=${exec_prefix}/@CMAKE_INSTALL_LIBDIR@
-includedir=${exec_prefix}/@CMAKE_INSTALL_INCLUDEDIR@/avisynth
+includedir=${prefix}/@CMAKE_INSTALL_INCLUDEDIR@/avisynth
 
 Name: AviSynth+
 Description: A powerful nonlinear scripting language for video.
 Version: @PROJECT_VERSION@
 
 Libs: -L${libdir} @LIBS@
-Libs.private: -L${libdir} @SYSLIBS@
+Libs.private: @SYSLIBS@
 Cflags: -I${includedir}
+Cflags.private: -DAVS_STATIC_LIB

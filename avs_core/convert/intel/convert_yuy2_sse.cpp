@@ -32,167 +32,22 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
-#include "../convert_yuy2.h"
-#include "convert_yv12_sse.h"
-#include "../convert.h"
-#include <avs/alignment.h>
-
-#ifdef AVS_WINDOWS
-    #include <avs/win.h>
-#else
-    #include <avs/posix.h>
-#endif
-
+#include <avisynth.h>
+#include "../convert_matrix.h"
 #include <emmintrin.h>
 
-
-//these are to be used only in asm routines
-static const int cyb_rec601 = int(0.114 * 219 / 255 * 65536 + 0.5);
-static const int cyg_rec601 = int(0.587 * 219 / 255 * 65536 + 0.5);
-static const int cyr_rec601 = int(0.299 * 219 / 255 * 65536 + 0.5);
-
-static const int ku_rec601  = int(112.0 / (255.0 * (1.0 - 0.114)) * 65536 + 0.5);
-static const int kv_rec601  = int(112.0 / (255.0 * (1.0 - 0.299)) * 65536 + 0.5);
-
-static const int cyb_rec709 = int(0.0722 * 219 / 255 * 65536 + 0.5);
-static const int cyg_rec709 = int(0.7152 * 219 / 255 * 65536 + 0.5);
-static const int cyr_rec709 = int(0.2126 * 219 / 255 * 65536 + 0.5);
-
-static const int ku_rec709  = int(112.0 / (255.0 * (1.0 - 0.0722)) * 65536 + 0.5);
-static const int kv_rec709  = int(112.0 / (255.0 * (1.0 - 0.2126)) * 65536 + 0.5);
-
-
-static const int cyb_pc601 = int(0.114 * 65536 + 0.5);
-static const int cyg_pc601 = int(0.587 * 65536 + 0.5);
-static const int cyr_pc601 = int(0.299 * 65536 + 0.5);
-
-static const int ku_pc601  = int(127.0 / (255.0 * (1.0 - 0.114)) * 65536 + 0.5);
-static const int kv_pc601  = int(127.0 / (255.0 * (1.0 - 0.299)) * 65536 + 0.5);
-
-static const int cyb_pc709 = int(0.0722 * 65536 + 0.5);
-static const int cyg_pc709 = int(0.7152 * 65536 + 0.5);
-static const int cyr_pc709 = int(0.2126 * 65536 + 0.5);
-
-static const int ku_pc709  = int(127.0 / (255.0 * (1.0 - 0.0722)) * 65536 + 0.5);
-static const int kv_pc709  = int(127.0 / (255.0 * (1.0 - 0.2126)) * 65536 + 0.5);
-
-
-static const int cyb_values[4] = {cyb_rec601 / 2, cyb_rec709 / 2, cyb_pc601 / 2, cyb_pc709 / 2};
-static const int cyg_values[4] = {cyg_rec601 / 2, cyg_rec709 / 2, cyg_pc601 / 2, cyg_pc709 / 2};
-static const int cyr_values[4] = {cyr_rec601 / 2, cyr_rec709 / 2, cyr_pc601 / 2, cyr_pc709 / 2};
-
-static const double luma_rec_scale = 255.0/219.0 * 65536+0.5;
-
-static const int ku_values[4]       = {ku_rec601 / 2, ku_rec709 / 2, ku_pc601 / 2, ku_pc709 / 2};
-static const int ku_values_luma[4]  = {-int((ku_rec601/2) * luma_rec_scale) / 65536, -int((ku_rec709/2) * luma_rec_scale) / 65536, -ku_pc601 / 2, -ku_pc709 / 2};
-static const int kv_values[4]       = {kv_rec601 / 2, kv_rec709 / 2, kv_pc601 / 2, kv_pc709 / 2};
-static const int kv_values_luma[4]  = {-int((kv_rec601/2) * luma_rec_scale) / 65536, -int((kv_rec709/2) * luma_rec_scale) / 65536, -kv_pc601 / 2, -kv_pc709 / 2};
-
-/**********************************
- *******   Convert to YUY2   ******
- *********************************/
-
-ConvertToYUY2::ConvertToYUY2(PClip _child, bool _dupl, bool _interlaced, const char *matrix, IScriptEnvironment* env)
-  : GenericVideoFilter(_child), interlaced(_interlaced),src_cs(vi.pixel_type)
-{
-  AVS_UNUSED(_dupl);
-  if (vi.height&3 && vi.IsYV12() && interlaced)
-    env->ThrowError("ConvertToYUY2: Cannot convert from interlaced YV12 if height is not multiple of 4. Use Crop!");
-
-  if (vi.height&1 && vi.IsYV12() )
-    env->ThrowError("ConvertToYUY2: Cannot convert from YV12 if height is not even. Use Crop!");
-
-  if (vi.width & 1)
-    env->ThrowError("ConvertToYUY2: Image width must be even. Use Crop!");
-
-  theMatrix = Rec601;
-  if (matrix) {
-    if (!vi.IsRGB())
-      env->ThrowError("ConvertToYUY2: invalid \"matrix\" parameter (RGB data only)");
-
-    if (!lstrcmpi(matrix, "rec709"))
-      theMatrix = Rec709;
-    else if (!lstrcmpi(matrix, "PC.601"))
-      theMatrix = PC_601;
-    else if (!lstrcmpi(matrix, "PC.709"))
-      theMatrix = PC_709;
-    else if (!lstrcmpi(matrix, "rec601"))
-      theMatrix = Rec601;
-    else
-      env->ThrowError("ConvertToYUY2: invalid \"matrix\" parameter (must be matrix=\"Rec601\", \"Rec709\", \"PC.601\" or \"PC.709\")");
-  }
-
-  vi.pixel_type = VideoInfo::CS_YUY2;
-}
-
-// 1-2-1 Kernel version
-
-static void convert_rgb_to_yuy2_c(const bool pcrange, const int cyb, const int cyg, const int cyr,
-                                  const int ku, const int kv, const BYTE* rgb,
-                                  BYTE* yuv, const int yuv_offset,
-                                  const int rgb_offset, const int rgb_inc,
-                                  int width, int height) {
-
-  const int bias = pcrange ? 0x8000 : 0x108000; //  0.5 * 65536 : 16.5 * 65536
-
-  for (int y= height; y>0; --y)
-  {
-    // Use left most pixel for edge condition
-    int y0                 = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + bias) >> 16;
-    const BYTE* rgb_prev   = rgb;
-    for (int x = 0; x < width; x += 2)
-    {
-      const BYTE* const rgb_next = rgb + rgb_inc;
-      // y1 and y2 can't overflow
-      const int y1         = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + bias) >> 16;
-      yuv[0]               = y1;
-      const int y2         = (cyb*rgb_next[0] + cyg*rgb_next[1] + cyr*rgb_next[2] + bias) >> 16;
-      yuv[2]               = y2;
-      if (pcrange) { // This is okay, the compiler optimises out the unused path when pcrange is a constant
-        const int scaled_y = y0+y1*2+y2;
-        const int b_y      = (rgb_prev[0]+rgb[0]*2+rgb_next[0]) - scaled_y;
-        yuv[1]             = PixelClip((b_y * ku + (128<<18) + (1<<17)) >> 18);  // u
-        const int r_y      = (rgb_prev[2]+rgb[2]*2+rgb_next[2]) - scaled_y;
-        yuv[3]             = PixelClip((r_y * kv + (128<<18) + (1<<17)) >> 18);  // v
-      }
-      else {
-        const int scaled_y = (y0+y1*2+y2 - 64) * int(255.0/219.0*65536+0.5);
-        const int b_y      = ((rgb_prev[0]+rgb[0]*2+rgb_next[0]) << 16) - scaled_y;
-        yuv[1]             = PixelClip(((b_y >> 12) * ku + (128<<22) + (1<<21)) >> 22);  // u
-        const int r_y      = ((rgb_prev[2]+rgb[2]*2+rgb_next[2]) << 16) - scaled_y;
-        yuv[3]             = PixelClip(((r_y >> 12) * kv + (128<<22) + (1<<21)) >> 22);  // v
-      }
-      y0       = y2;
-
-      rgb_prev = rgb_next;
-      rgb      = rgb_next + rgb_inc;
-      yuv     += 4;
-    }
-    rgb += rgb_offset;
-    yuv += yuv_offset;
-  }
-}
-
-
-/*
- Optimization note: you can template matrix parameter like in ConvertBackToYUY2 to get ~5% better performance
-*/
 template<int rgb_bytes>
-static void convert_rgb_line_to_yuy2_sse2(const BYTE *srcp, BYTE *dstp, int width, int matrix) {
-  __m128i luma_round_mask;
-  if (matrix == Rec601 || matrix == Rec709) {
-    luma_round_mask = _mm_set1_epi32(0x84000);
-  } else {
-    luma_round_mask = _mm_set1_epi32(0x4000);
-  }
+static void convert_rgb_line_to_yuy2_sse2(const BYTE *srcp, BYTE *dstp, int width, const ConversionMatrix& matrix) {
+  const bool TV_range = 0 != matrix.offset_y; // Rec601, Rec709, Rec2020
+  const __m128i luma_round_mask = _mm_set1_epi32(TV_range ? 0x84000 : 0x4000); //  16.5 * 32768 : 0.5 * 32768
+  const __m128i tv_scale = _mm_set1_epi32(matrix.offset_y << 2); // 64/0
 
-  __m128i luma_coefs = _mm_set_epi16(0, cyr_values[matrix], cyg_values[matrix], cyb_values[matrix], 0, cyr_values[matrix], cyg_values[matrix], cyb_values[matrix]);
-  __m128i chroma_coefs = _mm_set_epi16(kv_values[matrix], kv_values_luma[matrix], ku_values[matrix], ku_values_luma[matrix], kv_values[matrix], kv_values_luma[matrix], ku_values[matrix], ku_values_luma[matrix]);
+  __m128i luma_coefs = _mm_set_epi16(0, matrix.y_r, matrix.y_g, matrix.y_b, 0, matrix.y_r, matrix.y_g, matrix.y_b);
+  __m128i chroma_coefs = _mm_set_epi16(matrix.kv, matrix.kv_luma, matrix.ku, matrix.ku_luma, matrix.kv, matrix.kv_luma, matrix.ku, matrix.ku_luma);
   __m128i chroma_round_mask = _mm_set1_epi32(0x808000);
 
   __m128i upper_dword_mask = _mm_set1_epi32(0xFFFF0000);
   __m128i zero = _mm_setzero_si128();
-  __m128i tv_scale = _mm_set1_epi32((matrix == Rec601 || matrix == Rec709) ? 64 : 0);
 
   //main processing
   __m128i src = _mm_cvtsi32_si128(*reinterpret_cast<const int*>(srcp));
@@ -278,7 +133,7 @@ static void convert_rgb_line_to_yuy2_sse2(const BYTE *srcp, BYTE *dstp, int widt
 }
 
 template<int rgb_bytes>
-static void convert_rgb_to_yuy2_sse2(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height, int matrix) {
+void convert_rgb_to_yuy2_sse2(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix &matrix) {
   src += src_pitch*(height-1);       // ;Move source to bottom line (read top->bottom)
 
   for (int y=0; y < height; ++y) {
@@ -288,27 +143,28 @@ static void convert_rgb_to_yuy2_sse2(const BYTE *src, BYTE *dst, int src_pitch, 
   } // end for y
 }
 
+//instantiate
+//template<int rgb_bytes>
+template void convert_rgb_to_yuy2_sse2<3>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix& matrix);
+template void convert_rgb_to_yuy2_sse2<4>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix& matrix);
+
 #ifdef X86_32
 
 #pragma warning(push)
 #pragma warning(disable: 4799 4700)
 
 template<int rgb_bytes>
-static void convert_rgb_line_to_yuy2_mmx(const BYTE *srcp, BYTE *dstp, int width, int matrix) {
-  __m64 luma_round_mask;
-  if (matrix == Rec601 || matrix == Rec709) {
-    luma_round_mask = _mm_set1_pi32(0x84000);
-  } else {
-    luma_round_mask = _mm_set1_pi32(0x4000);
-  }
+static void convert_rgb_line_to_yuy2_mmx(const BYTE *srcp, BYTE *dstp, int width, const ConversionMatrix& matrix) {
+  const bool TV_range = 0 != matrix.offset_y; // Rec601, Rec709, Rec2020
+  const __m64 luma_round_mask = _mm_set1_pi32(TV_range ? 0x84000 : 0x4000); //  16.5 * 32768 : 0.5 * 32768
+  const __m64 tv_scale = _mm_set1_pi32(matrix.offset_y << 2); // 64/0
 
-  __m64 luma_coefs = _mm_set_pi16(0, cyr_values[matrix], cyg_values[matrix], cyb_values[matrix] );
-  __m64 chroma_coefs = _mm_set_pi16(kv_values[matrix], kv_values_luma[matrix], ku_values[matrix], ku_values_luma[matrix]);
+  __m64 luma_coefs = _mm_set_pi16(0, matrix.y_r, matrix.y_g, matrix.y_b);
+  __m64 chroma_coefs = _mm_set_pi16(matrix.kv, matrix.kv_luma, matrix.ku, matrix.ku_luma);
   __m64 chroma_round_mask = _mm_set1_pi32(0x808000);
 
   __m64 upper_dword_mask = _mm_set1_pi32(0xFFFF0000);
   __m64 zero = _mm_setzero_si64();
-  __m64 tv_scale = _mm_set1_pi32((matrix == Rec601 || matrix == Rec709) ? 64 : 0);
   __m64 dont_care;
 
   __m64 src = *reinterpret_cast<const __m64*>(srcp);
@@ -373,7 +229,7 @@ static void convert_rgb_line_to_yuy2_mmx(const BYTE *srcp, BYTE *dstp, int width
 #pragma warning(pop)
 
 template<int rgb_bytes>
-static void convert_rgb_to_yuy2_mmx(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height, int matrix) {
+void convert_rgb_to_yuy2_mmx(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix& matrix) {
   src += src_pitch*(height-1);       // ;Move source to bottom line (read top->bottom)
 
   for (int y=0; y < height; ++y) {
@@ -384,168 +240,12 @@ static void convert_rgb_to_yuy2_mmx(const BYTE *src, BYTE *dst, int src_pitch, i
   _mm_empty();
 }
 
+//instantiate
+//template<int rgb_bytes>
+template void convert_rgb_to_yuy2_mmx<3>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix& matrix);
+template void convert_rgb_to_yuy2_mmx<4>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix& matrix);
+
 #endif
-
-PVideoFrame __stdcall ConvertToYUY2::GetFrame(int n, IScriptEnvironment* env)
-{
-  PVideoFrame src = child->GetFrame(n, env);
-
-  if (((src_cs&VideoInfo::CS_YV12)==VideoInfo::CS_YV12)||((src_cs&VideoInfo::CS_I420)==VideoInfo::CS_I420)) {
-    PVideoFrame dst = env->NewVideoFrameP(vi, &src);
-    BYTE* dstp = dst->GetWritePtr();
-    const BYTE* srcp_y = src->GetReadPtr(PLANAR_Y);
-    const BYTE* srcp_u = src->GetReadPtr(PLANAR_U);
-    const BYTE* srcp_v = src->GetReadPtr(PLANAR_V);
-    int src_pitch_y = src->GetPitch(PLANAR_Y);
-    int src_pitch_uv = src->GetPitch(PLANAR_U);
-    int dst_pitch = dst->GetPitch();
-    int src_heigh = dst->GetHeight();
-
-    //todo: maybe check for source width being mod16/8?
-    if (interlaced) {
-      if ((env->GetCPUFlags() & CPUF_SSE2) && IsPtrAligned(srcp_y, 16))
-      {
-        convert_yv12_to_yuy2_interlaced_sse2(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
-      }
-      else
-#ifdef X86_32
-      if (env->GetCPUFlags() & CPUF_INTEGER_SSE)
-      {
-        convert_yv12_to_yuy2_interlaced_isse(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
-      }
-      else
-#endif
-      {
-        convert_yv12_to_yuy2_interlaced_c(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
-      }
-    } else {
-      if ((env->GetCPUFlags() & CPUF_SSE2) && IsPtrAligned(srcp_y, 16))
-      {
-        convert_yv12_to_yuy2_progressive_sse2(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
-      }
-      else
-#ifdef X86_32
-        if (env->GetCPUFlags() & CPUF_INTEGER_SSE)
-        {
-          convert_yv12_to_yuy2_progressive_isse(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
-        }
-        else
-#endif
-        {
-          convert_yv12_to_yuy2_progressive_c(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
-        }
-    }
-    return dst;
-  }
-
-  PVideoFrame dst = env->NewVideoFrameP(vi, &src);
-  BYTE* yuv = dst->GetWritePtr();
-
-  if ((env->GetCPUFlags() & CPUF_SSE2) && IsPtrAligned(src->GetReadPtr(), 16))
-  {
-    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
-      convert_rgb_to_yuy2_sse2<4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, theMatrix);
-    } else {
-      convert_rgb_to_yuy2_sse2<3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, theMatrix);
-    }
-    return dst;
-  }
-
-#ifdef X86_32
-  if (env->GetCPUFlags() & CPUF_MMX)
-  {
-    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
-      convert_rgb_to_yuy2_mmx<4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, theMatrix);
-    } else {
-      convert_rgb_to_yuy2_mmx<3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, theMatrix);
-    }
-    return dst;
-  }
-#endif
-
-// non MMX machines.
-
-  const BYTE* rgb = src->GetReadPtr() + (vi.height-1) * src->GetPitch();
-
-  const int yuv_offset = dst->GetPitch() - dst->GetRowSize();
-  const int rgb_offset = -src->GetPitch() - src->GetRowSize();
-  const int rgb_inc = ((src_cs&VideoInfo::CS_BGR32)==VideoInfo::CS_BGR32) ? 4 : 3;
-
-  if (theMatrix == PC_601) {
-    const int cyb = int(0.114*65536+0.5);
-    const int cyg = int(0.587*65536+0.5);
-    const int cyr = int(0.299*65536+0.5);
-
-    const int ku  = int(127./(255.*(1.0-0.114))*65536+0.5);
-    const int kv  = int(127./(255.*(1.0-0.299))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(true, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  } else if (theMatrix == PC_709) {
-    const int cyb = int(0.0722*65536+0.5);
-    const int cyg = int(0.7152*65536+0.5);
-    const int cyr = int(0.2126*65536+0.5);
-
-    const int ku  = int(127./(255.*(1.0-0.0722))*65536+0.5);
-    const int kv  = int(127./(255.*(1.0-0.2126))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(true, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  } else if (theMatrix == Rec709) {
-    const int cyb = int(0.0722*219/255*65536+0.5);
-    const int cyg = int(0.7152*219/255*65536+0.5);
-    const int cyr = int(0.2126*219/255*65536+0.5);
-
-    const int ku  = int(112./(255.*(1.0-0.0722))*65536+0.5);
-    const int kv  = int(112./(255.*(1.0-0.2126))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(false, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  } else if (theMatrix == Rec601) {
-    const int cyb = int(0.114*219/255*65536+0.5);
-    const int cyg = int(0.587*219/255*65536+0.5);
-    const int cyr = int(0.299*219/255*65536+0.5);
-
-    const int ku  = int(112./(255.*(1.0-0.114))*65536+0.5);
-    const int kv  = int(112./(255.*(1.0-0.299))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(false, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  }
-
-  return dst;
-}
-
-
-AVSValue __cdecl ConvertToYUY2::Create(AVSValue args, void*, IScriptEnvironment* env)
-{
-  PClip clip = args[0].AsClip();
-  if (clip->GetVideoInfo().IsYUY2())
-    return clip;
-
-  const bool haveOpts = args[3].Defined() || args[4].Defined();
-
-  if (clip->GetVideoInfo().BitsPerComponent() != 8) {
-    env->ThrowError("ConvertToYUY2: only 8 bit sources are supported");
-  }
-
-  if (clip->GetVideoInfo().IsPlanar()) {
-    if (haveOpts || !clip->GetVideoInfo().IsYV12()) {
-      // We have no direct conversions. Go to YV16.
-      AVSValue new_args[5] = { clip, args[1], args[2], args[3], args[4] };
-      clip = ConvertToPlanarGeneric::CreateYUV422(AVSValue(new_args, 5), (void *)0,  env).AsClip(); // (void *)0: restricted to 8 bits
-    }
-  }
-
-  if (clip->GetVideoInfo().IsYV16())
-    return new ConvertYV16ToYUY2(clip,  env);
-
-  if (haveOpts)
-    env->ThrowError("ConvertToYUY2: ChromaPlacement and ChromaResample options are not supported.");
-
-  const bool i=args[1].AsBool(false);
-  return new ConvertToYUY2(clip, false, i, args[2].AsString(0), env);
-}
 
 
 
@@ -556,14 +256,9 @@ AVSValue __cdecl ConvertToYUY2::Create(AVSValue args, void*, IScriptEnvironment*
  ******* been YUY2 to avoid deterioration      ******
  ****************************************************/
 
-ConvertBackToYUY2::ConvertBackToYUY2(PClip _child, const char *matrix, IScriptEnvironment* env)
-  : ConvertToYUY2(_child, true, false, matrix, env)
-{
-  if (!_child->GetVideoInfo().IsRGB() && !_child->GetVideoInfo().IsYV24())
-    env->ThrowError("ConvertBackToYUY2: Use ConvertToYUY2 to convert non-RGB material to YUY2.");
-}
 
-static void convert_yv24_back_to_yuy2_sse2(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int pitchY, int pitchUV, int dpitch, int height, int width) {
+
+void convert_yv24_back_to_yuy2_sse2(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int pitchY, int pitchUV, int dpitch, int height, int width) {
   int mod16_width = width / 16 * 16;
   __m128i ff = _mm_set1_epi16(0x00ff);
 
@@ -606,7 +301,7 @@ static void convert_yv24_back_to_yuy2_sse2(const BYTE* srcY, const BYTE* srcU, c
 
 #ifdef X86_32
 
-static void convert_yv24_back_to_yuy2_mmx(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int pitchY, int pitchUV, int dpitch, int height, int width) {
+void convert_yv24_back_to_yuy2_mmx(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int pitchY, int pitchUV, int dpitch, int height, int width) {
   int mod8_width = width / 8 * 8;
   __m64 ff = _mm_set1_pi16(0x00ff);
 
@@ -650,112 +345,17 @@ static void convert_yv24_back_to_yuy2_mmx(const BYTE* srcY, const BYTE* srcU, co
 
 #endif // X86_32
 
-static void convert_yv24_back_to_yuy2_c(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int pitchY, int pitchUV, int dpitch, int height, int width) {
-  for (int y=0; y < height; ++y) {
-    for (int x=0; x < width; x+=2) {
-      dstp[x*2+0] = srcY[x];
-      dstp[x*2+1] = srcU[x];
-      dstp[x*2+2] = srcY[x+1];
-      dstp[x*2+3] = srcV[x];
-    }
-    srcY += pitchY;
-    srcU += pitchUV;
-    srcV += pitchUV;
-    dstp += dpitch;
-  }
-}
 
 
-static void convert_rgb_back_to_yuy2_c(BYTE* yuv, const BYTE* rgb, int rgb_offset, int yuv_offset, int height, int width, int rgb_inc, int matrix) {
-  /* Existing 0-1-0 Kernel version */
-  int cyb, cyg, cyr, ku, kv;
 
-  if (matrix == PC_601 || matrix == PC_709) {
-    if (matrix == PC_601) {
-      cyb = int(0.114 * 65536 + 0.5);
-      cyg = int(0.587 * 65536 + 0.5);
-      cyr = int(0.299 * 65536 + 0.5);
-
-      ku  = int(127.0 / (255.0 * (1.0 - 0.114)) * 65536 + 0.5);
-      kv  = int(127.0 / (255.0 * (1.0 - 0.299)) * 65536 + 0.5);
-    } else {
-      cyb = int(0.0722 * 65536 + 0.5);
-      cyg = int(0.7152 * 65536 + 0.5);
-      cyr = int(0.2126 * 65536 + 0.5);
-
-      ku  = int(127.0 / (255.0 * (1.0 - 0.0722)) * 65536 + 0.5);
-      kv  = int(127.0 / (255.0 * (1.0 - 0.2126)) * 65536 + 0.5);
-    }
-    for (int y = height; y>0; --y)
-    {
-      for (int x = 0; x < width; x += 2)
-      {
-        const BYTE* const rgb_next = rgb + rgb_inc;
-        // y1 and y2 can't overflow
-        yuv[0] = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + 0x8000) >> 16;
-        yuv[2] = (cyb*rgb_next[0] + cyg*rgb_next[1] + cyr*rgb_next[2] + 0x8000) >> 16;
-
-        int scaled_y = yuv[0];
-        int b_y = rgb[0] - scaled_y;
-        yuv[1] = ScaledPixelClip(b_y * ku + 0x800000);  // u
-        int r_y = rgb[2] - scaled_y;
-        yuv[3] = ScaledPixelClip(r_y * kv + 0x800000);  // v
-        rgb = rgb_next + rgb_inc;
-        yuv += 4;
-      }
-      rgb += rgb_offset;
-      yuv += yuv_offset;
-    }
-  } else {
-    if (matrix == Rec709) {
-      cyb = int(0.0722 * 219 / 255 * 65536 + 0.5);
-      cyg = int(0.7152 * 219 / 255 * 65536 + 0.5);
-      cyr = int(0.2126 * 219 / 255 * 65536 + 0.5);
-
-      ku  = int(112.0 / (255.0 * (1.0 - 0.0722)) * 32768 + 0.5);
-      kv  = int(112.0 / (255.0 * (1.0 - 0.2126)) * 32768 + 0.5);
-    } else {
-      cyb = int(0.114 * 219 / 255 * 65536 + 0.5);
-      cyg = int(0.587 * 219 / 255 * 65536 + 0.5);
-      cyr = int(0.299 * 219 / 255 * 65536 + 0.5);
-
-      ku  = int(1 / 2.018 * 32768 + 0.5);
-      kv  = int(1 / 1.596 * 32768 + 0.5);
-    }
-
-    for (int y = height; y>0; --y)
-    {
-      for (int x = 0; x < width; x += 2)
-      {
-        const BYTE* const rgb_next = rgb + rgb_inc;
-        // y1 and y2 can't overflow
-        yuv[0] = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + 0x108000) >> 16;
-        yuv[2] = (cyb*rgb_next[0] + cyg*rgb_next[1] + cyr*rgb_next[2] + 0x108000) >> 16;
-
-        int scaled_y = (yuv[0] - 16) * int(255.0 / 219.0 * 65536 + 0.5);
-        int b_y = ((rgb[0]) << 16) - scaled_y;
-        yuv[1] = ScaledPixelClip((b_y >> 15) * ku + 0x800000);  // u
-        int r_y = ((rgb[2]) << 16) - scaled_y;
-        yuv[3] = ScaledPixelClip((r_y >> 15) * kv + 0x800000);  // v
-
-        rgb = rgb_next + rgb_inc;
-        yuv += 4;
-      }
-      rgb += rgb_offset;
-      yuv += yuv_offset;
-    }
-  }
-}
-
-
-template<int matrix, int rgb_bytes, bool aligned>
+template<int rgb_bytes, bool aligned>
 static AVS_FORCEINLINE __m128i convert_rgb_block_back_to_yuy2_sse2(const BYTE* srcp, const __m128i &luma_coefs, const __m128i &chroma_coefs, const __m128i &upper_dword_mask,
-                                                                 const __m128i &chroma_round_mask, __m128i &luma_round_mask, const __m128i &tv_scale, const __m128i &zero) {
+                                                                 const __m128i &chroma_round_mask, const __m128i &luma_round_mask, const __m128i &tv_scale, const __m128i &zero) {
   __m128i rgb_p1, rgb_p2;
   if constexpr(rgb_bytes == 4) {
     //RGB32
     __m128i src;
-    if (aligned) {
+    if constexpr(aligned) {
       src = _mm_load_si128(reinterpret_cast<const __m128i*>(srcp)); //xxr3 g3b3 xxr2 g2b2 | xxr1 g1b1 xxr0 g0b0
     } else {
       src = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp)); //xxr3 g3b3 xxr2 g2b2 | xxr1 g1b1 xxr0 g0b0
@@ -787,12 +387,7 @@ static AVS_FORCEINLINE __m128i convert_rgb_block_back_to_yuy2_sse2(const BYTE* s
   __m128i rb_p2 = _mm_slli_epi32(rgb_p2, 16); //00r3 0000 00b3 0000 | 00r2 0000 00b2 0000
   __m128i rb_p = _mm_unpacklo_epi64(rb_p1, rb_p2);  //00r2 0000 00b2 0000 | 00r0 0000 00b0 0000
 
-  __m128i y_scaled;
-  if (matrix == Rec601 || matrix == Rec709) {
-    y_scaled = _mm_sub_epi16(luma, tv_scale);
-  } else {
-    y_scaled = luma;
-  }
+  __m128i y_scaled = _mm_sub_epi16(luma, tv_scale); // need_tv_scale could go to template
 
   __m128i y0 = _mm_shuffle_epi32(y_scaled, _MM_SHUFFLE(2, 2, 0, 0)); //00 00 00 y2 00 00 00 y2 | 00 00 00 y0 00 00 00 y0
 
@@ -809,32 +404,23 @@ static AVS_FORCEINLINE __m128i convert_rgb_block_back_to_yuy2_sse2(const BYTE* s
   return _mm_packus_epi16(yuv, yuv);
 }
 
-//////////////////////////////////////////////////////////////////////////
-// Optimization note: matrix is a template argument only to avoid subtraction for PC matrices. Compilers tend to generate ~10% faster code in this case.
-// MMX version is not optimized this way because who'll be using MMX anyway?
-// todo: check if mod4 width is actually needed. we might be safe without it
-//////////////////////////////////////////////////////////////////////////
-template<int matrix, int rgb_bytes>
-static void convert_rgb_line_back_to_yuy2_sse2(const BYTE *srcp, BYTE *dstp, int width) {
+template<int rgb_bytes>
+static AVS_FORCEINLINE void convert_rgb_line_back_to_yuy2_sse2(const BYTE *srcp, BYTE *dstp, int width, const ConversionMatrix &matrix) {
   int mod4_width = width / 4 * 4;
 
-  __m128i luma_round_mask;
-  if constexpr(matrix == Rec601 || matrix == Rec709) {
-    luma_round_mask = _mm_set1_epi32(0x84000);
-  } else {
-    luma_round_mask = _mm_set1_epi32(0x4000);
-  }
+  const bool TV_range = 0 != matrix.offset_y; // Rec601, Rec709, Rec2020
+  const __m128i luma_round_mask = _mm_set1_epi32(TV_range ? 0x84000 : 0x4000); //  16.5 * 32768 : 0.5 * 32768
+  const __m128i tv_scale = _mm_set1_epi32(matrix.offset_y); // 16/0
 
-  __m128i luma_coefs = _mm_set_epi16(0, cyr_values[matrix], cyg_values[matrix], cyb_values[matrix], 0, cyr_values[matrix], cyg_values[matrix], cyb_values[matrix]);
-  __m128i chroma_coefs = _mm_set_epi16(kv_values[matrix], kv_values_luma[matrix], ku_values[matrix], ku_values_luma[matrix], kv_values[matrix], kv_values_luma[matrix], ku_values[matrix], ku_values_luma[matrix]);
+  __m128i luma_coefs = _mm_set_epi16(0, matrix.y_r, matrix.y_g, matrix.y_b, 0, matrix.y_r, matrix.y_g, matrix.y_b);
+  __m128i chroma_coefs = _mm_set_epi16(matrix.kv, matrix.kv_luma, matrix.ku, matrix.ku_luma, matrix.kv, matrix.kv_luma, matrix.ku, matrix.ku_luma);
   __m128i chroma_round_mask = _mm_set1_epi32(0x808000);
 
   __m128i upper_dword_mask = _mm_set1_epi32(0xFFFF0000);
   __m128i zero = _mm_setzero_si128();
-  __m128i tv_scale = _mm_set1_epi32(16);
 
   for (int x = 0; x < mod4_width; x+=4) {
-    __m128i yuv = convert_rgb_block_back_to_yuy2_sse2<matrix, rgb_bytes, true>(srcp + x * rgb_bytes, luma_coefs, chroma_coefs, upper_dword_mask, chroma_round_mask, luma_round_mask, tv_scale, zero);
+    __m128i yuv = convert_rgb_block_back_to_yuy2_sse2<rgb_bytes, true>(srcp + x * rgb_bytes, luma_coefs, chroma_coefs, upper_dword_mask, chroma_round_mask, luma_round_mask, tv_scale, zero);
 
     _mm_storel_epi64(reinterpret_cast<__m128i*>(dstp+x*2), yuv);
   }
@@ -842,42 +428,43 @@ static void convert_rgb_line_back_to_yuy2_sse2(const BYTE *srcp, BYTE *dstp, int
   if (width != mod4_width) {
     const BYTE* ptr = srcp + (width-4) * rgb_bytes;
 
-    __m128i yuv = convert_rgb_block_back_to_yuy2_sse2<matrix, rgb_bytes, false>(ptr, luma_coefs, chroma_coefs, upper_dword_mask, chroma_round_mask, luma_round_mask, tv_scale, zero);
+    __m128i yuv = convert_rgb_block_back_to_yuy2_sse2<rgb_bytes, false>(ptr, luma_coefs, chroma_coefs, upper_dword_mask, chroma_round_mask, luma_round_mask, tv_scale, zero);
 
     _mm_storel_epi64(reinterpret_cast<__m128i*>(dstp+width*2 - 8), yuv);
   }
 }
 
-template<int matrix, int rgb_bytes>
-static void convert_rgb_back_to_yuy2_sse2(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height) {
+template<int rgb_bytes>
+void convert_rgb_back_to_yuy2_sse2(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height, ConversionMatrix& matrix) {
   src += src_pitch*(height-1);       // ;Move source to bottom line (read top->bottom)
 
   for (int y=0; y < height; ++y) {
-    convert_rgb_line_back_to_yuy2_sse2<matrix, rgb_bytes>(src, dst, width);
+    convert_rgb_line_back_to_yuy2_sse2<rgb_bytes>(src, dst, width, matrix);
     src -= src_pitch;           // ;Move upwards
     dst += dst_pitch;
   } // end for y
 }
 
+//instantiate
+//template<int rgb_bytes>
+template void convert_rgb_back_to_yuy2_sse2<3>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, ConversionMatrix& matrix);
+template void convert_rgb_back_to_yuy2_sse2<4>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, ConversionMatrix& matrix);
 
 #ifdef X86_32
 #pragma warning(disable: 4799)
 template<int rgb_bytes>
-static void convert_rgb_line_back_to_yuy2_mmx(const BYTE *srcp, BYTE *dstp, int width, int matrix) {
-  __m64 luma_round_mask;
-  if (matrix == Rec601 || matrix == Rec709) {
-    luma_round_mask = _mm_set1_pi32(0x84000);
-  } else {
-    luma_round_mask = _mm_set1_pi32(0x4000);
-  }
+static void convert_rgb_line_back_to_yuy2_mmx(const BYTE *srcp, BYTE *dstp, int width, const ConversionMatrix &matrix) {
 
-  __m64 luma_coefs = _mm_set_pi16(0, cyr_values[matrix], cyg_values[matrix], cyb_values[matrix] );
-  __m64 chroma_coefs = _mm_set_pi16(kv_values[matrix], kv_values_luma[matrix], ku_values[matrix], ku_values_luma[matrix]);
+  const bool TV_range = 0 != matrix.offset_y; // Rec601, Rec709, Rec2020
+  const __m64 luma_round_mask = _mm_set1_pi32(TV_range ? 0x84000 : 0x4000); //  16.5 * 32768 : 0.5 * 32768
+  const __m64 tv_scale = _mm_set1_pi32(matrix.offset_y); // 16/0
+
+  __m64 luma_coefs = _mm_set_pi16(0, matrix.y_r, matrix.y_g, matrix.y_b);
+  __m64 chroma_coefs = _mm_set_pi16(matrix.kv, matrix.kv_luma, matrix.ku, matrix.ku_luma);
   __m64 chroma_round_mask = _mm_set1_pi32(0x808000);
 
   __m64 upper_dword_mask = _mm_set1_pi32(0xFFFF0000);
   __m64 zero = _mm_setzero_si64();
-  __m64 tv_scale = _mm_set1_pi32((matrix == Rec601 || matrix == Rec709) ? 16 : 0);
 
   for (int x = 0; x < width; x+=2) {
     __m64 src = *reinterpret_cast<const __m64*>(srcp+x*rgb_bytes); //xxr1 g1b1 xxr0 g0b0
@@ -921,7 +508,7 @@ static void convert_rgb_line_back_to_yuy2_mmx(const BYTE *srcp, BYTE *dstp, int 
 #pragma warning(default: 4799)
 
 template<int rgb_bytes>
-static void convert_rgb_back_to_yuy2_mmx(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height, int matrix) {
+void convert_rgb_back_to_yuy2_mmx(const BYTE *src, BYTE *dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix &matrix) {
   src += src_pitch*(height-1);       // ;Move source to bottom line (read top->bottom)
 
   for (int y=0; y < height; ++y) {
@@ -932,101 +519,696 @@ static void convert_rgb_back_to_yuy2_mmx(const BYTE *src, BYTE *dst, int src_pit
   _mm_empty();
 }
 
+//instantiate
+//template<int rgb_bytes>
+template void convert_rgb_back_to_yuy2_mmx<3>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix& matrix);
+template void convert_rgb_back_to_yuy2_mmx<4>(const BYTE* src, BYTE* dst, int src_pitch, int dst_pitch, int width, int height, const ConversionMatrix& matrix);
+
 #endif
 
-PVideoFrame __stdcall ConvertBackToYUY2::GetFrame(int n, IScriptEnvironment* env)
-{
-  PVideoFrame src = child->GetFrame(n, env);
-
-  if ((src_cs&VideoInfo::CS_YV24)==VideoInfo::CS_YV24)
-  {
-    PVideoFrame dst = env->NewVideoFrameP(vi, &src);
-    BYTE* dstp = dst->GetWritePtr();
-    const int dpitch  = dst->GetPitch();
-
-    const BYTE* srcY = src->GetReadPtr(PLANAR_Y);
-    const BYTE* srcU = src->GetReadPtr(PLANAR_U);
-    const BYTE* srcV = src->GetReadPtr(PLANAR_V);
-
-    const int pitchY  = src->GetPitch(PLANAR_Y);
-    const int pitchUV = src->GetPitch(PLANAR_U);
-
-    if ((env->GetCPUFlags() & CPUF_SSE2) && IsPtrAligned(srcY, 16) && IsPtrAligned(srcU, 16) && IsPtrAligned(srcV, 16))
-    {  // Use MMX
-      convert_yv24_back_to_yuy2_sse2(srcY, srcU, srcV, dstp, pitchY, pitchUV, dpitch, vi.height, vi.width);
-    }
-    else
-#ifdef X86_32
-    if (env->GetCPUFlags() & CPUF_MMX)
-    {  // Use MMX
-      convert_yv24_back_to_yuy2_mmx(srcY, srcU, srcV, dstp, pitchY, pitchUV, dpitch, vi.height, vi.width);
-    }
-    else
-#endif
-    {
-      convert_yv24_back_to_yuy2_c(srcY, srcU, srcV, dstp, pitchY, pitchUV, dpitch, vi.height, vi.width);
-    }
-    return dst;
-  }
-
-  PVideoFrame dst = env->NewVideoFrameP(vi, &src);
-  BYTE* yuv = dst->GetWritePtr();
-
-
-  if ((env->GetCPUFlags() & CPUF_SSE2) && IsPtrAligned(src->GetReadPtr(), 16))
-  {
-    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
-      if (theMatrix == Rec601) {
-        convert_rgb_back_to_yuy2_sse2<Rec601, 4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      } else if (theMatrix == Rec709) {
-        convert_rgb_back_to_yuy2_sse2<Rec709, 4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      } else if (theMatrix == PC_601) {
-        convert_rgb_back_to_yuy2_sse2<PC_601, 4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      } else {
-        convert_rgb_back_to_yuy2_sse2<PC_709, 4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      }
-    } else {
-      if (theMatrix == Rec601) {
-        convert_rgb_back_to_yuy2_sse2<Rec601, 3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      } else if (theMatrix == Rec709) {
-        convert_rgb_back_to_yuy2_sse2<Rec709, 3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      } else if (theMatrix == PC_601) {
-        convert_rgb_back_to_yuy2_sse2<PC_601, 3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      } else {
-        convert_rgb_back_to_yuy2_sse2<PC_709, 3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height);
-      }
-    }
-    return dst;
-  }
+/* YV12 -> YUY2 conversion */
 
 #ifdef X86_32
-  if (env->GetCPUFlags() & CPUF_MMX)
-  {
-    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
-      convert_rgb_back_to_yuy2_mmx<4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, theMatrix);
-    } else {
-      convert_rgb_back_to_yuy2_mmx<3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, theMatrix);
-    }
-    return dst;
+
+#pragma warning(push)
+#pragma warning(disable: 4799)
+//75% of the first argument and 25% of the second one.
+static AVS_FORCEINLINE __m64 convert_yv12_to_yuy2_merge_chroma_isse(const __m64 &line75p, const __m64 &line25p, const __m64 &one) {
+  __m64 avg_chroma_lo = _mm_avg_pu8(line75p, line25p);
+  avg_chroma_lo = _mm_subs_pu8(avg_chroma_lo, one);
+  return _mm_avg_pu8(avg_chroma_lo, line75p);
+}
+
+// first parameter is 8 luma pixels
+// second and third - 4 chroma bytes in low dwords
+// last two params are OUT
+static AVS_FORCEINLINE void convert_yv12_pixels_to_yuy2_isse(const __m64 &y, const __m64 &u, const __m64 &v,  const __m64 &zero, __m64 &out_low, __m64 &out_high) {
+  __m64 chroma = _mm_unpacklo_pi8(u, v);
+  out_low = _mm_unpacklo_pi8(y, chroma);
+  out_high = _mm_unpackhi_pi8(y, chroma);
+}
+
+static inline void copy_yv12_line_to_yuy2_isse(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int width) {
+  __m64 zero = _mm_setzero_si64();
+  for (int x = 0; x < width / 2; x+=4) {
+    __m64 src_y = *reinterpret_cast<const __m64*>(srcY+x*2); //Y Y Y Y Y Y Y Y
+    __m64 src_u = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcU+x)); //0 0 0 0 U U U U
+    __m64 src_v = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcV+x)); //0 0 0 0 V V V V
+
+    __m64 dst_lo, dst_hi;
+    convert_yv12_pixels_to_yuy2_isse(src_y, src_u, src_v, zero, dst_lo, dst_hi);
+
+    *reinterpret_cast<__m64*>(dstp + x*4) = dst_lo;
+    *reinterpret_cast<__m64*>(dstp + x*4 + 8) = dst_hi;
   }
+}
+#pragma warning(pop)
+
+void convert_yv12_to_yuy2_interlaced_isse(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, int src_width, int src_pitch_y, int src_pitch_uv, BYTE *dstp, int dst_pitch, int height)
+{
+  //first four lines
+  copy_yv12_line_to_yuy2_isse(srcY, srcU, srcV, dstp, src_width);
+  copy_yv12_line_to_yuy2_isse(srcY + src_pitch_y*2, srcU, srcV, dstp + dst_pitch*2, src_width);
+  copy_yv12_line_to_yuy2_isse(srcY + src_pitch_y, srcU + src_pitch_uv, srcV + src_pitch_uv, dstp + dst_pitch, src_width);
+  copy_yv12_line_to_yuy2_isse(srcY + src_pitch_y*3, srcU + src_pitch_uv, srcV + src_pitch_uv, dstp + dst_pitch*3, src_width);
+
+  //last four lines. Easier to do them here
+  copy_yv12_line_to_yuy2_isse(
+    srcY + src_pitch_y * (height-4),
+    srcU + src_pitch_uv * ((height/2)-2),
+    srcV + src_pitch_uv * ((height/2)-2),
+    dstp + dst_pitch * (height-4),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_isse(
+    srcY + src_pitch_y * (height-2),
+    srcU + src_pitch_uv * ((height/2)-2),
+    srcV + src_pitch_uv * ((height/2)-2),
+    dstp + dst_pitch * (height-2),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_isse(
+    srcY + src_pitch_y * (height-3),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-3),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_isse(
+    srcY + src_pitch_y * (height-1),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-1),
+    src_width
+    );
+
+  srcY += src_pitch_y * 4;
+  srcU += src_pitch_uv * 2;
+  srcV += src_pitch_uv * 2;
+  dstp += dst_pitch * 4;
+
+  __m64 one = _mm_set1_pi8(1);
+  __m64 zero = _mm_setzero_si64();
+
+  for (int y = 4; y < height-4; y+= 2) {
+    for (int x = 0; x < src_width / 2; x+=4) {
+
+      __m64 luma_line = *reinterpret_cast<const __m64*>(srcY + x*2); //Y Y Y Y Y Y Y Y
+      __m64 src_current_u = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcU + x)); //0 0 0 0 U U U U
+      __m64 src_current_v = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcV + x)); //0 0 0 0 V V V V
+      __m64 src_prev_u = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcU - src_pitch_uv*2 + x)); //0 0 0 0 U U U U
+      __m64 src_prev_v = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcV - src_pitch_uv*2 + x)); //0 0 0 0 V V V V
+
+      __m64 src_u = convert_yv12_to_yuy2_merge_chroma_isse(src_current_u, src_prev_u, one);
+      __m64 src_v = convert_yv12_to_yuy2_merge_chroma_isse(src_current_v, src_prev_v, one);
+
+      __m64 dst_lo, dst_hi;
+      convert_yv12_pixels_to_yuy2_isse(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      *reinterpret_cast<__m64*>(dstp + x*4) = dst_lo;
+      *reinterpret_cast<__m64*>(dstp + x*4 + 8) = dst_hi;
+
+      luma_line = *reinterpret_cast<const __m64*>(srcY + src_pitch_y *2+ x*2); //Y Y Y Y Y Y Y Y
+      __m64 src_next_u = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcU + src_pitch_uv*2 + x)); //0 0 0 0 U U U U
+      __m64 src_next_v = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcV + src_pitch_uv*2 + x)); //0 0 0 0 V V V V
+
+      src_u = convert_yv12_to_yuy2_merge_chroma_isse(src_current_u, src_next_u, one);
+      src_v = convert_yv12_to_yuy2_merge_chroma_isse(src_current_v, src_next_v, one);
+
+      convert_yv12_pixels_to_yuy2_isse(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      *reinterpret_cast<__m64*>(dstp + dst_pitch*2 + x*4) = dst_lo;
+      *reinterpret_cast<__m64*>(dstp + dst_pitch*2 + x*4 + 8) = dst_hi;
+    }
+
+    if (y % 4 == 0) {
+      //top field processed, jumb to the bottom
+      srcY += src_pitch_y;
+      dstp += dst_pitch;
+      srcU += src_pitch_uv;
+      srcV += src_pitch_uv;
+    } else {
+      //bottom field processed, jump to the next top
+      srcY += src_pitch_y*3;
+      srcU += src_pitch_uv;
+      srcV += src_pitch_uv;
+      dstp += dst_pitch*3;
+    }
+  }
+  _mm_empty();
+}
+
+void convert_yv12_to_yuy2_progressive_isse(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, int src_width, int src_pitch_y, int src_pitch_uv, BYTE *dstp, int dst_pitch, int height)
+{
+  //first two lines
+  copy_yv12_line_to_yuy2_isse(srcY, srcU, srcV, dstp, src_width);
+  copy_yv12_line_to_yuy2_isse(srcY+src_pitch_y, srcU, srcV, dstp+dst_pitch, src_width);
+
+  //last two lines. Easier to do them here
+  copy_yv12_line_to_yuy2_isse(
+    srcY + src_pitch_y * (height-2),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-2),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_isse(
+    srcY + src_pitch_y * (height-1),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-1),
+    src_width
+    );
+
+  srcY += src_pitch_y*2;
+  srcU += src_pitch_uv;
+  srcV += src_pitch_uv;
+  dstp += dst_pitch*2;
+
+  __m64 one = _mm_set1_pi8(1);
+  __m64 zero = _mm_setzero_si64();
+
+  for (int y = 2; y < height-2; y+=2) {
+    for (int x = 0; x < src_width / 2; x+=4) {
+      __m64 luma_line = *reinterpret_cast<const __m64*>(srcY + x*2); //Y Y Y Y Y Y Y Y
+      __m64 src_current_u = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcU + x)); //0 0 0 0 U U U U
+      __m64 src_current_v = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcV + x)); //0 0 0 0 V V V V
+      __m64 src_prev_u = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcU - src_pitch_uv + x)); //0 0 0 0 U U U U
+      __m64 src_prev_v = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcV - src_pitch_uv + x)); //0 0 0 0 V V V V
+
+      __m64 src_u = convert_yv12_to_yuy2_merge_chroma_isse(src_current_u, src_prev_u, one);
+      __m64 src_v = convert_yv12_to_yuy2_merge_chroma_isse(src_current_v, src_prev_v, one);
+
+      __m64 dst_lo, dst_hi;
+      convert_yv12_pixels_to_yuy2_isse(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      *reinterpret_cast<__m64*>(dstp + x*4) = dst_lo;
+      *reinterpret_cast<__m64*>(dstp + x*4 + 8) = dst_hi;
+
+      luma_line = *reinterpret_cast<const __m64*>(srcY + src_pitch_y + x*2); //Y Y Y Y Y Y Y Y
+      __m64 src_next_u = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcU + src_pitch_uv + x)); //0 0 0 0 U U U U
+      __m64 src_next_v = _mm_cvtsi32_si64(*reinterpret_cast<const int*>(srcV + src_pitch_uv + x)); //0 0 0 0 V V V V
+
+      src_u = convert_yv12_to_yuy2_merge_chroma_isse(src_current_u, src_next_u, one);
+      src_v = convert_yv12_to_yuy2_merge_chroma_isse(src_current_v, src_next_v, one);
+
+      convert_yv12_pixels_to_yuy2_isse(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      *reinterpret_cast<__m64*>(dstp + dst_pitch + x*4) = dst_lo;
+      *reinterpret_cast<__m64*>(dstp + dst_pitch + x*4 + 8) = dst_hi;
+    }
+    srcY += src_pitch_y*2;
+    dstp += dst_pitch*2;
+    srcU += src_pitch_uv;
+    srcV += src_pitch_uv;
+  }
+  _mm_empty();
+}
 #endif
 
-  const BYTE* rgb = src->GetReadPtr() + (vi.height-1) * src->GetPitch(); // Last line
-
-  const int yuv_offset = dst->GetPitch() - dst->GetRowSize();
-  const int rgb_offset = -src->GetPitch() - src->GetRowSize(); // moving upwards
-  const int rgb_inc = (src_cs&VideoInfo::CS_BGR32)==VideoInfo::CS_BGR32 ? 4 : 3;
-
-  convert_rgb_back_to_yuy2_c(yuv, rgb, rgb_offset, yuv_offset, vi.height, vi.width, rgb_inc, theMatrix);
-
-  return dst;
+//75% of the first argument and 25% of the second one.
+static AVS_FORCEINLINE __m128i convert_yv12_to_yuy2_merge_chroma_sse2(const __m128i &line75p, const __m128i &line25p, const __m128i &one) {
+  __m128i avg_chroma_lo = _mm_avg_epu8(line75p, line25p);
+  avg_chroma_lo = _mm_subs_epu8(avg_chroma_lo, one);
+  return _mm_avg_epu8(avg_chroma_lo, line75p);
 }
 
-AVSValue __cdecl ConvertBackToYUY2::Create(AVSValue args, void*, IScriptEnvironment* env)
+// first parameter is 16 luma pixels
+// second and third - 8 chroma bytes in low dwords
+// last two params are OUT
+static AVS_FORCEINLINE void convert_yv12_pixels_to_yuy2_sse2(const __m128i &y, const __m128i &u, const __m128i &v,  const __m128i &zero, __m128i &out_low, __m128i &out_high) {
+  AVS_UNUSED(zero);
+  __m128i chroma = _mm_unpacklo_epi8(u, v); //...V3 U3 V2 U2 V1 U1 V0 U0
+  out_low = _mm_unpacklo_epi8(y, chroma);
+  out_high = _mm_unpackhi_epi8(y, chroma);
+}
+
+static inline void copy_yv12_line_to_yuy2_sse2(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int width) {
+  __m128i zero = _mm_setzero_si128();
+  for (int x = 0; x < width / 2; x+=8) {
+    __m128i src_y = _mm_load_si128(reinterpret_cast<const __m128i*>(srcY+x*2)); //Y Y Y Y Y Y Y Y
+    __m128i src_u = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcU+x)); //0 0 0 0 U U U U
+    __m128i src_v = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcV+x)); //0 0 0 0 V V V V
+
+    __m128i dst_lo, dst_hi;
+    convert_yv12_pixels_to_yuy2_sse2(src_y, src_u, src_v, zero, dst_lo, dst_hi);
+
+    _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x*4), dst_lo);
+    _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x*4 + 16), dst_hi);
+  }
+}
+
+void convert_yv12_to_yuy2_interlaced_sse2(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, int src_width, int src_pitch_y, int src_pitch_uv, BYTE *dstp, int dst_pitch, int height)
 {
-  PClip clip = args[0].AsClip();
-  if (!clip->GetVideoInfo().IsYUY2())
-    return new ConvertBackToYUY2(clip, args[1].AsString(0), env);
+  //first four lines
+  copy_yv12_line_to_yuy2_sse2(srcY, srcU, srcV, dstp, src_width);
+  copy_yv12_line_to_yuy2_sse2(srcY + src_pitch_y*2, srcU, srcV, dstp + dst_pitch*2, src_width);
+  copy_yv12_line_to_yuy2_sse2(srcY + src_pitch_y, srcU + src_pitch_uv, srcV + src_pitch_uv, dstp + dst_pitch, src_width);
+  copy_yv12_line_to_yuy2_sse2(srcY + src_pitch_y*3, srcU + src_pitch_uv, srcV + src_pitch_uv, dstp + dst_pitch*3, src_width);
 
-  return clip;
+  //last four lines. Easier to do them here
+  copy_yv12_line_to_yuy2_sse2(
+    srcY + src_pitch_y * (height-4),
+    srcU + src_pitch_uv * ((height/2)-2),
+    srcV + src_pitch_uv * ((height/2)-2),
+    dstp + dst_pitch * (height-4),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_sse2(
+    srcY + src_pitch_y * (height-2),
+    srcU + src_pitch_uv * ((height/2)-2),
+    srcV + src_pitch_uv * ((height/2)-2),
+    dstp + dst_pitch * (height-2),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_sse2(
+    srcY + src_pitch_y * (height-3),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-3),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_sse2(
+    srcY + src_pitch_y * (height-1),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-1),
+    src_width
+    );
+
+  srcY += src_pitch_y * 4;
+  srcU += src_pitch_uv * 2;
+  srcV += src_pitch_uv * 2;
+  dstp += dst_pitch * 4;
+
+  __m128i one = _mm_set1_epi8(1);
+  __m128i zero = _mm_setzero_si128();
+
+  for (int y = 4; y < height-4; y+= 2) {
+    for (int x = 0; x < src_width / 2; x+=8) {
+
+      __m128i luma_line = _mm_load_si128(reinterpret_cast<const __m128i*>(srcY + x*2)); //Y Y Y Y Y Y Y Y
+      __m128i src_current_u = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcU + x)); //0 0 0 0 U U U U
+      __m128i src_current_v = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcV + x)); //0 0 0 0 V V V V
+      __m128i src_prev_u = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcU - src_pitch_uv*2 + x)); //0 0 0 0 U U U U
+      __m128i src_prev_v = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcV - src_pitch_uv*2 + x)); //0 0 0 0 V V V V
+
+      __m128i src_u = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_u, src_prev_u, one);
+      __m128i src_v = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_v, src_prev_v, one);
+
+      __m128i dst_lo, dst_hi;
+      convert_yv12_pixels_to_yuy2_sse2(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x*4), dst_lo);
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x*4 + 16), dst_hi);
+
+      luma_line = _mm_load_si128(reinterpret_cast<const __m128i*>(srcY + src_pitch_y*2+ x*2)); //Y Y Y Y Y Y Y Y
+      __m128i src_next_u = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcU + src_pitch_uv*2 + x)); //0 0 0 0 U U U U
+      __m128i src_next_v = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcV + src_pitch_uv*2 + x)); //0 0 0 0 V V V V
+
+      src_u = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_u, src_next_u, one);
+      src_v = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_v, src_next_v, one);
+
+      convert_yv12_pixels_to_yuy2_sse2(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + dst_pitch*2 + x*4), dst_lo);
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + dst_pitch*2 + x*4 + 16), dst_hi);
+    }
+
+    if (y % 4 == 0) {
+      //top field processed, jumb to the bottom
+      srcY += src_pitch_y;
+      dstp += dst_pitch;
+      srcU += src_pitch_uv;
+      srcV += src_pitch_uv;
+    } else {
+      //bottom field processed, jump to the next top
+      srcY += src_pitch_y*3;
+      srcU += src_pitch_uv;
+      srcV += src_pitch_uv;
+      dstp += dst_pitch*3;
+    }
+  }
 }
+
+void convert_yv12_to_yuy2_progressive_sse2(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, int src_width, int src_pitch_y, int src_pitch_uv, BYTE *dstp, int dst_pitch, int height)
+{
+  //first two lines
+  copy_yv12_line_to_yuy2_sse2(srcY, srcU, srcV, dstp, src_width);
+  copy_yv12_line_to_yuy2_sse2(srcY+src_pitch_y, srcU, srcV, dstp+dst_pitch, src_width);
+
+  //last two lines. Easier to do them here
+  copy_yv12_line_to_yuy2_sse2(
+    srcY + src_pitch_y * (height-2),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-2),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_sse2(
+    srcY + src_pitch_y * (height-1),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-1),
+    src_width
+    );
+
+  srcY += src_pitch_y*2;
+  srcU += src_pitch_uv;
+  srcV += src_pitch_uv;
+  dstp += dst_pitch*2;
+
+  __m128i one = _mm_set1_epi8(1);
+  __m128i zero = _mm_setzero_si128();
+
+  for (int y = 2; y < height-2; y+=2) {
+    for (int x = 0; x < src_width / 2; x+=8) {
+      __m128i luma_line = _mm_load_si128(reinterpret_cast<const __m128i*>(srcY + x*2)); //Y Y Y Y Y Y Y Y
+      __m128i src_current_u = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcU + x)); //0 0 0 0 U U U U
+      __m128i src_current_v = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcV + x)); //0 0 0 0 V V V V
+      __m128i src_prev_u = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcU - src_pitch_uv + x)); //0 0 0 0 U U U U
+      __m128i src_prev_v = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcV - src_pitch_uv + x)); //0 0 0 0 V V V V
+
+      __m128i src_u = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_u, src_prev_u, one);
+      __m128i src_v = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_v, src_prev_v, one);
+
+      __m128i dst_lo, dst_hi;
+      convert_yv12_pixels_to_yuy2_sse2(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x*4), dst_lo);
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x*4 + 16), dst_hi);
+
+      luma_line = _mm_load_si128(reinterpret_cast<const __m128i*>(srcY + src_pitch_y + x*2)); //Y Y Y Y Y Y Y Y
+      __m128i src_next_u = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcU + src_pitch_uv + x)); //0 0 0 0 U U U U
+      __m128i src_next_v = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(srcV + src_pitch_uv + x)); //0 0 0 0 V V V V
+
+      src_u = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_u, src_next_u, one);
+      src_v = convert_yv12_to_yuy2_merge_chroma_sse2(src_current_v, src_next_v, one);
+
+      convert_yv12_pixels_to_yuy2_sse2(luma_line, src_u, src_v, zero, dst_lo, dst_hi);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + dst_pitch + x*4), dst_lo);
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp + dst_pitch + x*4 + 16), dst_hi);
+    }
+    srcY += src_pitch_y*2;
+    dstp += dst_pitch*2;
+    srcU += src_pitch_uv;
+    srcV += src_pitch_uv;
+  }
+}
+
+/* YUY2 -> YV12 conversion */
+
+
+#ifdef X86_32
+
+void convert_yuy2_to_yv12_progressive_isse(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height)
+{
+  __m64 luma_mask = _mm_set1_pi16(0x00FF);
+  for (int y = 0; y < height/2; ++y) {
+    for (int x = 0; x < (src_width+3) / 4; x+=4) {
+      __m64 src_lo_line0 = *reinterpret_cast<const __m64*>(src+x*4); //VYUY VYUY
+      __m64 src_lo_line1 = *reinterpret_cast<const __m64*>(src+x*4+src_pitch);
+
+      __m64 src_hi_line0 = *reinterpret_cast<const __m64*>(src+x*4+8);
+      __m64 src_hi_line1 = *reinterpret_cast<const __m64*>(src+x*4+src_pitch+8);
+
+      __m64 src_lo_line0_luma = _mm_and_si64(src_lo_line0, luma_mask);
+      __m64 src_lo_line1_luma = _mm_and_si64(src_lo_line1, luma_mask);
+      __m64 src_hi_line0_luma = _mm_and_si64(src_hi_line0, luma_mask);
+      __m64 src_hi_line1_luma = _mm_and_si64(src_hi_line1, luma_mask);
+
+      __m64 src_luma_line0 = _mm_packs_pu16(src_lo_line0_luma, src_hi_line0_luma);
+      __m64 src_luma_line1 = _mm_packs_pu16(src_lo_line1_luma, src_hi_line1_luma);
+
+      *reinterpret_cast<__m64*>(dstY + x*2) = src_luma_line0;
+      *reinterpret_cast<__m64*>(dstY + x*2 + dst_pitchY) = src_luma_line1;
+
+      __m64 avg_chroma_lo = _mm_avg_pu8(src_lo_line0, src_lo_line1);
+      __m64 avg_chroma_hi = _mm_avg_pu8(src_hi_line0, src_hi_line1);
+
+      __m64 chroma_lo = _mm_srli_si64(avg_chroma_lo, 8);
+      __m64 chroma_hi = _mm_srli_si64(avg_chroma_hi, 8);
+
+      chroma_lo = _mm_and_si64(luma_mask, chroma_lo); //0V0U 0V0U
+      chroma_hi = _mm_and_si64(luma_mask, chroma_hi); //0V0U 0V0U
+
+      __m64 chroma = _mm_packs_pu16(chroma_lo, chroma_hi); //VUVU VUVU
+
+      __m64 chroma_u = _mm_and_si64(luma_mask, chroma); //0U0U 0U0U
+      __m64 chroma_v = _mm_andnot_si64(luma_mask, chroma); //V0V0 V0V0
+      chroma_v = _mm_srli_si64(chroma_v, 8); //0V0V 0V0V
+
+      chroma_u = _mm_packs_pu16(chroma_u, luma_mask);
+      chroma_v = _mm_packs_pu16(chroma_v, luma_mask);
+
+      *reinterpret_cast<int*>(dstU+x) = _mm_cvtsi64_si32(chroma_u);
+      *reinterpret_cast<int*>(dstV+x) = _mm_cvtsi64_si32(chroma_v);
+    }
+
+    src += src_pitch*2;
+    dstY += dst_pitchY * 2;
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+  }
+  _mm_empty();
+}
+
+//75% of the first argument and 25% of the second one.
+static AVS_FORCEINLINE __m64 convert_yuy2_to_yv12_merge_chroma_isse(const __m64 &line75p, const __m64 &line25p, const __m64 &one, const __m64 &luma_mask) {
+  __m64 avg_chroma_lo = _mm_avg_pu8(line75p, line25p);
+  avg_chroma_lo = _mm_subs_pu8(avg_chroma_lo, one);
+  avg_chroma_lo = _mm_avg_pu8(avg_chroma_lo, line75p);
+  __m64 chroma_lo = _mm_srli_si64(avg_chroma_lo, 8);
+  return _mm_and_si64(luma_mask, chroma_lo); //0V0U 0V0U
+}
+
+void convert_yuy2_to_yv12_interlaced_isse(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height) {
+  __m64 one = _mm_set1_pi8(1);
+  __m64 luma_mask = _mm_set1_pi16(0x00FF);
+
+  for (int y = 0; y < height / 2; y+=2) {
+    for (int x = 0; x < src_width / 4; x+=4) {
+      __m64 src_lo_line0 = *reinterpret_cast<const __m64*>(src+x*4); //VYUY VYUY
+      __m64 src_lo_line1 = *reinterpret_cast<const __m64*>(src+x*4+src_pitch*2);
+
+      __m64 src_hi_line0 = *reinterpret_cast<const __m64*>(src+x*4+8);
+      __m64 src_hi_line1 = *reinterpret_cast<const __m64*>(src+x*4+src_pitch*2+8);
+
+      __m64 chroma_lo = convert_yuy2_to_yv12_merge_chroma_isse(src_lo_line0, src_lo_line1, one, luma_mask);
+      __m64 chroma_hi = convert_yuy2_to_yv12_merge_chroma_isse(src_hi_line0, src_hi_line1, one, luma_mask);
+
+      __m64 chroma = _mm_packs_pu16(chroma_lo, chroma_hi); //VUVU VUVU
+
+      __m64 chroma_u = _mm_and_si64(luma_mask, chroma); //0U0U 0U0U
+      __m64 chroma_v = _mm_andnot_si64(luma_mask, chroma); //V0V0 V0V0
+      chroma_v = _mm_srli_si64(chroma_v, 8); //0V0V 0V0V
+
+      chroma_u = _mm_packs_pu16(chroma_u, luma_mask);
+      chroma_v = _mm_packs_pu16(chroma_v, luma_mask);
+
+      *reinterpret_cast<int*>(dstU+x) = _mm_cvtsi64_si32(chroma_u);
+      *reinterpret_cast<int*>(dstV+x) = _mm_cvtsi64_si32(chroma_v);
+
+      __m64 src_lo_line0_luma = _mm_and_si64(src_lo_line0, luma_mask);
+      __m64 src_lo_line1_luma = _mm_and_si64(src_lo_line1, luma_mask);
+      __m64 src_hi_line0_luma = _mm_and_si64(src_hi_line0, luma_mask);
+      __m64 src_hi_line1_luma = _mm_and_si64(src_hi_line1, luma_mask);
+
+      __m64 src_luma_line0 = _mm_packs_pu16(src_lo_line0_luma, src_hi_line0_luma);
+      __m64 src_luma_line1 = _mm_packs_pu16(src_lo_line1_luma, src_hi_line1_luma);
+
+      *reinterpret_cast<__m64*>(dstY + x*2) = src_luma_line0;
+      *reinterpret_cast<__m64*>(dstY + x*2 + dst_pitchY*2) = src_luma_line1;
+    }
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+    dstY += dst_pitchY;
+    src += src_pitch;
+
+    for (int x = 0; x < src_width / 4; x+=4) {
+      __m64 src_lo_line0 = *reinterpret_cast<const __m64*>(src+x*4); //VYUY VYUY
+      __m64 src_lo_line1 = *reinterpret_cast<const __m64*>(src+x*4+src_pitch*2);
+
+      __m64 src_hi_line0 = *reinterpret_cast<const __m64*>(src+x*4+8);
+      __m64 src_hi_line1 = *reinterpret_cast<const __m64*>(src+x*4+src_pitch*2+8);
+
+      __m64 chroma_lo = convert_yuy2_to_yv12_merge_chroma_isse(src_lo_line1, src_lo_line0, one, luma_mask);
+      __m64 chroma_hi = convert_yuy2_to_yv12_merge_chroma_isse(src_hi_line1, src_hi_line0, one, luma_mask);
+
+      __m64 chroma = _mm_packs_pu16(chroma_lo, chroma_hi); //VUVU VUVU
+
+      __m64 chroma_u = _mm_and_si64(luma_mask, chroma); //0U0U 0U0U
+      __m64 chroma_v = _mm_andnot_si64(luma_mask, chroma); //V0V0 V0V0
+      chroma_v = _mm_srli_si64(chroma_v, 8); //0V0V 0V0V
+
+      chroma_u = _mm_packs_pu16(chroma_u, luma_mask);
+      chroma_v = _mm_packs_pu16(chroma_v, luma_mask);
+
+      *reinterpret_cast<int*>(dstU+x) = _mm_cvtsi64_si32(chroma_u);
+      *reinterpret_cast<int*>(dstV+x) = _mm_cvtsi64_si32(chroma_v);
+
+      __m64 src_lo_line0_luma = _mm_and_si64(src_lo_line0, luma_mask);
+      __m64 src_lo_line1_luma = _mm_and_si64(src_lo_line1, luma_mask);
+      __m64 src_hi_line0_luma = _mm_and_si64(src_hi_line0, luma_mask);
+      __m64 src_hi_line1_luma = _mm_and_si64(src_hi_line1, luma_mask);
+
+      __m64 src_luma_line0 = _mm_packs_pu16(src_lo_line0_luma, src_hi_line0_luma);
+      __m64 src_luma_line1 = _mm_packs_pu16(src_lo_line1_luma, src_hi_line1_luma);
+
+      *reinterpret_cast<__m64*>(dstY + x*2) = src_luma_line0;
+      *reinterpret_cast<__m64*>(dstY + x*2 + dst_pitchY*2) = src_luma_line1;
+    }
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+    dstY += dst_pitchY*3;
+    src += src_pitch*3;
+  }
+  _mm_empty();
+}
+
+#endif
+
+void convert_yuy2_to_yv12_progressive_sse2(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height)
+{
+  __m128i luma_mask = _mm_set1_epi16(0x00FF);
+  for (int y = 0; y < height/2; ++y) {
+    for (int x = 0; x < (src_width+3) / 4; x+=8) {
+      __m128i src_lo_line0 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4)); //VYUY VYUY
+      __m128i src_lo_line1 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+src_pitch));
+
+      __m128i src_hi_line0 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+16));
+      __m128i src_hi_line1 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+src_pitch+16));
+
+      __m128i src_lo_line0_luma = _mm_and_si128(src_lo_line0, luma_mask);
+      __m128i src_lo_line1_luma = _mm_and_si128(src_lo_line1, luma_mask);
+      __m128i src_hi_line0_luma = _mm_and_si128(src_hi_line0, luma_mask);
+      __m128i src_hi_line1_luma = _mm_and_si128(src_hi_line1, luma_mask);
+
+      __m128i src_luma_line0 = _mm_packus_epi16(src_lo_line0_luma, src_hi_line0_luma);
+      __m128i src_luma_line1 = _mm_packus_epi16(src_lo_line1_luma, src_hi_line1_luma);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstY + x*2), src_luma_line0);
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstY + x*2 + dst_pitchY), src_luma_line1);
+
+      __m128i avg_chroma_lo = _mm_avg_epu8(src_lo_line0, src_lo_line1);
+      __m128i avg_chroma_hi = _mm_avg_epu8(src_hi_line0, src_hi_line1);
+
+      __m128i chroma_lo = _mm_srli_si128(avg_chroma_lo, 1);
+      __m128i chroma_hi = _mm_srli_si128(avg_chroma_hi, 1);
+
+      chroma_lo = _mm_and_si128(luma_mask, chroma_lo); //0V0U 0V0U
+      chroma_hi = _mm_and_si128(luma_mask, chroma_hi); //0V0U 0V0U
+
+      __m128i chroma = _mm_packus_epi16(chroma_lo, chroma_hi); //VUVU VUVU
+
+      __m128i chroma_u = _mm_and_si128(luma_mask, chroma); //0U0U 0U0U
+      __m128i chroma_v = _mm_andnot_si128(luma_mask, chroma); //V0V0 V0V0
+      chroma_v = _mm_srli_si128(chroma_v, 1); //0V0V 0V0V
+
+      chroma_u = _mm_packus_epi16(chroma_u, luma_mask);
+      chroma_v = _mm_packus_epi16(chroma_v, luma_mask);
+
+      _mm_storel_epi64(reinterpret_cast<__m128i*>(dstU+x), chroma_u);
+      _mm_storel_epi64(reinterpret_cast<__m128i*>(dstV+x), chroma_v);
+    }
+
+    src += src_pitch*2;
+    dstY += dst_pitchY * 2;
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+  }
+}
+
+//75% of the first argument and 25% of the second one.
+static AVS_FORCEINLINE __m128i convert_yuy2_to_yv12_merge_chroma_sse2(const __m128i &line75p, const __m128i &line25p, const __m128i &one, const __m128i &luma_mask) {
+  __m128i avg_chroma_lo = _mm_avg_epu8(line75p, line25p);
+  avg_chroma_lo = _mm_subs_epu8(avg_chroma_lo, one);
+  avg_chroma_lo = _mm_avg_epu8(avg_chroma_lo, line75p);
+  __m128i chroma_lo = _mm_srli_si128(avg_chroma_lo, 1);
+  return _mm_and_si128(luma_mask, chroma_lo); //0V0U 0V0U
+}
+
+void convert_yuy2_to_yv12_interlaced_sse2(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height) {
+  __m128i one = _mm_set1_epi8(1);
+  __m128i luma_mask = _mm_set1_epi16(0x00FF);
+
+  for (int y = 0; y < height / 2; y+=2) {
+    for (int x = 0; x < src_width / 4; x+=8) {
+      __m128i src_lo_line0 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4)); //VYUY VYUY
+      __m128i src_lo_line1 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+src_pitch*2));
+
+      __m128i src_hi_line0 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+16));
+      __m128i src_hi_line1 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+src_pitch*2+16));
+
+      __m128i chroma_lo = convert_yuy2_to_yv12_merge_chroma_sse2(src_lo_line0, src_lo_line1, one, luma_mask);
+      __m128i chroma_hi = convert_yuy2_to_yv12_merge_chroma_sse2(src_hi_line0, src_hi_line1, one, luma_mask);
+
+      __m128i chroma = _mm_packus_epi16(chroma_lo, chroma_hi); //VUVU VUVU
+
+      __m128i chroma_u = _mm_and_si128(luma_mask, chroma); //0U0U 0U0U
+      __m128i chroma_v = _mm_andnot_si128(luma_mask, chroma); //V0V0 V0V0
+      chroma_v = _mm_srli_si128(chroma_v, 1); //0V0V 0V0V
+
+      chroma_u = _mm_packus_epi16(chroma_u, luma_mask);
+      chroma_v = _mm_packus_epi16(chroma_v, luma_mask);
+
+      _mm_storel_epi64(reinterpret_cast<__m128i*>(dstU+x), chroma_u);
+      _mm_storel_epi64(reinterpret_cast<__m128i*>(dstV+x), chroma_v);
+
+      __m128i src_lo_line0_luma = _mm_and_si128(src_lo_line0, luma_mask);
+      __m128i src_lo_line1_luma = _mm_and_si128(src_lo_line1, luma_mask);
+      __m128i src_hi_line0_luma = _mm_and_si128(src_hi_line0, luma_mask);
+      __m128i src_hi_line1_luma = _mm_and_si128(src_hi_line1, luma_mask);
+
+      __m128i src_luma_line0 = _mm_packus_epi16(src_lo_line0_luma, src_hi_line0_luma);
+      __m128i src_luma_line1 = _mm_packus_epi16(src_lo_line1_luma, src_hi_line1_luma);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstY + x*2), src_luma_line0);
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstY + x*2 + dst_pitchY*2), src_luma_line1);
+    }
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+    dstY += dst_pitchY;
+    src += src_pitch;
+
+    for (int x = 0; x < src_width / 4; x+=8) {
+      __m128i src_lo_line0 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4)); //VYUY VYUY
+      __m128i src_lo_line1 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+src_pitch*2));
+
+      __m128i src_hi_line0 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+16));
+      __m128i src_hi_line1 = _mm_load_si128(reinterpret_cast<const __m128i*>(src+x*4+src_pitch*2+16));
+
+      __m128i chroma_lo = convert_yuy2_to_yv12_merge_chroma_sse2(src_lo_line1, src_lo_line0, one, luma_mask);
+      __m128i chroma_hi = convert_yuy2_to_yv12_merge_chroma_sse2(src_hi_line1, src_hi_line0, one, luma_mask);
+
+      __m128i chroma = _mm_packus_epi16(chroma_lo, chroma_hi); //VUVU VUVU
+
+      __m128i chroma_u = _mm_and_si128(luma_mask, chroma); //0U0U 0U0U
+      __m128i chroma_v = _mm_andnot_si128(luma_mask, chroma); //V0V0 V0V0
+      chroma_v = _mm_srli_si128(chroma_v, 1); //0V0V 0V0V
+
+      chroma_u = _mm_packus_epi16(chroma_u, luma_mask);
+      chroma_v = _mm_packus_epi16(chroma_v, luma_mask);
+
+      _mm_storel_epi64(reinterpret_cast<__m128i*>(dstU+x), chroma_u);
+      _mm_storel_epi64(reinterpret_cast<__m128i*>(dstV+x), chroma_v);
+
+      __m128i src_lo_line0_luma = _mm_and_si128(src_lo_line0, luma_mask);
+      __m128i src_lo_line1_luma = _mm_and_si128(src_lo_line1, luma_mask);
+      __m128i src_hi_line0_luma = _mm_and_si128(src_hi_line0, luma_mask);
+      __m128i src_hi_line1_luma = _mm_and_si128(src_hi_line1, luma_mask);
+
+      __m128i src_luma_line0 = _mm_packus_epi16(src_lo_line0_luma, src_hi_line0_luma);
+      __m128i src_luma_line1 = _mm_packus_epi16(src_lo_line1_luma, src_hi_line1_luma);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstY + x*2), src_luma_line0);
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstY + x*2 + dst_pitchY*2), src_luma_line1);
+    }
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+    dstY += dst_pitchY*3;
+    src += src_pitch*3;
+  }
+} 
+

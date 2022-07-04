@@ -1,6 +1,4 @@
-# We need CMake 3.8 at least, because we require
-# CMAKE_CXX_STANDARD to be set to C++17.
-CMAKE_MINIMUM_REQUIRED( VERSION 3.8.2 )
+CMAKE_MINIMUM_REQUIRED( VERSION 3.6.2 )
 
 set(PluginName "ImageSeq")
 set(ProjectName "Plugin${PluginName}")
@@ -73,7 +71,7 @@ else()
   #                  library is found all the others are as well. That's the
   #                  way the DevIL developers release it.
   if(DevIL_FOUND)
-    message("Found DevIL library: {$IL_LIBRARIES}") 
+    message("Found DevIL library: ${IL_LIBRARIES}") 
     target_link_libraries(${ProjectName} "${IL_LIBRARIES}" "${FSLIB}")
     target_include_directories(${ProjectName} PRIVATE "${IL_INCLUDE_DIR}" ${AvsCore_SOURCE_DIR})
   else()

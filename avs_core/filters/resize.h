@@ -48,7 +48,7 @@ class VerticalReduceBy2 : public GenericVideoFilter
 {
 public:
   VerticalReduceBy2(PClip _child, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -72,7 +72,7 @@ class HorizontalReduceBy2 : public GenericVideoFilter
 {
 public:
   HorizontalReduceBy2(PClip _child, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

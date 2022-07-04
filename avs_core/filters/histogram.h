@@ -61,7 +61,7 @@ public:
   };
 
   Histogram(PClip _child, Mode _mode, AVSValue _option, int _show_bits, bool _keepsource, bool _markers, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
   PVideoFrame DrawModeClassic    (int n, IScriptEnvironment* env);
   PVideoFrame DrawModeLevels     (int n, IScriptEnvironment* env);
   PVideoFrame DrawModeColor      (int n, IScriptEnvironment* env);

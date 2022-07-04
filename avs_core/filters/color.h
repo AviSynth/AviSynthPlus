@@ -74,9 +74,10 @@ public:
              int bits, bool showyuv_fullrange, // avs+
              bool tweaklike_params, // ColorYUV2: 0.0/0.5/1.0/2.0/3.0 instead of -256/-128/0/256/512
              const char *condVarSuffix,
+             bool optForceUseExpr,
              IScriptEnvironment* env);
 
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
     int __stdcall SetCacheHints(int cachehints, int frame_range) override
     {
@@ -95,7 +96,13 @@ private:
     bool analyse, autowhite, autogain, conditional;
     bool tweaklike_params;
     const char* condVarSuffix;
+    bool optForceUseExpr;
     BYTE *luts[3];
+
+    int theColorRange;
+    int theMatrix;
+    int theChromaLocation;
+
 };
 
 #endif // __Color_h

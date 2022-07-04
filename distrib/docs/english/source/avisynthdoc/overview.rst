@@ -113,10 +113,19 @@ Advanced Topics
 Versions History
 ----------------
 
+-   :doc:`AviSynth+<avisynthplus>`
 -   :doc:`AviSynth 2.6 <twopointsix>`
 -   :doc:`AviSynth 2.5 <twopointfive>`
--   :doc:`Release Notes v2.58 <releasenotes>`
+-   :doc:`Changelist 3.7.3 <changelist373>`
+-   :doc:`Changelist 3.7.2 <changelist372>`
+-   :doc:`Changelist 3.7.1 <changelist371>`
+-   :doc:`Changelist 3.7 <changelist37>`
+-   :doc:`Changelist 3.6 <changelist36>`
+-   :doc:`Changelist 3.5 <changelist35>`
+-   :doc:`Changelist 3.4 <changelist34>`
+-   :doc:`Changelist r1825- <changelist34pre>`
 -   :doc:`Changelist 2.6 <changelist26>`
+-   :doc:`Release Notes v2.58 <releasenotes>`
 -   :doc:`Changelist <changelist>`
 -   :doc:`License Terms <license>`
 

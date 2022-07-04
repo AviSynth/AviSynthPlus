@@ -55,361 +55,379 @@
 #include <sstream> // stringstream
 #include <iomanip> // setprecision
 #include <string>
+#include "../convert/convert_helper.h"
 
 static void coloryuv_showyuv(BYTE* pY, BYTE* pU, BYTE* pV, int y_pitch, int u_pitch, int v_pitch, int framenumber, bool full_range, int bits_per_pixel)
 {
-    int internal_bitdepth = bits_per_pixel == 8 ? 8 : 10;
-    int luma_min = (full_range ? 0 : 16) << (internal_bitdepth - 8);
-    int luma_max = ((full_range ? 256: 236) << (internal_bitdepth - 8)) - 1;
+  int internal_bitdepth = bits_per_pixel == 8 ? 8 : 10;
 
-    int chroma_min = (full_range ? 0 : 16) << (internal_bitdepth - 8);
-    int chroma_max = ((full_range ? 256: 241) << (internal_bitdepth - 8)) - 1;
+  const int luma_min = full_range ? 0 : (16 << (internal_bitdepth - 8));
+  const int luma_max = full_range ? (1 << internal_bitdepth) - 1 : (235 << (internal_bitdepth - 8));
 
-    int luma_range   = luma_max - luma_min + 1; // 256/220 ,1024/880
-    int chroma_range = chroma_max - chroma_min + 1; // 256/225 ,1024/900
+  const int chroma_center = 128 << (internal_bitdepth - 8);
+  const int chroma_span = full_range ? (1 << (internal_bitdepth - 1)) - 1 : (112 << (internal_bitdepth - 8)); // +-127/+-112
+  const int chroma_min = chroma_center - chroma_span; // +-112 (16-240) -> +-127 (1-255)
+  const int chroma_max = chroma_center + chroma_span;
 
-    const int luma_size = chroma_range * 2; // YV12 subsampling
+  const int luma_range = luma_max - luma_min + 1; // 256/220 ,1024/880
+  const int chroma_range = chroma_max - chroma_min + 1;
 
-    int luma;
-    // Calculate luma cycle
-    // 0,1..255,254,..1 = 2x256-2
-    // 0,1..1023,1022,..1 = 2*1024-2
-    luma = framenumber % (luma_range*2 -2);
-    if (luma > luma_range-1)
-      luma = (luma_range*2 -2) - luma;
-    luma += luma_min;
+  const int luma_size = chroma_range * 2; // YUV output is always 4:2:0. Horizontal subsampling 2.
 
-    // Set luma value
-    for (int y = 0; y < luma_size; y++)
-    {
-      switch(bits_per_pixel) {
-      case 8:
-        memset(pY, luma, luma_size); break;
-      case 10: case 12: case 14: case 16:
-        std::fill_n((uint16_t *)pY, luma_size, luma << (bits_per_pixel-internal_bitdepth)); break;
-      case 32:
-        std::fill_n((float *)pY, luma_size, (float)luma / ((1 << internal_bitdepth) - 1)); break;
-      }
+  int luma;
+  // Calculate luma cycle
+  // 0,1..255,254,..1 = 2x256-2
+  // 0,1..1023,1022,..1 = 2*1024-2
+  luma = framenumber % (luma_range * 2 - 2);
+  if (luma > luma_range - 1)
+    luma = (luma_range * 2 - 2) - luma;
+  luma += luma_min;
+
+  // Set luma value
+  if (bits_per_pixel == 8) {
+    for (int y = 0; y < luma_size; y++) {
+      memset(pY, luma, luma_size);
       pY += y_pitch;
     }
-    // Set chroma
-    for (int y = 0; y < chroma_range; y++)
-    {
-      switch(bits_per_pixel) {
-      case 8:
-        for (int x = 0; x < chroma_range; x++)
-          pU[x] = x + chroma_min;
-        memset(pV, y + chroma_min, chroma_range);
-        break;
-      case 10: case 12: case 14: case 16:
-        for (int x = 0; x < chroma_range; x++) {
-          reinterpret_cast<uint16_t *>(pU)[x] = (x + chroma_min) << (bits_per_pixel - internal_bitdepth);
-        }
-        std::fill_n((uint16_t *)pV, chroma_range, (y + chroma_min) << (bits_per_pixel-internal_bitdepth));
-        break;
-      case 32:
-        for (int x = 0; x < chroma_range; x++) {
-          reinterpret_cast<float *>(pU)[x] = (float)(x + chroma_min) / ((1 << internal_bitdepth) - 1);
-        }
-        std::fill_n((float *)pV, chroma_range, (float)(y + chroma_min) / ((1 << internal_bitdepth) - 1));
-        break;
+  }
+  else if (bits_per_pixel <= 16) {
+    // display size (thus luma range) covers the same as at 10 bits.
+    if (full_range) {
+      // stretch
+      const float factor = (float)((1 << bits_per_pixel) - 1) / ((1 << internal_bitdepth) - 1);
+      const int luma_target = (int)(luma * factor + 0.5f);
+      for (int y = 0; y < luma_size; y++) {
+        std::fill_n((uint16_t*)pY, luma_size, luma_target);
+        pY += y_pitch;
       }
-      pU += u_pitch;
-      pV += v_pitch;
     }
+    else {
+      // shift
+      const int luma_target = luma << (bits_per_pixel - internal_bitdepth);
+      for (int y = 0; y < luma_size; y++) {
+        std::fill_n((uint16_t*)pY, luma_size, luma_target);
+        pY += y_pitch;
+      }
+    }
+  }
+  else {
+    // 32 bit float
+    const float factor = 1.0f / ((1 << internal_bitdepth) - 1);
+    const float luma_target = luma * factor;
+    for (int y = 0; y < luma_size; y++) {
+      std::fill_n((float*)pY, luma_size, luma_target);
+      pY += y_pitch;
+    }
+  }
+
+  // Set chroma
+  if (full_range) {
+    if (bits_per_pixel != 32) {
+      // 8-16 bit full
+      const int chroma_center_target = 128 << (bits_per_pixel - 8);
+      const int chroma_span_target = full_range ? (1 << (bits_per_pixel - 1)) - 1 : (112 << (bits_per_pixel - 8)); // +-127/+-112
+      const float factor = (float)chroma_span_target / chroma_span;
+      const float chroma_center_target_plus_round = chroma_center_target + 0.5f;
+
+      if (bits_per_pixel == 8) {
+        for (int y = 0; y < chroma_range; y++)
+        {
+          for (int x = 0; x < chroma_range; x++) {
+            int pixel_u = chroma_min + x;
+            pixel_u = (int)((pixel_u - chroma_center) * factor + chroma_center_target_plus_round);
+            pU[x] = pixel_u;
+          }
+          int pixel_v = chroma_min + y;
+          pixel_v = (int)((pixel_v - chroma_center) * factor + chroma_center_target_plus_round);
+          std::fill_n((uint8_t*)pV, chroma_range, pixel_v);
+
+          pU += u_pitch;
+          pV += v_pitch;
+        }
+      }
+      else if (bits_per_pixel <= 16) {
+        for (int y = 0; y < chroma_range; y++)
+        {
+          for (int x = 0; x < chroma_range; x++) {
+            int pixel_u = chroma_min + x;
+            pixel_u = (int)((pixel_u - chroma_center) * factor + chroma_center_target_plus_round);
+            reinterpret_cast<uint16_t*>(pU)[x] = pixel_u;
+          }
+          int pixel_v = chroma_min + y;
+          pixel_v = (int)((pixel_v - chroma_center) * factor + chroma_center_target_plus_round);
+          std::fill_n((uint16_t*)pV, chroma_range, pixel_v);
+
+          pU += u_pitch;
+          pV += v_pitch;
+        }
+      }
+    }
+    else {
+      // 32 bit float, full
+      const float chroma_span_target = 0.5f; // +-0.5/+-112
+      const float factor = chroma_span_target / chroma_span;
+
+      for (int y = 0; y < chroma_range; y++)
+      {
+        for (int x = 0; x < chroma_range; x++) {
+          const int pixel_u = chroma_min + x;
+          const float pixel_u_f = (pixel_u - chroma_center) * factor;
+          reinterpret_cast<float*>(pU)[x] = pixel_u_f;
+        }
+
+        const int pixel_v = chroma_min + y;
+        const float pixel_v_f = (pixel_v - chroma_center) * factor;
+        std::fill_n((float*)pV, chroma_range, pixel_v_f);
+
+        pU += u_pitch;
+        pV += v_pitch;
+      }
+    }
+    // full end
+  }
+  else {
+    if (bits_per_pixel == 8) {
+      // 8 bit limited range
+      for (int y = 0; y < chroma_range; y++)
+      {
+        for (int x = 0; x < chroma_range; x++)
+          pU[x] = chroma_min + x;
+        const int pixel_v = chroma_min + y;
+        std::fill_n((uint8_t*)pV, chroma_range, pixel_v);
+        pU += u_pitch;
+        pV += v_pitch;
+      }
+    }
+    else if (bits_per_pixel <= 16) {
+      // 16 bit limited range
+      const int bitdiff = (bits_per_pixel - internal_bitdepth);
+      for (int y = 0; y < chroma_range; y++)
+      {
+        for (int x = 0; x < chroma_range; x++) {
+          reinterpret_cast<uint16_t*>(pU)[x] = (chroma_min + x) << bitdiff;
+        }
+        const int pixel_v = (chroma_min + y) << bitdiff;
+        std::fill_n((uint16_t*)pV, chroma_range, pixel_v);
+        pU += u_pitch;
+        pV += v_pitch;
+      }
+    }
+    else {
+      // 32 bit float limited
+      const float factor = 1.0f / ((1 << internal_bitdepth) - 1);
+      for (int y = 0; y < chroma_range; y++)
+      {
+        for (int x = 0; x < chroma_range; x++) {
+          reinterpret_cast<float*>(pU)[x] = (float)(chroma_min + x - chroma_center) * factor;
+        }
+        const float pixel_v = (float)(chroma_min + y - chroma_center) * factor;
+        std::fill_n((float*)pV, chroma_range, pixel_v);
+        pU += u_pitch;
+        pV += v_pitch;
+      }
+    }
+  }
 }
 
 // luts are only for integer bits 8/10/12/14/16. float will be realtime
 template<typename pixel_t>
 static void coloryuv_create_lut(BYTE* lut8, const ColorYUVPlaneConfig* config, int bits_per_pixel, bool tweaklike_params)
 {
-    pixel_t *lut = reinterpret_cast<pixel_t *>(lut8);
+  pixel_t* lut = reinterpret_cast<pixel_t*>(lut8);
 
-    // parameters are not scaled by bitdepth (legacy 8 bit behaviour)
+  // scale is 256/1024/4096/16384/65536
+  // normalize to [0..1) working range
+  const double value_normalization_scale = (double)((int64_t)1 << bits_per_pixel);
+  // For gamma pre-post correction. 
+  const double tv_range_lo_normalized = 16.0 / 256.0;
 
-    const double value_scale = (1 << bits_per_pixel); // scale is 256/1024/4096/16384/65536
+  const int lookup_size = 1 << bits_per_pixel; // 256, 1024, 4096, 16384, 65536
+  const int source_max = (1 << bits_per_pixel) - 1;
+  const bool chroma = config->plane == PLANAR_U || config->plane == PLANAR_V;
+  const bool fulls = config->range == COLORYUV_RANGE_PC_TV;
+  const bool fulld = config->range == COLORYUV_RANGE_TV_PC;
+  // when COLORYUV_RANGE_NONE both are the same false
 
-    const int lookup_size = (1 << bits_per_pixel); // 256, 1024, 4096, 16384, 65536
-    const int pixel_max = lookup_size - 1;
+  //-----------------------
+  bits_conv_constants d;
+  // When calculating src_pixel, src and dst are of the same bit depth
+  get_bits_conv_constants(d, chroma, fulls, fulld, bits_per_pixel, bits_per_pixel);
 
-    int tv_range_lo_luma_8 = 16;
-    int tv_range_hi_luma_8 = 235;
-    int tv_range_lo_chroma_8 = tv_range_lo_luma_8; // 16-240,64-960, 256-3852,... 4096-61692
-    int tv_range_hi_chroma_8 = 240;
+  auto dst_offset_plus_round = d.dst_offset + 0.5;
+  const int src_pixel_min = 0;
+  const int src_pixel_max = source_max;
 
+  // parameters are not scaled by bitdepth (legacy 8 bit behaviour)
+  double gain = tweaklike_params ? config->gain : (config->gain / 256 + 1.0);
+  double contrast = tweaklike_params ? config->contrast : (config->contrast / 256 + 1.0);
+  double gamma = tweaklike_params ? config->gamma : (config->gamma / 256 + 1.0);
+  double offset = config->offset / 256;
 
-    int tv_range_lo_luma = (tv_range_lo_luma_8 << (bits_per_pixel - 8));
-    int tv_range_hi_luma = (tv_range_hi_luma_8 << (bits_per_pixel - 8));
-    int tv_range_lo_chroma = tv_range_lo_luma; // 16-240,64-960, 256-3852,... 4096-61692
-    int tv_range_hi_chroma = (tv_range_hi_chroma_8 << (bits_per_pixel - 8));
+  // for correct Y gamma
+  double range_factor_tv_to_pc = 255.0 / 219.0; // 16-235 ==> 0..255
+  double range_factor_pc_to_tv = 219.0 / 255.0; // 0..255 ==> 16-235 (219)
 
-    double gain = tweaklike_params ? config->gain : (config->gain / 256 + 1.0);
-    double contrast = tweaklike_params ? config->contrast : (config->contrast / 256 + 1.0);
-    double gamma = tweaklike_params ? config->gamma : (config->gamma / 256 + 1.0);
-    double offset = config->offset / 256;
+  // for coring
+  const int tv_range_lo_luma_chroma = (16 << (bits_per_pixel - 8));
+  const int tv_range_hi_luma = (235 << (bits_per_pixel - 8));
+  const int tv_range_hi_chroma = (240 << (bits_per_pixel - 8));
 
-    int range = config->range;
-    if (range == COLORYUV_RANGE_PC_TVY)
+  // We know that the input is TV range for sure: (coring=true and !PC->TV), levels="TV->PC" or (new!) levels="TV"
+  const bool source_is_limited = (config->clip_tv && config->range != COLORYUV_RANGE_PC_TV) || config->range == COLORYUV_RANGE_TV_PC || config->force_tv_range;
+
+  for (int i = 0; i < lookup_size; i++) {
+    double value = double(i);
+    value /= value_normalization_scale; // normalize to [0..1). For chroma this makes the center to 0.5.
+    value *= gain; // Applying gain
+    // Applying contrast. For chroma, this sets saturation
+    value = (value - 0.5) * contrast + 0.5; // integer chroma center is transformed to 0, apply contrast
+    // in Classic AVS: constract is applied on the original value and not on the already gained value
+    // value = (value * gain) + ((value - 0.5) * contrast + 0.5) - value + (bright - 1);
+    value += offset; // Applying offset
+
+    // Applying gamma. Only on Y
+    if (gamma != 0) {
+      if (source_is_limited) {
+        // avs+ 180301- use gamma on the proper 0.0 based value
+        if (value > tv_range_lo_normalized)
+        {
+          // tv->pc
+          value = (value - tv_range_lo_normalized) * range_factor_tv_to_pc; // (v-16)*range
+          value = pow(value, 1.0 / gamma);
+          // pc->tv
+          value = value * range_factor_pc_to_tv + tv_range_lo_normalized; // v*range - 16
+        }
+      }
+      else { // full (PC) range
+        if (value > 0)
+          value = pow(value, 1.0 / gamma);
+      }
+    }
+
+    value *= value_normalization_scale; // back from [0..1) range
+
+    if (fulls != fulld)
+      // Range conversion
+      value = (value - d.src_offset) * d.mul_factor + dst_offset_plus_round;
+    else
+      value = value + 0.5; // rounder
+
+    // back to the integer world
+    int iValue = clamp((int)value, src_pixel_min, src_pixel_max);
+
+    if (config->clip_tv) // set when coring
     {
-      // only luma is treated as PC range
-        range = config->plane == PLANAR_Y ? COLORYUV_RANGE_PC_TV : COLORYUV_RANGE_NONE;
+      iValue = clamp(iValue, tv_range_lo_luma_chroma, config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma);
     }
 
-    double range_factor = 1.0;
-    double range_factor_tv_to_pc;
-    double range_factor_pc_to_tv;
-
-    if (config->plane == PLANAR_Y) {
-      // 8 bit 219 = 235-16, 10 bit: 64-960
-      range_factor_tv_to_pc = (double)pixel_max / (tv_range_hi_luma - tv_range_lo_luma); // 255.0 / 219.0
-      range_factor_pc_to_tv = (tv_range_hi_luma - tv_range_lo_luma) / (double)pixel_max; // 219.0 / 255.0
-    }
-    else {
-      // 224 = 240-16
-      range_factor_tv_to_pc = (double)pixel_max / (tv_range_hi_chroma - tv_range_lo_chroma); // 255.0 / 224.0
-      range_factor_pc_to_tv = (tv_range_hi_chroma - tv_range_lo_chroma) / (double)pixel_max;
-    }
-
-    if (range != COLORYUV_RANGE_NONE)
-    {
-      if (range == COLORYUV_RANGE_PC_TV)
-        range_factor = range_factor_pc_to_tv;
-      else
-        range_factor = range_factor_tv_to_pc;
-    }
-
-    double tv_range_lo_current = (config->plane == PLANAR_Y ? tv_range_lo_luma : tv_range_lo_chroma);
-
-    // For gamma pre-post correction. we are in [0..1) working range
-    double tv_range_lo_normalized = (config->plane == PLANAR_Y) ? tv_range_lo_luma_8 / 256.0 : tv_range_lo_chroma_8 / 256.0;
-
-    for (int i = 0; i < lookup_size; i++) {
-
-        double value = double(i);
-
-        // normalize
-        value /= value_scale;
-
-        // Applying gain
-        value *= gain;
-
-        // Applying contrast
-        value = (value - 0.5) * contrast + 0.5; // integer here, float would be different when its chroma if -0.5..0.5
-        // in Classic AVS: constract is applied on the original value and not on the already gained value
-        // value = (value * gain) + ((value - 0.5) * contrast + 0.5) - value + (bright - 1);
-
-        // Applying offset
-        value += offset;
-
-        // Applying gamma
-        if (gamma != 0) {
-          // We know that the input is TV range for sure: (coring=true and !PC->TV), levels="TV->PC" or (new!) levels="TV"
-          if ((config->clip_tv && range != COLORYUV_RANGE_PC_TV) || range == COLORYUV_RANGE_TV_PC || config->force_tv_range) {
-            // avs+ 180301- use gamma on the proper 0.0 based value
-            if (value > tv_range_lo_normalized)
-            {
-              // tv->pc
-              value = (value - tv_range_lo_normalized) * range_factor_tv_to_pc; // (v-16)*range
-              value = pow(value, 1.0 / gamma);
-              // pc->tv
-              value = value * range_factor_pc_to_tv + tv_range_lo_normalized; // v*range - 16
-            }
-          }
-          else {
-            if (value > 0) {
-              value = pow(value, 1.0 / gamma);
-            }
-          }
-        }
-
-        value *= value_scale;
-
-        // Range conversion
-        if (range == COLORYUV_RANGE_PC_TV)
-        {
-          value = value * range_factor + tv_range_lo_current; // v*range - 16
-        }
-        else if (range == COLORYUV_RANGE_TV_PC)
-        {
-          value = (value - tv_range_lo_current) * range_factor; // (v-16)*range
-        }
-
-        // Convert back to int
-        //int iValue = int(value); // hmm P.F. 20180226 no rounding?
-        int iValue = int(value + 0.5); // P.F. 20180611 yes, round!
-
-        // Clamp
-        iValue = clamp(iValue, 0, pixel_max);
-
-        if (config->clip_tv) // set when coring
-        {
-            iValue = clamp(iValue, tv_range_lo_luma, config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma);
-        }
-
-        lut[i] = iValue;
-    }
+    lut[i] = iValue;
+  }
 }
 
+// works with <= 16 bits, but used only for float
 static std::string coloryuv_create_lut_expr(const ColorYUVPlaneConfig* config, int bits_per_pixel, bool tweaklike_params)
 {
+  const bool f32 = bits_per_pixel == 32;
+  const bool chroma = config->plane == PLANAR_U || config->plane == PLANAR_V;
+  // 32 bit float is already in [0..1] range but we have to make it similar to integer [0..1): needs /256 and not /255.
+  // Reason: match to the integer behaviour
+  // integer: normalize to [0..1) working range
+  const double value_normalization_scale = f32 ? (256.0 / 255.0) : (double)((int64_t)1 << bits_per_pixel);
+  // For gamma pre-post correction. we are in [0..1) working range
+  const double tv_range_lo_normalized = 16.0 / 256.0;
+
+  const double source_max = f32 ? 1.0 : (double)((1 << bits_per_pixel) - 1);
+  const bool fulls = config->range == COLORYUV_RANGE_PC_TV;
+  const bool fulld = config->range == COLORYUV_RANGE_TV_PC;
+  // when COLORYUV_RANGE_NONE both are the same false
+
+  bits_conv_constants d;
+  // When calculating src_pixel, src and dst are of the same bit depth
+  get_bits_conv_constants(d, chroma, fulls, fulld, bits_per_pixel, bits_per_pixel);
+
+  auto dst_offset_no_round = d.dst_offset;
+  //const auto src_pixel_max = source_max;
+
   // parameters are not scaled by bitdepth (legacy 8 bit behaviour)
-
-  const bool f32 = (bits_per_pixel == 32);
-
-  const double value_scale = f32 ? 1.0 : (1 << bits_per_pixel); // scale is 256/1024/4096/16384/65536
-
-  double pixel_max;
-  double tv_range_lo_luma;
-  double tv_range_hi_luma;
-  double tv_range_lo_chroma;
-  double tv_range_hi_chroma;
-
-  int tv_range_lo_luma_8 = 16;
-  int tv_range_hi_luma_8 = 235;
-  int tv_range_lo_chroma_8 = tv_range_lo_luma_8; // 16-240,64-960, 256-3852,... 4096-61692
-  int tv_range_hi_chroma_8 = 240;
-
-  if (f32) {
-    pixel_max = 1.0;
-    tv_range_lo_luma = tv_range_lo_luma_8 / 256.0;
-    tv_range_hi_luma = tv_range_hi_luma_8 / 256.0;
-    tv_range_lo_chroma = (tv_range_lo_chroma_8 - 128.0) / 256.0; // -112
-    tv_range_hi_chroma = (tv_range_hi_chroma_8 - 128.0) / 256.0; // 112
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-    tv_range_lo_chroma = tv_range_lo_chroma + 0.5; // -112
-    tv_range_hi_chroma = tv_range_hi_chroma + 0.5; // 112
-#endif
-  }
-  else {
-    pixel_max = (double)((1 << bits_per_pixel) - 1);
-    tv_range_lo_luma = (double)(tv_range_lo_luma_8 << (bits_per_pixel - 8));
-    tv_range_hi_luma = (double)(tv_range_hi_luma_8 << (bits_per_pixel - 8));
-    tv_range_lo_chroma = tv_range_lo_luma; // 16-240,64-960, 256-3852,... 4096-61692
-    tv_range_hi_chroma = (double)(tv_range_hi_chroma_8 << (bits_per_pixel - 8));
-  }
-
   double gain = tweaklike_params ? config->gain : (config->gain / 256 + 1.0);
   double contrast = tweaklike_params ? config->contrast : (config->contrast / 256 + 1.0);
   double gamma = tweaklike_params ? config->gamma : (config->gamma / 256 + 1.0);
   double offset = config->offset / 256; // always in the 256 range
 
-  int range = config->range; // enum
-  if (range == COLORYUV_RANGE_PC_TVY)
-  {
-    range = config->plane == PLANAR_Y ? COLORYUV_RANGE_PC_TV : COLORYUV_RANGE_NONE;
-  }
+  // for correct Y gamma
+  double range_factor_tv_to_pc = 255.0 / 219.0; // 16-235 ==> 0..255
+  double range_factor_pc_to_tv = 219.0 / 255.0; // 0..255 ==> 16-235 (219)
 
-  double range_factor = 1.0;
-  double range_factor_tv_to_pc;
-  double range_factor_pc_to_tv;
-
-  if (config->plane == PLANAR_Y) {
-    // 8 bit 219 = 235-16, 10 bit: 64-960
-    range_factor_tv_to_pc = (double)pixel_max / (tv_range_hi_luma - tv_range_lo_luma); // 255.0 / 219.0
-    range_factor_pc_to_tv = (tv_range_hi_luma - tv_range_lo_luma) / (double)pixel_max; // 219.0 / 255.0
-  }
-  else {
-    // 224 = 240-16
-    range_factor_tv_to_pc = (double)pixel_max / (tv_range_hi_chroma - tv_range_lo_chroma); // 255.0 / 224.0
-    range_factor_pc_to_tv = (tv_range_hi_chroma - tv_range_lo_chroma) / (double)pixel_max;
-  }
-
-  if (range != COLORYUV_RANGE_NONE)
-  {
-    if (range == COLORYUV_RANGE_PC_TV)
-      range_factor = range_factor_pc_to_tv;
-    else
-      range_factor = range_factor_tv_to_pc;
-  }
-
-  // For gamma pre-post correction. we are in [0..1) working range
-  double tv_range_lo_normalized = (config->plane == PLANAR_Y) ? tv_range_lo_luma_8 / 256.0 : tv_range_lo_chroma_8 / 256.0;
+  // We know that the input is TV range for sure: (coring=true and !PC->TV), levels="TV->PC" or (new!) levels="TV"
+  const bool source_is_limited = (config->clip_tv && config->range != COLORYUV_RANGE_PC_TV) || config->range == COLORYUV_RANGE_TV_PC || config->force_tv_range;
 
   std::stringstream ss;
 
-  // value = double(i)
+  // value = double(i), we are using floats here
   ss << "x";
 
-  if (!f32) {
-    // value = value / value_scale;
-    ss << " " << value_scale << " /";
-  }
+  // value = value / value_normalization_scale;
+  if (chroma && f32)
+    ss << " 255 * 256 / 0.5 + "; // from float chroma +/- to match with legacy integer behaviour
+  else
+    ss << " " << value_normalization_scale << " /";
 
-  if (gain != 1.0) {
-    // Applying gain
-    // value *= gain;
-    ss << " " << gain << " *";
-  }
+  if (gain != 1.0)
+    ss << " " << gain << " *"; // Applying gain // value *= gain;
 
-  // Applying contrast
+  // Applying contrast. For chroma, this sets saturation
   //  value = (value - 0.5) * contrast + 0.5;
-  if (f32) {
-    // Although it is possible, it doesn't make sense to apply this setting to the luma of the signal.
-    if (config->plane == PLANAR_Y) {
-      ss << " 0.5 - " << contrast << " * 0.5 +";
-    }
-    else {
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-      ss << " 0.5 - " << contrast << " * 0.5 +";
-#else
-      ss << " " << contrast << " *";
-#endif
-    }
-  }
-  else {
-    ss << " 0.5 - " << contrast << " * 0.5 +";
-  }
+  // earlier we made measures that float chroma center is kept at 0.5
+  ss << " 0.5 - " << contrast << " * 0.5 +";
 
-  // Applying offset
-  // value += offset;
+  // value += offset; // Applying offset
   ss << " " << offset << " +";
 
-  // Applying gamma
+  // Applying gamma. Only on Y
   if (gamma != 0) {
-    // We know that the input is TV range for sure: (coring=true and not pc->tv), levels="TV->PC" or (new!) levels="TV"
-    if ((config->clip_tv && range != COLORYUV_RANGE_PC_TV) || range == COLORYUV_RANGE_TV_PC || config->force_tv_range) {
+    if (source_is_limited) {
       // avs+ 180301- use gamma on the proper 0.0 based value
       // value = value > 16scaled ? (pow((value - 16scl)*range_tv_pc,(1/gamma))*range_pc_tv+16d : value
-      // tv->pc, power, pc->tv
-      ss << " A@ " << tv_range_lo_normalized << " > A " << tv_range_lo_normalized << " - " << range_factor_tv_to_pc << " * " << (1.0 / gamma) << " pow " << range_factor_pc_to_tv << " * " << tv_range_lo_normalized << " + " << " A ?";
+      ss << " A@ " << tv_range_lo_normalized << " > " // condition: value > tv_range_lo_normalized
+        // case: true. tv->pc, power, pc->tv
+        << "A " << tv_range_lo_normalized << " - " << range_factor_tv_to_pc << " * " << (1.0 / gamma) << " pow " << range_factor_pc_to_tv << " * " << tv_range_lo_normalized << " + " 
+        // case: false. Original value
+        << " A ? ";
     }
-    else {
-      //if (gamma != 0 && value > 0)
+    else { // full (PC) range
+      //if (value > 0)
       //  value = pow(value, 1.0 / gamma);
       // value = value > 0 ? pow(value,(1/gamma)) : value
-      ss << " A@ 0 > A " << (1.0 / gamma) << " pow A ?";
+      ss << " A@ 0 > A " << (1.0 / gamma) << " pow A ? ";
     }
   }
 
-  if (!f32) {
-    // value *= value_scale;
-    ss << " " << value_scale << " *";
-  }
+  if (chroma && f32)
+    ss << " 0.5 - 256 * 255 / ";
+  else
+    ss << " " << value_normalization_scale << " * "; // value *= value_normalization_scale; // back from [0..1) range
 
-  if (config->clip_tv) // set when coring
-  {
-    ss << " " << (config->plane == PLANAR_Y ? tv_range_lo_luma : tv_range_lo_chroma) << " max " << (config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma) << " min ";
-    //iValue = clamp(iValue, tv_range_lo_luma, config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma);
+  if (fulls != fulld) {
+    ss << d.src_offset << " - " << d.mul_factor << " * " << dst_offset_no_round << " + ";
+    // value = (value - d.src_offset) * d.mul_factor + dst_offset_no_round; // no rounder, Expr will round automatically before return
+  }
+  else {
+    // value = value + 0.5; // no rounder, Expr rounds
   }
 
   // clamp to the original valid bitdepth is done by Expr
+  // int iValue = clamp((int)value, src_pixel_min, src_pixel_max);
+  // ss << " " << src_pixel_min << " max " << src_pixel_max << " min ";
 
-  // Range conversion
-  if (range == COLORYUV_RANGE_PC_TV)
+  if (config->clip_tv) // set when coring
   {
-    // value = value * range_factor + tv_range_lo_luma; // v*range - 16
-    if (config->plane == PLANAR_Y)
-      ss << " " << range_factor << " * " << tv_range_lo_luma << " +";
-    else
-      ss << " " << range_factor << " * " << tv_range_lo_chroma << " +";
-  }
-  else if (range == COLORYUV_RANGE_TV_PC)
-  {
-    //value = (value - tv_range_lo_luma) * range_factor; // (v-16)*range
-    if (config->plane == PLANAR_Y)
-      ss << " " << tv_range_lo_luma << " - " << range_factor << " *";
-    else
-      ss << " " << tv_range_lo_chroma << " - " << range_factor << " *";
+    double tv_range_lo_luma = f32 ? (16.0 / 255) : ((int64_t)16 << (bits_per_pixel - 8));
+    double tv_range_hi_luma = f32 ? (235.0 / 255) : ((int64_t)235 << (bits_per_pixel - 8));
+    double tv_range_lo_chroma = f32 ? (-112.0 / 255.0) : ((int64_t)16 << (bits_per_pixel - 8)); // 112/255.0 consistent with get_bits_conv_constants()
+    double tv_range_hi_chroma = f32 ? (+112.0 / 255.0) : ((int64_t)240 << (bits_per_pixel - 8));
+    ss << (config->plane == PLANAR_Y ? tv_range_lo_luma : tv_range_lo_chroma) << " max ";
+    ss << (config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma) << " min ";
+    //iValue = clamp(iValue, tv_range_lo_luma, config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma);
   }
 
   std::string exprString = ss.str();
@@ -539,11 +557,7 @@ static void coloryuv_analyse_planar(const BYTE* pSrc, int src_pitch, int width, 
       real_min = reinterpret_cast<const float *>(pSrc)[0];
       real_max = real_min;
       if (chroma) {
-#ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-        const float shift = 0.0f;
-#else
         const float shift = 32768.0f;
-#endif
         for (int y = 0; y < height; y++)
         {
           for (int x = 0; x < width; x++)
@@ -585,13 +599,11 @@ static void coloryuv_analyse_planar(const BYTE* pSrc, int src_pitch, int width, 
       data->average = sum / (height * width);
       data->real_max = real_max;
       data->real_min = real_min;
-#ifndef FLOAT_CHROMA_IS_HALF_CENTERED
       // loose min and max was shifted by half of 16bit range. We still keep here the range
       if (chroma) {
         data->loose_max = data->loose_max - 32768;
         data->loose_min = data->loose_min - 32768;
       }
-#endif
       // autogain treats it as a value of 16bit magnitude, show=true as well
       //data->loose_min = data->loose_min / 65535.0f; not now.
       //data->loose_max = data->loose_max / 65535.0f;
@@ -774,134 +786,182 @@ ColorYUV::ColorYUV(PClip child,
   int bits, bool showyuv_fullrange,
   bool tweaklike_params, // ColorYUV2: 0.0/0.5/1.0/2.0/3.0 instead of -256/-128/0/256/512
   const char* condVarSuffix,
+  bool optForceUseExpr,
   IScriptEnvironment* env)
- : GenericVideoFilter(child),
-   colorbar_bits(showyuv ? bits : 0), colorbar_fullrange(showyuv_fullrange),
-   analyse(analyse), autowhite(autowhite), autogain(autogain), conditional(conditional),
-   tweaklike_params(tweaklike_params), condVarSuffix(condVarSuffix)
+  : GenericVideoFilter(child),
+  colorbar_bits(showyuv ? bits : 0), colorbar_fullrange(showyuv_fullrange),
+  analyse(analyse), autowhite(autowhite), autogain(autogain), conditional(conditional),
+  tweaklike_params(tweaklike_params), condVarSuffix(condVarSuffix), optForceUseExpr(optForceUseExpr)
 {
-    luts[0] = luts[1] = luts[2] = nullptr;
+  luts[0] = luts[1] = luts[2] = nullptr;
 
-    if (!vi.IsYUV() && !vi.IsYUVA())
-        env->ThrowError("ColorYUV: Only work with YUV colorspace.");
+  if (!vi.IsYUV() && !vi.IsYUVA())
+    env->ThrowError("ColorYUV: Only work with YUV colorspace.");
 
-    configY.gain = gain_y;
-    configY.offset = offset_y;
-    configY.gamma = gamma_y;
-    configY.contrast = contrast_y;
-    configY.changed = false;
-    configY.clip_tv = false;
-    configY.force_tv_range = false;
-    configY.plane = PLANAR_Y;
+  bool ColorRangeCanBeGuessed = false;
+  if (gamma_y != 0) {
+    ColorRangeCanBeGuessed = true;
+    // when gamma is used then we must know the color range full/limited
+    // and the default is full_scale if gamma is not zero
+  }
 
-    configU.gain = gain_u;
-    configU.offset = offset_u;
-    configU.gamma = gamma_u;
-    configU.contrast = contrast_u;
-    configU.changed = false;
-    configU.clip_tv = false;
-    configU.force_tv_range = false; // n/a. in chroma. For gamma
-    configU.plane = PLANAR_U;
+  configY.gain = gain_y;
+  configY.offset = offset_y;
+  configY.gamma = gamma_y;
+  configY.contrast = contrast_y;
+  configY.changed = false;
+  configY.clip_tv = false;
+  configY.force_tv_range = false;
+  configY.plane = PLANAR_Y;
 
-    configV.gain = gain_v;
-    configV.offset = offset_v;
-    configV.gamma = gamma_v;
-    configV.contrast = contrast_v;
-    configV.changed = false;
-    configV.clip_tv = false;
-    configV.force_tv_range = false; // n/a. in chroma. For gamma
-    configV.plane = PLANAR_V;
+  configU.gain = gain_u;
+  configU.offset = offset_u;
+  configU.gamma = gamma_u;
+  configU.contrast = contrast_u;
+  configU.changed = false;
+  configU.clip_tv = false;
+  configU.force_tv_range = false; // n/a. in chroma. For gamma
+  configU.plane = PLANAR_U;
 
-    // Range
-    if (lstrcmpi(level, "TV->PC") == 0)
-    {
-        configV.range = configU.range = configY.range = COLORYUV_RANGE_TV_PC;
-    }
-    else if (lstrcmpi(level, "PC->TV") == 0)
-    {
-        configV.range = configU.range = configY.range = COLORYUV_RANGE_PC_TV;
-    }
-    else if (lstrcmpi(level, "PC->TV.Y") == 0)
-    {
-        configV.range = configU.range = configY.range = COLORYUV_RANGE_PC_TVY;
-    }
-    else if (lstrcmpi(level, "TV") == 0)
-    {
-      configV.force_tv_range = configU.force_tv_range = configY.force_tv_range = true;
-    }
-    else if (lstrcmpi(level, "") != 0)
-    {
-        env->ThrowError("ColorYUV: invalid parameter : levels");
-    }
-    else {
-      // avs+: missing init to none
-      configV.range = configU.range = configY.range = COLORYUV_RANGE_NONE;
-    }
+  configV.gain = gain_v;
+  configV.offset = offset_v;
+  configV.gamma = gamma_v;
+  configV.contrast = contrast_v;
+  configV.changed = false;
+  configV.clip_tv = false;
+  configV.force_tv_range = false; // n/a. in chroma. For gamma
+  configV.plane = PLANAR_V;
 
-    // Option
-    if (lstrcmpi(opt, "coring") == 0)
-    {
-        configY.clip_tv = true;
-        configU.clip_tv = true;
-        configV.clip_tv = true;
-    }
-    else if (lstrcmpi(opt, "") != 0)
-    {
-        env->ThrowError("ColorYUV: invalid parameter : opt");
-    }
+  // Range
+  if (lstrcmpi(level, "TV->PC") == 0)
+  {
+    ColorRangeCanBeGuessed = true; // will be full
+    configV.range = configU.range = configY.range = COLORYUV_RANGE_TV_PC;
+  }
+  else if (lstrcmpi(level, "PC->TV") == 0)
+  {
+    ColorRangeCanBeGuessed = true;// will be limited
+    configV.range = configU.range = configY.range = COLORYUV_RANGE_PC_TV;
+  }
+  else if (lstrcmpi(level, "PC->TV.Y") == 0)
+  {   // ?
+    ColorRangeCanBeGuessed = true;// will be limited
+    configV.range = configU.range = COLORYUV_RANGE_NONE;
+    configY.range = COLORYUV_RANGE_PC_TV;
+  }
+  else if (lstrcmpi(level, "TV") == 0)
+  {
+    // When no range conversion occurs only gamma correction
+    // By this parameter we know it will be limited, this info is used for gamma adjustment
+    ColorRangeCanBeGuessed = true;
+    configV.force_tv_range = configU.force_tv_range = configY.force_tv_range = true;
+  }
+  else if (lstrcmpi(level, "") != 0)
+  {
+    env->ThrowError("ColorYUV: invalid parameter : levels");
+  }
+  else {
+    configV.range = configU.range = configY.range = COLORYUV_RANGE_NONE;
+  }
 
-    if(showyuv && colorbar_bits !=8 && colorbar_bits != 10 && colorbar_bits != 12 && colorbar_bits != 14 && colorbar_bits != 16 && colorbar_bits != 32)
+  // Option
+  if (lstrcmpi(opt, "coring") == 0)
+  {
+    // note: this setting can conflict with e.g. TV->PC but we do not report an error
+    ColorRangeCanBeGuessed = true; // used to set _ColorRange=limited only if not conversion mode is specified
+    configY.clip_tv = true;
+    configU.clip_tv = true;
+    configV.clip_tv = true;
+  }
+  else if (lstrcmpi(opt, "") != 0)
+  {
+    env->ThrowError("ColorYUV: invalid parameter : opt");
+  }
+
+  if (showyuv) {
+    if (colorbar_bits != 8 && colorbar_bits != 10 && colorbar_bits != 12 && colorbar_bits != 14 && colorbar_bits != 16 && colorbar_bits != 32)
       env->ThrowError("ColorYUV: bits parameter for showyuv must be 8, 10, 12, 14, 16 or 32");
 
-    if (colorbar_bits>0 && showyuv)
-    {
-        // pre-avs+: coloryuv_showyuv is always called with full_range false
-        int chroma_range = colorbar_fullrange ? 256 : (240 - 16 + 1); // 0..255, 16..240
-        // size limited to either 8 or 10 bits, independenly of 12/14/16 or 32bit float bit-depth
-        vi.width = (colorbar_bits == 8 ? chroma_range : (chroma_range*4)) * 2;
-        vi.height = vi.width;
-        switch (colorbar_bits) {
-        case 8: vi.pixel_type = VideoInfo::CS_YV12; break;
-        case 10: vi.pixel_type = VideoInfo::CS_YUV420P10; break;
-        case 12: vi.pixel_type = VideoInfo::CS_YUV420P12; break;
-        case 14: vi.pixel_type = VideoInfo::CS_YUV420P14; break;
-        case 16: vi.pixel_type = VideoInfo::CS_YUV420P16; break;
-        case 32: vi.pixel_type = VideoInfo::CS_YUV420PS; break;
-        }
+    switch (colorbar_bits) {
+    case 8: vi.pixel_type = VideoInfo::CS_YV12; break;
+    case 10: vi.pixel_type = VideoInfo::CS_YUV420P10; break;
+    case 12: vi.pixel_type = VideoInfo::CS_YUV420P12; break;
+    case 14: vi.pixel_type = VideoInfo::CS_YUV420P14; break;
+    case 16: vi.pixel_type = VideoInfo::CS_YUV420P16; break;
+    case 32: vi.pixel_type = VideoInfo::CS_YUV420PS; break;
+    }
+    // pre-avs+: coloryuv_showyuv is always called with full_range false
+    const int internal_bitdepth = colorbar_bits == 8 ? 8 : 10;
+    const int chroma_span = colorbar_fullrange ? (1 << (internal_bitdepth - 1)) - 1 : (112 << (internal_bitdepth - 8)); // +-127/+-112
+    const int chroma_range = 2 * chroma_span + 1; // 1..255 (+-127), 16..240 (+-112)
+    // size limited to either 8 or 10 bits, independenly of 12/14/16 or 32bit float bit-depth
+    vi.width = chroma_range << vi.GetPlaneWidthSubsampling(PLANAR_U);
+    vi.height = vi.width;
+    theColorRange = colorbar_fullrange ? ColorRange_e::AVS_RANGE_FULL : ColorRange_e::AVS_RANGE_LIMITED;
+    theMatrix = Matrix_e::AVS_MATRIX_BT470_BG; // all the same
+    theChromaLocation = ChromaLocation_e::AVS_CHROMA_CENTER; // default "mpeg1" for 4:2:0
+    return;
+  }
+
+  // !showyuv, real filter
+
+  auto frame0 = child->GetFrame(0, env);
+  const AVSMap* props = env->getFramePropsRO(frame0);
+  matrix_parse_merge_with_props_def(vi, nullptr, props, theMatrix, theColorRange,
+    Matrix_e::AVS_MATRIX_UNSPECIFIED, // default matrix n/a
+    configY.force_tv_range ? 
+    ColorRange_e::AVS_RANGE_LIMITED :  
+    ColorRangeCanBeGuessed ? ColorRange_e::AVS_RANGE_FULL : -1 /* n/a invalid */, env);
+  // although we read _ColorRange full/limited, nothing stops us to feed with full-range clip a "TV->PC" conversion
+  // Anyway: a frame property can set theColorRange from the default "FULL" to the actual one.
+  switch (configY.range) {
+  case COLORYUV_RANGE_PC_TV:
+  case COLORYUV_RANGE_PC_TVY:
+    theColorRange = ColorRange_e::AVS_RANGE_LIMITED;
+    break;
+  case COLORYUV_RANGE_TV_PC:
+    theColorRange = ColorRange_e::AVS_RANGE_FULL;
+    break;
+  default:
+    if (configY.force_tv_range) // "TV" overrides default "PC". Info is needed for gamma correction
+      theColorRange = ColorRange_e::AVS_RANGE_LIMITED;
+    else if (configY.clip_tv) // coring is also sets this frame property
+      theColorRange = ColorRange_e::AVS_RANGE_LIMITED;
+    break;
+    // leave color range as is
+  }
+  // theMatrix and theColorRange will set frame properties in GetFrame
+
+  // prepare basic LUT
+  int pixelsize = vi.ComponentSize();
+  int bits_per_pixel = vi.BitsPerComponent();
+
+  if (pixelsize == 1 || pixelsize == 2) {
+    // no float lut. float will be realtime
+    int lut_size = pixelsize * (1 << bits_per_pixel); // 256*1 / 1024*2 .. 65536*2
+    luts[0] = new BYTE[lut_size];
+    if (!vi.IsY()) {
+      luts[1] = new BYTE[lut_size];
+      luts[2] = new BYTE[lut_size];
     }
 
-    if (!showyuv) {
-      // prepare basic LUT
-      int pixelsize = vi.ComponentSize();
-      int bits_per_pixel = vi.BitsPerComponent();
-
-      if (pixelsize == 1 || pixelsize == 2) {
-        // no float lut. float will be realtime
-        int lut_size = pixelsize * (1 << bits_per_pixel); // 256*1 / 1024*2 .. 65536*2
-        luts[0] = new BYTE[lut_size];
-        if (!vi.IsY()) {
-          luts[1] = new BYTE[lut_size];
-          luts[2] = new BYTE[lut_size];
-        }
-
-        if (pixelsize == 1) {
-          coloryuv_create_lut<uint8_t>(luts[0], &configY, bits_per_pixel, tweaklike_params);
-          if (!vi.IsY())
-          {
-            coloryuv_create_lut<uint8_t>(luts[1], &configU, bits_per_pixel, tweaklike_params);
-            coloryuv_create_lut<uint8_t>(luts[2], &configV, bits_per_pixel, tweaklike_params);
-          }
-        }
-        else if (pixelsize == 2) { // pixelsize==2
-          coloryuv_create_lut<uint16_t>(luts[0], &configY, bits_per_pixel, tweaklike_params);
-          if (!vi.IsY())
-          {
-            coloryuv_create_lut<uint16_t>(luts[1], &configU, bits_per_pixel, tweaklike_params);
-            coloryuv_create_lut<uint16_t>(luts[2], &configV, bits_per_pixel, tweaklike_params);
-          }
-        }
+    if (pixelsize == 1) {
+      coloryuv_create_lut<uint8_t>(luts[0], &configY, bits_per_pixel, tweaklike_params);
+      if (!vi.IsY())
+      {
+        coloryuv_create_lut<uint8_t>(luts[1], &configU, bits_per_pixel, tweaklike_params);
+        coloryuv_create_lut<uint8_t>(luts[2], &configV, bits_per_pixel, tweaklike_params);
       }
     }
+    else if (pixelsize == 2) { // pixelsize==2
+      coloryuv_create_lut<uint16_t>(luts[0], &configY, bits_per_pixel, tweaklike_params);
+      if (!vi.IsY())
+      {
+        coloryuv_create_lut<uint16_t>(luts[1], &configU, bits_per_pixel, tweaklike_params);
+        coloryuv_create_lut<uint16_t>(luts[2], &configV, bits_per_pixel, tweaklike_params);
+      }
+    }
+  }
 }
 
 ColorYUV::~ColorYUV() {
@@ -917,6 +977,10 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
     {
         PVideoFrame dst = env->NewVideoFrame(vi);
         // no frame property source. It's like a source filter
+
+        auto props = env->getFramePropsRW(dst);
+        update_Matrix_and_ColorRange(props, theMatrix, theColorRange, env);
+        update_ChromaLocation(props, theChromaLocation, env);
 
         // pre AVS+: full_range is always false
         // AVS+: showyuv_fullrange bool parameter
@@ -1046,7 +1110,7 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
       coloryuv_read_conditional(env, &cY, &cU, &cV, condVarSuffix);
 
     // no float lut. float will be realtime
-    if (pixelsize == 1 || pixelsize == 2) {
+    if ((pixelsize == 1 || pixelsize == 2) && !optForceUseExpr) {
 
       BYTE *luts_live[3] = { nullptr };
 
@@ -1138,6 +1202,12 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
         env->ApplyMessage(&dst, vi, text, vi.width / 4, 0xa0a0a0, 0, 0);
     }
 
+    // when there was no such property from constructor and it could not be guessed then we do not put one
+    if (theColorRange == ColorRange_e::AVS_RANGE_FULL || theColorRange == ColorRange_e::AVS_RANGE_LIMITED) {
+      auto props = env->getFramePropsRW(dst);
+      update_ColorRange(props, theColorRange, env);
+    }
+
     return dst;
 }
 
@@ -1170,6 +1240,7 @@ AVSValue __cdecl ColorYUV::Create(AVSValue args, void* , IScriptEnvironment* env
                         args[22].AsBool(false),                // showyuv_fullrange avs+
                         tweaklike_params,                      // for gain, gamma, cont: 0.0/0.5/1.0/2.0/3.0 instead of -256/-128/0/256/512
                         args[24].AsString(""),                // condvarsuffix avs+
+                        args[25].AsBool(false),               // optForceUseExpr debug parameter
       env);
 }
 
@@ -1180,7 +1251,7 @@ extern const AVSFunction Color_filters[] = {
                   "[gain_v]f[off_v]f[gamma_v]f[cont_v]f" \
                   "[levels]s[opt]s[matrix]s[showyuv]b" \
                   "[analyze]b[autowhite]b[autogain]b[conditional]b" \
-                  "[bits]i[showyuv_fullrange]b[f2c]b[condvarsuffix]s", // avs+ 20180226- f2c-like parameters
+                  "[bits]i[showyuv_fullrange]b[f2c]b[condvarsuffix]s[optForceUseExpr]b", // avs+ 20180226- f2c-like parameters
                   ColorYUV::Create},
     { 0 }
 };

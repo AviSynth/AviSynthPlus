@@ -54,7 +54,8 @@
 extern const AVSFunction Levels_filters[] = {
   { "Levels",    BUILTIN_FUNC_PREFIX, "cfffff[coring]b[dither]b", Levels::Create },        // src_low, gamma, src_high, dst_low, dst_high cifiii->ffffff
   { "RGBAdjust", BUILTIN_FUNC_PREFIX, "c[r]f[g]f[b]f[a]f[rb]f[gb]f[bb]f[ab]f[rg]f[gg]f[bg]f[ag]f[analyze]b[dither]b[conditional]b[condvarsuffix]s", RGBAdjust::Create },
-  { "Tweak",     BUILTIN_FUNC_PREFIX, "c[hue]f[sat]f[bright]f[cont]f[coring]b[startHue]f[endHue]f[maxSat]f[minSat]f[interp]f[dither]b[realcalc]b[dither_strength]f", Tweak::Create },
+  // 'sse': unused even on INTEL, just for script compatibility
+  { "Tweak",     BUILTIN_FUNC_PREFIX, "c[hue]f[sat]f[bright]f[cont]f[coring]b[sse]b[startHue]f[endHue]f[maxSat]f[minSat]f[interp]f[dither]b[realcalc]b[dither_strength]f", Tweak::Create },
   { "MaskHS",    BUILTIN_FUNC_PREFIX, "c[startHue]f[endHue]f[maxSat]f[minSat]f[coring]b[realcalc]b", MaskHS::Create },
   { "Limiter",   BUILTIN_FUNC_PREFIX, "c[min_luma]f[max_luma]f[min_chroma]f[max_chroma]f[show]s[paramscale]b", Limiter::Create },
   { 0 }
@@ -1499,6 +1500,8 @@ static bool ProcessPixel(double X, double Y, double startHue, double endHue,
     if (p == 0.0) return false;
 
     // Interpolation range is +/-p for p>0
+    // 180 is not in degrees!
+    // its sqrt(127^2 + 127^2): max overshoot for 8 bits; U and V is 0 +/- 127
     const double max = min(maxSat + p, 180.0);
     const double min = ::max(minSat - p, 0.0);
 
@@ -1607,7 +1610,8 @@ void Tweak::tweak_calc_luma(BYTE *srcp, int src_pitch, float minY, float maxY, i
 Tweak::Tweak(PClip _child, double _hue, double _sat, double _bright, double _cont, bool _coring,
             double _startHue, double _endHue, double _maxSat, double _minSat, double p,
             bool _dither, bool _realcalc, double _dither_strength, IScriptEnvironment* env)
-  : GenericVideoFilter(_child), coring(_coring), dither(_dither), realcalc(_realcalc),
+  : GenericVideoFilter(_child), coring(_coring), 
+  dither(_dither), realcalc(_realcalc),
   dhue(_hue), dsat(_sat), dbright(_bright), dcont(_cont), dstartHue(_startHue), dendHue(_endHue),
   dmaxSat(_maxSat), dminSat(_minSat), dinterp(p), dither_strength((float)_dither_strength)
 {
@@ -2158,6 +2162,7 @@ AVSValue __cdecl Tweak::Create(AVSValue args, void* , IScriptEnvironment* env)
         args[3].AsDblDef(0.0),     // bright
         args[4].AsDblDef(1.0),     // cont
         args[5].AsBool(true),      // coring
+        // not used even on intel. // args[6].AsBool(false),     // sse
         args[7].AsDblDef(0.0),     // startHue
         args[8].AsDblDef(360.0),   // endHue
         args[9].AsDblDef(150.0),   // maxSat

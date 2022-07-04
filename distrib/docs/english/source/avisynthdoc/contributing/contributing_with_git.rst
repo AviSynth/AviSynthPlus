@@ -154,7 +154,7 @@ can grab any changes that occur upstream:
 
 ::
 
-    git remote add upstream git://github.com/AviSynth/AviSynthPlus.git
+    git remote add upstream https://github.com/AviSynth/AviSynthPlus
     git fetch upstream
 
 This is a two-step process.  Let's break it down: *git remote* is the name of the
@@ -165,7 +165,7 @@ you want to track.
 +------------+------------+----------+--------------------------------------------+
 | Command    | Subcommand | Name     | URL                                        |
 +============+============+==========+============================================+
-| git remote | add        | upstream | git://github.com/AviSynth/AviSynthPlus.git |
+| git remote | add        | upstream | https://github.com/AviSynth/AviSynthPlus   |
 +------------+------------+----------+--------------------------------------------+
 
 On its own, though, this only sets up the bookmark.  It doesn't

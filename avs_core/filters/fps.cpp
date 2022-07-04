@@ -44,11 +44,7 @@
 #include <avs/minmax.h>
 #include "../core/bitblt.h"
 #include "../core/internal.h"
-#ifdef INTEL_INTRINSICS
-#include "intel/merge_sse.h"
-#else
 #include "merge.h"
-#endif
 #include <cmath>
 
 

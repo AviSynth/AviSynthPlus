@@ -462,10 +462,14 @@ static AVS_FORCEINLINE __m128i convert_yv24_chroma_block_to_yv12_sse41(const __m
 template<typename pixel_t>
 static void convert_yv24_chroma_to_yv12_sse2(BYTE *dstp, const BYTE *srcp, int dst_pitch, int src_pitch, int dst_width, const int dst_height) {
   int mod16_width = dst_width / 16 * 16;
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4309)
+#endif
   __m128i ffff = _mm_set1_epi8(0xFF); // rounding
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
   __m128i mask;
   if constexpr(sizeof(pixel_t) == 1)
     mask = _mm_set1_epi16(0x00FF);
@@ -508,10 +512,14 @@ __attribute__((__target__("sse4.1")))
 static void convert_yv24_chroma_to_yv12_sse41(BYTE *dstp, const BYTE *srcp, int dst_pitch, int src_pitch, int dst_width, const int dst_height)
 {
   int mod16_width = dst_width / 16 * 16;
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4309)
+#endif
   __m128i ffff = _mm_set1_epi8(0xFF); // rounding
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
   __m128i mask;
   if constexpr (sizeof(pixel_t) == 1)
     mask = _mm_set1_epi16(0x00FF);
@@ -572,10 +580,14 @@ static AVS_FORCEINLINE __m64 convert_yv24_chroma_block_to_yv12_isse(const __m64 
 static void convert_yv24_chroma_to_yv12_isse(BYTE *dstp, const BYTE *srcp, int dst_pitch, int src_pitch, int dst_width, const int dst_height) {
   int mod8_width = dst_width / 8 * 8;
 
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4309)
+#endif
   __m64 ffff = _mm_set1_pi8(0xFF);
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
   __m64 mask = _mm_set1_pi16(0x00FF);
 
   for (int y = 0; y < dst_height; ++y) {

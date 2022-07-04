@@ -37,12 +37,7 @@
 
 #include <avisynth.h>
 
-#ifdef INTEL_INTRINSICS
-#include "intel/convert_yv12_sse.h"
-#else
-#include "convert_yv12.h"
-#endif
-#include "convert_planar.h" // 2.60
+#include "convert_matrix.h"
 
 class ConvertToYUY2 : public GenericVideoFilter
 /**
@@ -50,8 +45,8 @@ class ConvertToYUY2 : public GenericVideoFilter
  **/
 {
 public:
-  ConvertToYUY2(PClip _child, bool _dupl, bool _interlaced, const char *matrix, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  ConvertToYUY2(PClip _child, bool _dupl, bool _interlaced, const char *matrix_name, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -66,8 +61,8 @@ private:
 protected:
   const int src_cs;  // Source colorspace
   int theMatrix;
-  // no rec2020 for YUY2
-  enum {Rec601=0, Rec709=1, PC_601=2, PC_709=3 };	// Note! convert_yuy2.cpp assumes these values
+  int theColorRange;
+  ConversionMatrix matrix;
 
 };
 
@@ -78,7 +73,7 @@ class ConvertBackToYUY2 : public ConvertToYUY2
 {
 public:
   ConvertBackToYUY2(PClip _child, const char *matrix, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -87,5 +82,8 @@ public:
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 };
+
+void convert_yuy2_to_yv12_interlaced_c(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height);
+void convert_yuy2_to_yv12_progressive_c(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height);
 
 #endif // __Convert_YUY2_H__

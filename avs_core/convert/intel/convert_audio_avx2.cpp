@@ -32,8 +32,6 @@ void convert32To16_AVX2(void *inbuf, void *outbuf, int count) {
     out16 = _mm256_permute4x64_epi64(out16, 216);
     _mm256_storeu_si256(reinterpret_cast<__m256i *>(out), out16); out += 16;
   }
-
-  _mm256_zeroupper();
 }
 
 void convert16To32_AVX2(void *inbuf, void *outbuf, int count) {
@@ -57,8 +55,6 @@ void convert16To32_AVX2(void *inbuf, void *outbuf, int count) {
     _mm256_storeu_si256(reinterpret_cast<__m256i *>(out), out32a); out += 8;
     _mm256_storeu_si256(reinterpret_cast<__m256i *>(out), out32b); out += 8;
   }
-
-  _mm256_zeroupper();
 }
 
 void convert8ToFLT_AVX2(void* inbuf, void* outbuf, int count) {
@@ -193,8 +189,6 @@ void convert32ToFLT_AVX2(void *inbuf, void *outbuf, int count) {
     __m256 outfl = _mm256_mul_ps(infl, divv);
     _mm256_storeu_ps(out, outfl); out += 8;
   }
-
-  _mm256_zeroupper();
 }
 
 void convertFLTTo32_AVX2(void *inbuf, void *outbuf, int count) {
@@ -231,6 +225,4 @@ void convertFLTTo32_AVX2(void *inbuf, void *outbuf, int count) {
 
     _mm256_storeu_si256(reinterpret_cast<__m256i *>(out), out32); out += 8;
   }
-
-  _mm256_zeroupper();
 }

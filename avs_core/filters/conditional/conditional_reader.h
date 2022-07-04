@@ -154,10 +154,11 @@ public:
 class DeleteProperty : public GenericVideoFilter
 {
 private:
-  const char* name;
+  bool propNames_defined;
+  std::vector<std::string> propNames;
 
 public:
-  DeleteProperty(PClip _child, const char* name, IScriptEnvironment* env);
+  DeleteProperty(PClip _child, AVSValue _propNames, IScriptEnvironment* env);
   ~DeleteProperty();
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
   int __stdcall SetCacheHints(int cachehints, int frame_range);
@@ -171,6 +172,23 @@ private:
 public:
   ClearProperties(PClip _child, IScriptEnvironment* env);
   ~ClearProperties();
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  int __stdcall SetCacheHints(int cachehints, int frame_range);
+  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
+};
+
+class CopyProperties : public GenericVideoFilter
+{
+private:
+  PClip child2;
+  bool merge;
+  bool propNames_defined;
+  std::vector<std::string> propNames;
+  bool exclude;
+
+public:
+  CopyProperties(PClip _child, PClip _child2, bool _merge, AVSValue _propNames, bool _exclude, IScriptEnvironment* env);
+  ~CopyProperties();
   PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
   int __stdcall SetCacheHints(int cachehints, int frame_range);
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);

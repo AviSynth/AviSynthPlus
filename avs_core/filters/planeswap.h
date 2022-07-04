@@ -54,7 +54,7 @@ class SwapUV : public GenericVideoFilter
 {
 public:
   SwapUV(PClip _child, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -76,7 +76,7 @@ class SwapUVToY : public GenericVideoFilter
 {
 public:
   SwapUVToY(PClip _child, int _mode, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -108,7 +108,7 @@ class SwapYToUV : public GenericVideoFilter
 {
 public:
   SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -131,7 +131,7 @@ class CombinePlanes : public GenericVideoFilter
 {
 public:
   CombinePlanes(PClip _child, PClip _clip2, PClip _clip3, PClip _clip4, PClip _sample, const char *_target_planes_str, const char *_source_planes_str, const char *_pixel_type, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

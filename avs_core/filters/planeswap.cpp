@@ -45,12 +45,16 @@
 #include <avs/posix.h>
 #endif
 #include "planeswap.h"
+#ifdef INTEL_INTRINSICS
+#include "intel/planeswap_sse.h"
+#endif
 #include "../core/internal.h"
 #include <algorithm>
 #include <avs/alignment.h>
 #include "../convert/convert_planar.h"
 #include "../convert/convert_rgb.h"
 #include "../convert/convert.h"
+#include "../convert/convert_helper.h"
 #include "stdint.h"
 
 
@@ -141,8 +145,20 @@ PVideoFrame __stdcall SwapUV::GetFrame(int n, IScriptEnvironment* env)
   int src_pitch = src->GetPitch();
   int dst_pitch = dst->GetPitch();
   int rowsize = src->GetRowSize();
-
+#ifdef INTEL_INTRINSICS
+  if ((env->GetCPUFlags() & CPUF_SSSE3))
+    yuy2_swap_ssse3(srcp, dstp, src_pitch, dst_pitch, rowsize, vi.height);
+  else if ((env->GetCPUFlags() & CPUF_SSE2))
+    yuy2_swap_sse2(srcp, dstp, src_pitch, dst_pitch, rowsize, vi.height);
+#ifdef X86_32
+  else if (env->GetCPUFlags() & CPUF_INTEGER_SSE) // need pshufw
+    yuy2_swap_isse(srcp, dstp, src_pitch, dst_pitch, rowsize, vi.height);
+#endif
+  else
+#endif
+{
   yuy2_swap_c(srcp, dstp, src_pitch, dst_pitch, rowsize, vi.height);
+}
   return dst;
 }
 
@@ -162,7 +178,7 @@ AVSValue __cdecl SwapUVToY::CreateYToY8(AVSValue args, void* , IScriptEnvironmen
 {
   PClip clip = args[0].AsClip();
   if(clip->GetVideoInfo().IsYUY2())
-    return new ConvertToY(clip, Rec601 /*n/a*/, env);
+    return new ConvertToY(clip, "Rec601" /*n/a*/, env);
   else
     return new SwapUVToY(clip, YToY8, env);
 }
@@ -194,7 +210,7 @@ AVSValue __cdecl SwapUVToY::CreateAnyToY8(AVSValue args, void* user_data, IScrip
   }
 
   if(clip->GetVideoInfo().IsYUY2() && mode == YToY8)
-    return new ConvertToY(clip, Rec601 /*n/a*/, env);
+    return new ConvertToY(clip, "Rec601" /*n/a*/, env);
 
   if (clip->GetVideoInfo().IsY() && mode == YToY8)
     return clip;
@@ -291,7 +307,17 @@ PVideoFrame __stdcall SwapUVToY::GetFrame(int n, IScriptEnvironment* env)
     // !! if offsets would be size_t, be cautious when you subtract two unsigned size_t variables
     const int offset = src->GetOffset(source_plane) - src->GetOffset(target_plane); // very naughty - don't do this at home!!
                                                                                     // Abuse Subframe to snatch the U/V/R/G/B/A plane
-    return env->Subframe(src, offset, src->GetPitch(source_plane), src->GetRowSize(source_plane), src->GetHeight(source_plane));
+    PVideoFrame sub = env->Subframe(src, offset, src->GetPitch(source_plane), src->GetRowSize(source_plane), src->GetHeight(source_plane));
+    // We have a single plane. It's safe to mod props after a subframe.
+    // Remove props that are irrelevant to a single plane.
+    // _ChromaLocation, (_Primaries, _Transfer)
+    auto props = env->getFramePropsRW(sub);
+    env->propDeleteKey(props, "_ChromaLocation");
+    // keep _Matrix (?) fixme: really?
+    if (mode == AToY8) // alpha is always full range, otherwise keep source
+      env->propSetInt(props, "_ColorRange", ColorRange_e::AVS_RANGE_FULL, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
+    // else we keep _ColorRange value (if any)
+    return sub;
   }
 
   PVideoFrame dst = env->NewVideoFrameP(vi, &src);
@@ -304,6 +330,12 @@ PVideoFrame __stdcall SwapUVToY::GetFrame(int n, IScriptEnvironment* env)
 
     if (vi.IsYUY2()) {  // YUY2 To YUY2
       int rowsize = dst->GetRowSize();
+#ifdef INTEL_INTRINSICS
+      if (env->GetCPUFlags() & CPUF_SSE2) {
+        yuy2_uvtoy_sse2(srcp, dstp, src_pitch, dst_pitch, rowsize, vi.height, pos);
+        return dst;
+      }
+#endif
 
       srcp += pos;
       for (int y = 0; y < vi.height; ++y) {
@@ -318,6 +350,16 @@ PVideoFrame __stdcall SwapUVToY::GetFrame(int n, IScriptEnvironment* env)
     }
 
     // YUY2 to Y8
+
+    auto props = env->getFramePropsRW(dst);
+    env->propDeleteKey(props, "_ChromaLocation");
+
+#ifdef INTEL_INTRINSICS
+    if (env->GetCPUFlags() & CPUF_SSE2) {
+      yuy2_uvtoy8_sse2(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, pos);
+      return dst;
+    }
+#endif
     srcp += pos;
     for (int y = 0; y < vi.height; ++y) {
       for (int x = 0; x < vi.width; ++x) {
@@ -329,7 +371,8 @@ PVideoFrame __stdcall SwapUVToY::GetFrame(int n, IScriptEnvironment* env)
     return dst;
   }
 
-  // Planar to Planar
+  // Planar to Planar. Only two modes possible UToY and VToY
+  // Copy U or V to Y and set the other chroma planes to grey
   const int plane = mode == UToY ? PLANAR_U : PLANAR_V;
   env->BitBlt(dst->GetWritePtr(PLANAR_Y), dst->GetPitch(PLANAR_Y), src->GetReadPtr(plane),
     src->GetPitch(plane), src->GetRowSize(plane), src->GetHeight(plane));
@@ -509,8 +552,12 @@ PVideoFrame __stdcall SwapYToUV::GetFrame(int n, IScriptEnvironment* env) {
       PVideoFrame srcy = clipY->GetFrame(n, env);
       const BYTE* srcp_y = srcy->GetReadPtr();
       const int pitch_y = srcy->GetPitch();
-
-      yuy2_ytouv_c<true>(srcp_y, srcp_u, srcp_v, dstp, pitch_y, pitch_u, pitch_v, dst_pitch, rowsize, vi.height);
+#ifdef INTEL_INTRINSICS
+      if (env->GetCPUFlags() & CPUF_SSE2)
+        yuy2_ytouv_sse2<true>(srcp_y, srcp_u, srcp_v, dstp, pitch_y, pitch_u, pitch_v, dst_pitch, rowsize, vi.height);
+      else
+#endif
+        yuy2_ytouv_c<true>(srcp_y, srcp_u, srcp_v, dstp, pitch_y, pitch_u, pitch_v, dst_pitch, rowsize, vi.height);
     }
     else
       yuy2_ytouv_c<false>(nullptr, srcp_u, srcp_v, dstp, 0, pitch_u, pitch_v, dst_pitch, rowsize, vi.height);
@@ -520,11 +567,11 @@ PVideoFrame __stdcall SwapYToUV::GetFrame(int n, IScriptEnvironment* env) {
 
   // Planar:
   env->BitBlt(dst->GetWritePtr(PLANAR_U), dst->GetPitch(PLANAR_U),
-              src->GetReadPtr(PLANAR_Y), src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
+    src->GetReadPtr(PLANAR_Y), src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
 
   src = clip->GetFrame(n, env);
   env->BitBlt(dst->GetWritePtr(PLANAR_V), dst->GetPitch(PLANAR_V),
-              src->GetReadPtr(PLANAR_Y), src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
+    src->GetReadPtr(PLANAR_Y), src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
 
   if (clipA) {
     int source_plane = (clipA->GetVideoInfo().IsPlanarRGBA() ||
@@ -537,7 +584,7 @@ PVideoFrame __stdcall SwapYToUV::GetFrame(int n, IScriptEnvironment* env) {
   if (clipY) {
     src = clipY->GetFrame(n, env);
     env->BitBlt(dst->GetWritePtr(PLANAR_Y), dst->GetPitch(PLANAR_Y),
-                src->GetReadPtr(PLANAR_Y), src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
+      src->GetReadPtr(PLANAR_Y), src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
     return dst;
   }
 
@@ -552,7 +599,8 @@ PVideoFrame __stdcall SwapYToUV::GetFrame(int n, IScriptEnvironment* env) {
   else if (vi.ComponentSize() == 2) { // 16bit
     uint16_t luma_val = 0x7e << (vi.BitsPerComponent() - 8);
     fill_plane<uint16_t>(dstp, rowsize, vi.height, pitch, luma_val);
-  } else { // 32bit(float)
+  }
+  else { // 32bit(float)
     fill_plane<float>(dstp, rowsize, vi.height, pitch, 126.0f / 256);
   }
 
@@ -626,7 +674,7 @@ CombinePlanes::CombinePlanes(PClip _child, PClip _clip2, PClip _clip3, PClip _cl
     }
     else if (vi_test.IsYUY2()) {
       AVSValue emptyValue;
-      clips[i] = new ConvertToPlanarGeneric(clips[i], VideoInfo::CS_YV16, false, emptyValue, emptyValue, emptyValue, env);
+      clips[i] = new ConvertYUY2ToYV16(clips[i], env);
     }
   }
 
@@ -842,13 +890,86 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
     }
   }
 
+  // check if first clip could be used as the target clip
+  PVideoFrame src = clips[0]->GetFrame(n, env);
+  PVideoFrame src1 = clips[1] ? clips[1]->GetFrame(n, env) : nullptr;
+
+  // case 1: when Y is kept from the original clip and other planes may be merged
+  if (vi_src.IsSameColorspace(vi) && target_planes[0] == source_planes[0]) {
+    // source (clip#0) has the same format as the target, and the first plane is the same
+    // luma (Y) comes w/o BitBlt. Only U and V (and optionally A) is copied.
+    if (src->IsWritable()) // we are the only one
+    {
+      PVideoFrame src_other = nullptr;
+      bool writeptr_obtained = false;
+      for (int i = 1; i < planecount; i++) {
+        int target_plane = target_planes[i];
+        int source_plane = source_planes[i];
+        if (clips[i]) { // source clips can be less than defined planes
+          if (!writeptr_obtained) {
+            src->GetWritePtr(PLANAR_Y); //Must be requested BUT only if we actually do something
+            writeptr_obtained = true;
+          }
+          if (i == 1)
+            src_other = src1; // already requested
+          else
+            src_other = clips[i]->GetFrame(n, env); // last defined clip is used for the others
+        }
+        if (src_other) {
+          env->BitBlt(src->GetWritePtr(target_plane), src->GetPitch(target_plane),
+            src_other->GetReadPtr(source_plane), src_other->GetPitch(source_plane), src_other->GetRowSize(source_plane), src_other->GetHeight(source_plane));
+        }
+        else {
+          // we are still at the first (master) clip, no need for plane copy
+        }
+      }
+      return src;
+    }
+  }
+  else if (clips[1] && !clips[2]){
+    // Try to optimize a MergeLuma case, where luma comes from Y (can even be a format of single plane), 
+    // Clip a's UV is kept.
+    // MergeLuma's speed gain: if 'a' is IsWritable() then there is no need for BitBlt chroma planes.
+    // We can only make a BitBlt from Y.
+    // We'd like to recognize the following scenario
+    // Output YUV:
+    // - Y from clip #0 (format:Y)
+    // - UV from clip #1 (format YUV420, same as output)
+    // planes: "YUV"
+    // 
+    // clip #0 format does not match with the output, maybe it is a single plane
+    // let's try with the second (clip #1) if it can be used
+    if (clips[1]->GetVideoInfo().IsSameColorspace(vi) &&
+      // the rest plane IDs are matching between source and target
+      vi.NumComponents() >= 3 && target_planes[1] == source_planes[1] && target_planes[2] == source_planes[2] &&
+      (vi.NumComponents() < 4 || (vi.NumComponents() == 4 && target_planes[3] == source_planes[3])))
+    {
+      if (src1->IsWritable()) // we are the only one
+      {
+        src1->GetWritePtr(PLANAR_Y); //Must be requested BUT only if we actually do something
+        int target_plane = target_planes[0];
+        int source_plane = source_planes[0];
+        // Copy from first clip
+        env->BitBlt(src1->GetWritePtr(target_plane), src1->GetPitch(target_plane),
+          src->GetReadPtr(source_plane), src->GetPitch(source_plane), src->GetRowSize(source_plane), src->GetHeight(source_plane));
+        env->copyFrameProps(src, src1);
+        return src1;
+      }
+    }
+  }
+
   PVideoFrame dst = env->NewVideoFrame(vi);
   bool propCopied = false;
 
-  PVideoFrame src;
   for (int i = 0; i < planecount; i++) {
     if (clips[i]) { // source clips can be less than defined planes
-      src = clips[i]->GetFrame(n, env); // last defined clip is used for the others
+      if (i > 0) // clip #0 was already requested
+      {
+        if (i == 1) // clip #1 was already requested
+          src = src1;
+        else
+          src = clips[i]->GetFrame(n, env); // last defined clip is used for the others
+      }
       if (!propCopied) {
         env->copyFrameProps(src, dst);
         propCopied = true;

@@ -33,7 +33,7 @@
 // import and export plugins, or graphical user interfaces.
 
 #include "transform.h"
-#include "../convert/convert.h"
+#include "../convert/convert_matrix.h"
 #include <avs/minmax.h>
 #include "../core/bitblt.h"
 #include <stdint.h>
@@ -221,7 +221,7 @@ PVideoFrame FlipHorizontal::GetFrame(int n, IScriptEnvironment* env) {
   else if (vi.IsRGB48()) {
     dstp += width - 3 * sizeof(uint16_t);
     for (int y = 0; y < height; y++) {
-      for (int x = 0; x < width / sizeof(uint16_t); x += 3) {
+      for (int x = 0; x < width / 2 /*sizeof(uint16_t)*/; x += 3) {
         reinterpret_cast<uint16_t*>(dstp)[-x + 0] = reinterpret_cast<const uint16_t*>(srcp)[x + 0];
         reinterpret_cast<uint16_t*>(dstp)[-x + 1] = reinterpret_cast<const uint16_t*>(srcp)[x + 1];
         reinterpret_cast<uint16_t*>(dstp)[-x + 2] = reinterpret_cast<const uint16_t*>(srcp)[x + 2];
@@ -439,7 +439,7 @@ static inline pixel_t GetHbdColorFromByte(uint8_t color, bool fullscale, int bit
 template<typename pixel_t>
 static void addborders_planar(PVideoFrame &dst, PVideoFrame &src, VideoInfo &vi, int top, int bot, int left, int right, int color, bool isYUV, bool force_color_as_yuv, int bits_per_pixel)
 {
-  const unsigned int colr = isYUV && !force_color_as_yuv ? RGB2YUV(color) : color;
+  const unsigned int colr = isYUV && !force_color_as_yuv ? RGB2YUV_Rec601(color) : color;
   const unsigned char YBlack=(unsigned char)((colr >> 16) & 0xff);
   const unsigned char UBlack=(unsigned char)((colr >>  8) & 0xff);
   const unsigned char VBlack=(unsigned char)((colr      ) & 0xff);
@@ -524,7 +524,7 @@ PVideoFrame AddBorders::GetFrame(int n, IScriptEnvironment* env)
     + (dst_pitch - dst_row_size);
 
   if (vi.IsYUY2()) {
-    const unsigned int colr = force_color_as_yuv ? clr : RGB2YUV(clr);
+    const unsigned int colr = force_color_as_yuv ? clr : RGB2YUV_Rec601(clr);
     const uint32_t black = (colr>>16) * 0x010001 + ((colr>>8)&255) * 0x0100 + (colr&255) * 0x01000000;
 
     BitBlt(dstp+initial_black, dst_pitch, srcp, src_pitch, src_row_size, src_height);
@@ -678,8 +678,6 @@ AVSValue __cdecl AddBorders::Create(AVSValue args, void*, IScriptEnvironment* en
       env->ThrowError("AddBorders: color_yuv only valid for YUV color spaces");
     color = args[6].AsInt(); // override
     color_as_yuv = true;
-    if (!vi.IsYUVA() && (unsigned)color > 0xffffff)
-      env->ThrowError("AddBorders: color_yuv must be between 0 and %d($ffffff)", 0xffffff);
   }
 
   return new AddBorders( args[1].AsInt(), args[2].AsInt(), args[3].AsInt(),
@@ -782,8 +780,6 @@ AVSValue __cdecl Create_Letterbox(AVSValue args, void*, IScriptEnvironment* env)
       env->ThrowError("LetterBox: color_yuv only valid for YUV color spaces");
     color = args[6].AsInt(); // override
     color_as_yuv = true;
-    if (!vi.IsYUVA() && (unsigned)color > 0xffffff)
-      env->ThrowError("LetterBox: color_yuv must be between 0 and %d($ffffff)", 0xffffff);
   }
 
   if ( (top<0) || (bot<0) || (left<0) || (right<0) )

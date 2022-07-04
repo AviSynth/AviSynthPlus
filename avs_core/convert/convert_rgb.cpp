@@ -34,6 +34,10 @@
 
 
 #include "convert_rgb.h"
+#ifdef INTEL_INTRINSICS
+#include "intel/convert_rgb_sse.h"
+#include "intel/convert_rgb_avx2.h"
+#endif
 #include <avs/alignment.h>
 
 
@@ -78,6 +82,22 @@ PVideoFrame __stdcall RGBtoRGBA::GetFrame(int n, IScriptEnvironment* env)
 
   int pixelsize = vi.ComponentSize();
 
+#ifdef INTEL_INTRINSICS
+  if (env->GetCPUFlags() & CPUF_SSSE3) {
+    if(pixelsize==1)
+      convert_rgb24_to_rgb32_ssse3(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+    else
+      convert_rgb48_to_rgb64_ssse3(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+  }
+  else
+#ifdef X86_32
+    if (pixelsize==1 && (env->GetCPUFlags() & CPUF_MMX))
+    {
+      convert_rgb24_to_rgb32_mmx(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+    }
+    else
+#endif
+#endif
     {
       if (pixelsize == 1)
         convert_rgb24_to_rgb32_c(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
@@ -139,6 +159,22 @@ PVideoFrame __stdcall RGBAtoRGB::GetFrame(int n, IScriptEnvironment* env)
 
   int pixelsize = vi.ComponentSize();
 
+#ifdef INTEL_INTRINSICS
+  if (env->GetCPUFlags() & CPUF_SSSE3) {
+    if(pixelsize==1)
+      convert_rgb32_to_rgb24_ssse3(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+    else
+      convert_rgb64_to_rgb48_ssse3(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+  }
+  else
+#ifdef X86_32
+  if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_MMX))
+  {
+    convert_rgb32_to_rgb24_mmx(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+  }
+  else
+#endif
+#endif
   {
     if(pixelsize==1)
       convert_rgb32_to_rgb24_c(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
@@ -199,26 +235,77 @@ PVideoFrame __stdcall PackedRGBtoPlanarRGB::GetFrame(int n, IScriptEnvironment* 
 
   srcp += src_pitch * (vi.height - 1); // start from bottom: packed RGB is upside down
 
+#ifdef INTEL_INTRINSICS
   const bool targetHasAlpha = vi.IsPlanarRGBA();
+#endif
 
   if(pixelsize==1)
   {
     // targetHasAlpha decision in convert function
     if (sourceHasAlpha) {
       // RGB32->RGBP8
+#ifdef INTEL_INTRINSICS
+      if ((env->GetCPUFlags() & CPUF_SSSE3) && vi.width >= 8) {
+        if (targetHasAlpha)
+          convert_rgba_to_rgbp_ssse3<uint8_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+        else
+          convert_rgba_to_rgbp_ssse3<uint8_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+      }
+      else
+#endif
         convert_rgb_to_rgbp_c<uint8_t, 4>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 8);
     }
     else {
+#ifdef INTEL_INTRINSICS
+      // RGB24->RGB(A)P8, works with 48byte blocks (16xRGB), min width is 16 (SSSE3, 32 (AVX2)
+      if ((env->GetCPUFlags() & CPUF_AVX2) && vi.width >= 32) {
+        if (targetHasAlpha)
+          convert_rgb_to_rgbp_avx2<uint8_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 8);
+        else
+          convert_rgb_to_rgbp_avx2<uint8_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 8);
+      }
+      else if ((env->GetCPUFlags() & CPUF_SSSE3) && vi.width >= 16) {
+        if (targetHasAlpha)
+          convert_rgb_to_rgbp_ssse3<uint8_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 8);
+        else
+          convert_rgb_to_rgbp_ssse3<uint8_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 8);
+      }
+      else
+#endif
         convert_rgb_to_rgbp_c<uint8_t, 3>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 8);
     }
   }
   else {
     if (sourceHasAlpha) {
       // RGB32->RGBP16, RGBAP16
-        convert_rgb_to_rgbp_c<uint16_t, 4>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 16);
+#ifdef INTEL_INTRINSICS
+      if ((env->GetCPUFlags() & CPUF_SSSE3) && vi.width >= 4) {
+        if (targetHasAlpha)
+          convert_rgba_to_rgbp_ssse3<uint16_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+        else
+          convert_rgba_to_rgbp_ssse3<uint16_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
       }
+      else
+#endif
+        convert_rgb_to_rgbp_c<uint16_t, 4>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 16);
+    }
     else {
       // RGB48->RGB(A)P16, works with 48byte blocks (8xRGB), min width is 8 (SSSE3), 16 (AVX2)
+#ifdef INTEL_INTRINSICS
+      if ((env->GetCPUFlags() & CPUF_AVX2) && vi.width >= 16) {
+        if (targetHasAlpha)
+          convert_rgb_to_rgbp_avx2<uint16_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 16);
+        else
+          convert_rgb_to_rgbp_avx2<uint16_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 16);
+      }
+      else if ((env->GetCPUFlags() & CPUF_SSSE3) && vi.width >= 8) {
+        if (targetHasAlpha)
+          convert_rgb_to_rgbp_ssse3<uint16_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 16);
+        else
+          convert_rgb_to_rgbp_ssse3<uint16_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 16);
+      }
+      else
+#endif
         convert_rgb_to_rgbp_c<uint16_t, 3>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height, 16);
     }
   }
@@ -274,7 +361,9 @@ PVideoFrame __stdcall PlanarRGBtoPackedRGB::GetFrame(int n, IScriptEnvironment* 
 
   dstp += dst_pitch * (vi.height - 1); // start from bottom: packed RGB is upside down
 
+#ifdef INTEL_INTRINSICS
   bool hasSrcAlpha = (src_pitch[3] != 0); // Planar RGBA
+#endif
   bool hasTargetAlpha = (vi.NumComponents() == 4);
 
   if(pixelsize==1)
@@ -282,14 +371,32 @@ PVideoFrame __stdcall PlanarRGBtoPackedRGB::GetFrame(int n, IScriptEnvironment* 
     if(!hasTargetAlpha) // RGB24
       convert_rgbp_to_rgb_c<uint8_t, 3>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
     else {// RGBA32
-        convert_rgbp_to_rgb_c<uint8_t, 4>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+#ifdef INTEL_INTRINSICS
+      if ((env->GetCPUFlags() & CPUF_SSE2) && vi.width >= 4) {
+        if(hasSrcAlpha)
+          convert_rgbp_to_rgba_sse2<uint8_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+        else
+          convert_rgbp_to_rgba_sse2<uint8_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
       }
+      else
+#endif
+        convert_rgbp_to_rgb_c<uint8_t, 4>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+    }
   } else {
     if(!hasTargetAlpha)
       convert_rgbp_to_rgb_c<uint16_t, 3>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
     else { // RGBA64
-        convert_rgbp_to_rgb_c<uint16_t, 4>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+#ifdef INTEL_INTRINSICS
+      if ((env->GetCPUFlags() & CPUF_SSE2) && vi.width >= 4) {
+        if(hasSrcAlpha)
+          convert_rgbp_to_rgba_sse2<uint16_t, true>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
+        else
+          convert_rgbp_to_rgba_sse2<uint16_t, false>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
       }
+      else 
+#endif
+        convert_rgbp_to_rgb_c<uint16_t, 4>(srcp, dstp, src_pitch, dst_pitch, vi.width, vi.height);
     }
+  }
   return dst;
 }

@@ -1089,7 +1089,7 @@ void __stdcall SelectRangeEvery::GetAudio(void* buf, int64_t start, int64_t coun
 
     child->GetAudio(&samples[samples_filled*bps], start_offset, getsamples, env);
     samples_filled += getsamples;
-    startframe = (iteration+1) * every;
+    startframe = (iteration+1) * length;
     general_offset = 0; // On the following loops, general offset should be 0, as we are either skipping.
   }
 }

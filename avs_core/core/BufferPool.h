@@ -2,6 +2,7 @@
 #define _AVS_BUFFERPOOL_H
 
 #include <map>
+#include <avs/types.h>
 
 class InternalEnvironment;
 

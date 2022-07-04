@@ -165,7 +165,6 @@ static void internal_resizer_h_avx2_generic_uint8_t(BYTE* dst, const BYTE* src, 
     dst += dst_pitch;
     src += src_pitch;
   }
-  _mm256_zeroupper();
 }
 
 
@@ -342,7 +341,6 @@ void resizer_h_avx2_generic_float(BYTE* dst8, const BYTE* src8, int dst_pitch, i
     src += src_pitch;
   }
 
-  _mm256_zeroupper();
   /*
   // check Nans - debug
   dst -= dst_pitch * height;
@@ -458,7 +456,6 @@ void internal_resizer_h_avx2_generic_uint16_t(BYTE* dst8, const BYTE* src8, int 
     dst += dst_pitch;
     src += src_pitch;
   }
-  _mm256_zeroupper();
 }
 
 //-------- 256 bit uint8_t Horizontal Dispatcher
@@ -549,7 +546,6 @@ void resize_v_avx2_planar_uint8_t(BYTE* dst, const BYTE* src, int dst_pitch, int
     dst += dst_pitch;
     current_coeff += filter_size;
   }
-  _mm256_zeroupper();
 }
 
 //-------- 256 bit uint16_t Verticals
@@ -683,7 +679,6 @@ void internal_resize_v_avx2_planar_uint16_t(BYTE* dst0, const BYTE* src0, int ds
     dst += dst_pitch;
     current_coeff += program->filter_size;
   }
-  _mm256_zeroupper();
 }
 
 //-------- 256 bit float Verticals
@@ -832,7 +827,6 @@ void internal_resize_v_avx2_planar_float(BYTE* dst0, const BYTE* src0, int dst_p
     dst += dst_pitch;
     current_coeff_float += filter_size;
   }
-  _mm256_zeroupper();
 }
 
 

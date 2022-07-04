@@ -34,6 +34,9 @@
 
 
 #include "greyscale.h"
+#ifdef INTEL_INTRINSICS
+#include "intel/greyscale_sse.h"
+#endif
 #include "../core/internal.h"
 #include <avs/alignment.h>
 #include <avs/minmax.h>
@@ -46,6 +49,8 @@
 
 #include <stdint.h>
 #include "../convert/convert_planar.h"
+#include "../convert/convert.h"
+#include "../convert/convert_helper.h"
 
 
 /*************************************
@@ -58,27 +63,29 @@ extern const AVSFunction Greyscale_filters[] = {
   { 0 }
 };
 
-Greyscale::Greyscale(PClip _child, const char* matrix, IScriptEnvironment* env)
+Greyscale::Greyscale(PClip _child, const char* matrix_name, IScriptEnvironment* env)
  : GenericVideoFilter(_child)
 {
-  matrix_ = Rec601;
-  if (matrix) {
-    if (!vi.IsRGB())
-      env->ThrowError("GreyScale: invalid \"matrix\" parameter (RGB data only)");
-    if (!lstrcmpi(matrix, "rec709"))
-      matrix_ = Rec709;
-    else if (!lstrcmpi(matrix, "Average"))
-      matrix_ = Average;
-    else if (!lstrcmpi(matrix, "rec601"))
-      matrix_ = Rec601;
-    else if (!lstrcmpi(matrix, "rec2020"))
-      matrix_ = Rec2020;
-    else
-      env->ThrowError("GreyScale: invalid \"matrix\" parameter (must be matrix=\"Rec601\", \"Rec709\", \"Rec2020\" or \"Average\")");
-  }
-  BuildGreyMatrix();
+  if (matrix_name && !vi.IsRGB())
+    env->ThrowError("GreyScale: invalid \"matrix\" parameter (RGB data only)");
+
+  // originally there was no PC range here
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent();
+
+  if (vi.IsRGB()) {
+    matrix_parse_merge_with_props(vi, matrix_name, nullptr, theMatrix, theColorRange, env);
+    if(theColorRange == ColorRange_e::AVS_RANGE_FULL && theMatrix != Matrix_e::AVS_MATRIX_AVERAGE)
+      env->ThrowError("GreyScale: only limited range matrix definition or \"Average\" is allowed.");
+    // and then we make it full range because the result will get back into RGB planes, so no range conversion occurs.
+    theColorRange = ColorRange_e::AVS_RANGE_FULL;
+    const int shift = 15; // internally 15 bits precision, still no overflow in calculations
+
+    if (!do_BuildMatrix_Rgb2Yuv(theMatrix, theColorRange, shift, bits_per_pixel, /*ref*/greyMatrix))
+      env->ThrowError("GreyScale: Unknown matrix.");
+  }
+  // greyscale does not change color space, rgb remains rgb
+  // Leave matrix and range frame properties as is.
 }
 
 template<typename pixel_t, int pixel_step>
@@ -129,91 +136,6 @@ static void greyscale_planar_rgb_float_c(BYTE *srcp_r8, BYTE *srcp_g8, BYTE *src
   }
 }
 
-void Greyscale::BuildGreyMatrix() {
-#if 0
-  // not used, kept for sample
-  // 16 bit scaled
-  const int cyavb_sc16 = 21845;   // const int cyav = int(0.333333*65536+0.5);
-  const int cyavg_sc16 = 21845;
-  const int cyavr_sc16 = 21845;
-  //  21845 sum: 65535 <= 65536 OK
-
-  //  const int cyb = int(0.114*65536+0.5); //  7471
-  //  const int cyg = int(0.587*65536+0.5); // 38470
-  //  const int cyr = int(0.299*65536+0.5); // 19595
-
-  const int cyb601_sc16 = 7471;  // int(0.114*65536+0.5); //  7471
-  const int cyg601_sc16 = 38470; // int(0.587*65536+0.5); // 38470
-  const int cyr601_sc16 = 19595; // int(0.299*65536+0.5); // 19595
-                                 // sum: 65536 OK
-
-
-  const int cyb709_sc16 = 4732; // int(0.0722 * 65536 + 0.5); //  4732
-  const int cyg709_sc16 = 46871; // int(0.7152 * 65536 + 0.5); // 46871
-  const int cyr709_sc16 = 13933; // int(0.2126 * 65536 + 0.5); // 13933
-                                 //  Sum: 65536 OK
-                                 // This is the correct brigtness calculations (standardized in Rec. 709)
-#endif
-  // 15 bit scaled
-                                 // PF check: int32 overflow in 16 bits
-                                 // 32769 * 65535 + 16384 = 8000BFFF int32 overflow
-                                 // 32768 * 65535 + 16384 = 7FFFC000 OK
-                                 // Let's make correction
-                                 // --- Average
-  const int cybav_sc15 = 10923;   // int(0.33333 * 32768 + 0.5); // 10923
-  const int cygav_sc15 = 10923-1; // int(0.33333 * 32768 + 0.5); // 10923
-  const int cyrav_sc15 = 10923;   // int(0.33333 * 32768 + 0.5); // 10923
-                                  // w/o correction 3*10923 = 32769!
-  const float cybav_f = 0.333333f;
-  const float cygav_f = 0.333333f;
-  const float cyrav_f = 0.333333f;
-
-  // --- Rec601
-  const int cyb601_sc15 = 3736;  // int(0.114 * 32768 + 0.5); // 3736
-  const int cyg601_sc15 = 19235-1; // int(0.587 * 32768 + 0.5); // 19235
-  const int cyr601_sc15 = 9798;  // int(0.299 * 32768 + 0.5); // 9798
-                                 // w/o correction: 32769
-
-  const float cyb601_f = 0.114f;
-  const float cyg601_f = 0.587f;
-  const float cyr601_f = 0.299f;
-
-  // --- Rec709
-  const int cyb709_sc15 = 2366;  // int(0.0722 * 32768 + 0.5); // 2366
-  const int cyg709_sc15 = 23436; // int(0.7152 * 32768 + 0.5); // 23436
-  const int cyr709_sc15 = 6966;  // int(0.2126 * 32768 + 0.5); // 6966
-                                 // sum: 32768 OK
-  const float cyb709_f = 0.0722f;
-  const float cyg709_f = 0.7152f;
-  const float cyr709_f = 0.2126f;
-
-  // --- Rec2020
-  const int cyb2020_sc15 = 1943;  // int(0.0593 * 32768 + 0.5); // 1943
-  const int cyg2020_sc15 = 22217; // int(0.6780 * 32768 + 0.5); // 22217
-  const int cyr2020_sc15 = 8608;  // int(0.2627 * 32768 + 0.5); // 8608
-                                 // sum: 32768 OK
-  const float cyb2020_f = 0.0593f;
-  const float cyg2020_f = 0.6780f;
-  const float cyr2020_f = 0.2627f;
-
-
-  if(matrix_ == Rec709) {
-    greyMatrix.b   = cyb709_sc15; greyMatrix.g   = cyg709_sc15; greyMatrix.r   = cyr709_sc15;
-    greyMatrix.b_f = cyb709_f;    greyMatrix.g_f = cyg709_f;    greyMatrix.r_f = cyr709_f;
-  } else if(matrix_ == Rec2020) {
-    greyMatrix.b   = cyb2020_sc15; greyMatrix.g   = cyg2020_sc15; greyMatrix.r   = cyr2020_sc15;
-    greyMatrix.b_f = cyb2020_f;    greyMatrix.g_f = cyg2020_f;    greyMatrix.r_f = cyr2020_f;
-  } else if (matrix_ == Average) {
-    greyMatrix.b   = cybav_sc15;  greyMatrix.g   = cygav_sc15;  greyMatrix.r   = cyrav_sc15;
-    greyMatrix.b_f = cybav_f;     greyMatrix.g_f = cygav_f;     greyMatrix.r_f = cyrav_f;
-  } else if (matrix_ == Rec601) {
-    greyMatrix.b   = cyb601_sc15; greyMatrix.g   = cyg601_sc15; greyMatrix.r   = cyr601_sc15;
-    greyMatrix.b_f = cyb601_f;    greyMatrix.g_f = cyg601_f;    greyMatrix.r_f = cyr601_f;
-  } else {
-    // n/a not valid matrix, checked earlier
-  }
-
-}
 
 PVideoFrame Greyscale::GetFrame(int n, IScriptEnvironment* env)
 {
@@ -226,6 +148,9 @@ PVideoFrame Greyscale::GetFrame(int n, IScriptEnvironment* env)
   int pitch = frame->GetPitch();
   int height = vi.height;
   int width = vi.width;
+
+  // greyscale does not change color space, rgb remains rgb
+  // Leave matrix and range frame properties as is.
 
   if (vi.IsPlanar() && (vi.IsYUV() || vi.IsYUVA())) {
     // planar YUV, set UV plane to neutral
@@ -254,6 +179,16 @@ PVideoFrame Greyscale::GetFrame(int n, IScriptEnvironment* env)
   }
 
   if (vi.IsYUY2()) {
+#ifdef INTEL_INTRINSICS
+    if ((env->GetCPUFlags() & CPUF_SSE2) && width > 4 && IsPtrAligned(srcp, 16)) {
+      greyscale_yuy2_sse2(srcp, width, height, pitch);
+    } else
+#ifdef X86_32
+      if ((env->GetCPUFlags() & CPUF_MMX) && width > 2) {
+        greyscale_yuy2_mmx(srcp, width, height, pitch);
+      } else
+#endif
+#endif
       {
         for (int y = 0; y<height; ++y)
         {
@@ -265,6 +200,27 @@ PVideoFrame Greyscale::GetFrame(int n, IScriptEnvironment* env)
 
       return frame;
   }
+#ifdef INTEL_INTRINSICS
+  if(vi.IsRGB64()) {
+    if ((env->GetCPUFlags() & CPUF_SSE4_1) && IsPtrAligned(srcp, 16)) {
+      greyscale_rgb64_sse41(srcp, width, height, pitch, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
+      return frame;
+    }
+  }
+
+  if (vi.IsRGB32()) {
+    if ((env->GetCPUFlags() & CPUF_SSE2) && IsPtrAligned(srcp, 16)) {
+      greyscale_rgb32_sse2(srcp, width, height, pitch, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
+      return frame;
+    }
+#ifdef X86_32
+    else if (env->GetCPUFlags() & CPUF_MMX) {
+      greyscale_rgb32_mmx(srcp, width, height, pitch, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
+      return frame;
+    }
+#endif
+  }
+#endif
 
   if (vi.IsRGB())
   {  // RGB C.
@@ -277,11 +233,11 @@ PVideoFrame Greyscale::GetFrame(int n, IScriptEnvironment* env)
       const int src_pitch = frame->GetPitch(); // same for all planes
 
       if (pixelsize == 1)
-        greyscale_planar_rgb_c<uint8_t>(srcp_r, srcp_g, srcp_b, src_pitch, vi.width, vi.height, greyMatrix.b, greyMatrix.g, greyMatrix.r);
+        greyscale_planar_rgb_c<uint8_t>(srcp_r, srcp_g, srcp_b, src_pitch, vi.width, vi.height, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
       else if (pixelsize == 2)
-        greyscale_planar_rgb_c<uint16_t>(srcp_r, srcp_g, srcp_b, src_pitch, vi.width, vi.height, greyMatrix.b, greyMatrix.g, greyMatrix.r);
+        greyscale_planar_rgb_c<uint16_t>(srcp_r, srcp_g, srcp_b, src_pitch, vi.width, vi.height, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
       else
-        greyscale_planar_rgb_float_c(srcp_r, srcp_g, srcp_b, src_pitch, vi.width, vi.height, greyMatrix.b_f, greyMatrix.g_f, greyMatrix.r_f);
+        greyscale_planar_rgb_float_c(srcp_r, srcp_g, srcp_b, src_pitch, vi.width, vi.height, greyMatrix.y_b_f, greyMatrix.y_g_f, greyMatrix.y_r_f);
 
       return frame;
     }
@@ -291,58 +247,17 @@ PVideoFrame Greyscale::GetFrame(int n, IScriptEnvironment* env)
 
     if (pixelsize == 1) { // rgb24/32
       if (rgb_inc == 3)
-        greyscale_packed_rgb_c<uint8_t, 3>(srcp, pitch, vi.width, vi.height, greyMatrix.b, greyMatrix.g, greyMatrix.r);
+        greyscale_packed_rgb_c<uint8_t, 3>(srcp, pitch, vi.width, vi.height, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
       else
-        greyscale_packed_rgb_c<uint8_t, 4>(srcp, pitch, vi.width, vi.height, greyMatrix.b, greyMatrix.g, greyMatrix.r);
+        greyscale_packed_rgb_c<uint8_t, 4>(srcp, pitch, vi.width, vi.height, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
     }
     else { // rgb48/64
       if (rgb_inc == 3)
-        greyscale_packed_rgb_c<uint16_t, 3>(srcp, pitch, vi.width, vi.height, greyMatrix.b, greyMatrix.g, greyMatrix.r);
+        greyscale_packed_rgb_c<uint16_t, 3>(srcp, pitch, vi.width, vi.height, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
       else
-        greyscale_packed_rgb_c<uint16_t, 4>(srcp, pitch, vi.width, vi.height, greyMatrix.b, greyMatrix.g, greyMatrix.r);
+        greyscale_packed_rgb_c<uint16_t, 4>(srcp, pitch, vi.width, vi.height, greyMatrix.y_b, greyMatrix.y_g, greyMatrix.y_r);
     }
 
-#if 0
-    BYTE* p_count = srcp;
-    if (matrix_ == Rec709) {
-
-      for (int y = 0; y<vi.height; ++y) {
-        for (int x = 0; x<vi.width; x++) {
-          int greyscale = ((srcp[0]*4732)+(srcp[1]*46871)+(srcp[2]*13933)+32768)>>16; // This is the correct brigtness calculations (standardized in Rec. 709)
-          srcp[0] = srcp[1] = srcp[2] = greyscale;
-          srcp += rgb_inc;
-        }
-        p_count += pitch;
-        srcp = p_count;
-      }
-    } else if (matrix_ == Average) {
-      //	  const int cyav = int(0.333333*65536+0.5); //  21845 sum: 65535 <= 65536 OK
-
-      for (int y = 0; y<vi.height; ++y) {
-        for (int x = 0; x<vi.width; x++) {
-          int greyscale = ((srcp[0]+srcp[1]+srcp[2])*21845+32768)>>16; // This is the average of R, G & B
-          srcp[0] = srcp[1] = srcp[2] = greyscale;
-          srcp += rgb_inc;
-        }
-        p_count += pitch;
-        srcp = p_count;
-      }
-    } else {
-      //  const int cyb = int(0.114*65536+0.5); //  7471
-      //  const int cyg = int(0.587*65536+0.5); // 38470
-      //  const int cyr = int(0.299*65536+0.5); // 19595
-      // Sum: 65536
-      for (int y = 0; y<vi.height; ++y) {
-        for (int x = 0; x<vi.width; x++) {
-          int greyscale = ((srcp[0]*7471)+(srcp[1]*38470)+(srcp[2]*19595)+32768)>>16; // This produces similar results as YUY2 (luma calculation)
-          srcp[0] = srcp[1] = srcp[2] = greyscale;
-          srcp += rgb_inc;
-        }
-        p_count += pitch;
-        srcp = p_count;
-      }
-    }
-#endif
   }
   return frame;
 }

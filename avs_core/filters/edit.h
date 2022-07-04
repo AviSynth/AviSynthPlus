@@ -49,15 +49,24 @@ class Trim : public GenericVideoFilter
 public:
   typedef enum { Invalid = 0, Default, Length, End } trim_mode_e;
 
-  Trim(int _firstframe, int _lastframe, bool _padaudio, PClip _child, trim_mode_e mode, IScriptEnvironment* env);
-  Trim(double starttime, double endtime, PClip _child, trim_mode_e mode, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
+  Trim(int _firstframe, int _lastframe, bool _padaudio, PClip _child, trim_mode_e mode, bool _cache, IScriptEnvironment* env);
+  Trim(double starttime, double endtime, PClip _child, trim_mode_e mode, bool _cache, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
+    switch (cachehints) {
+    case CACHE_DONT_CACHE_ME:
+      return cache ? 0 : 1; // adaptively cache-able
+    case CACHE_GET_MTMODE:
+      return MT_NICE_FILTER;
+    case CACHE_GET_DEV_TYPE:
+      return (child->GetVersion() >= 5) ? child->SetCacheHints(CACHE_GET_DEV_TYPE, 0) : 0;
+    default:
+      return 0;
+    }
   }
 
   static AVSValue __cdecl Create(AVSValue args, void* mode, IScriptEnvironment* env);
@@ -66,6 +75,7 @@ public:
 private:
   int firstframe;
   int64_t audio_offset;
+  bool cache;
 };
 
 
@@ -78,8 +88,8 @@ class FreezeFrame : public GenericVideoFilter
 {
 public:
   FreezeFrame(int _first, int _last, int _source, PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -102,8 +112,8 @@ class DeleteFrame : public GenericVideoFilter
 {
 public:
   DeleteFrame(int _frame, PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -126,8 +136,8 @@ class DuplicateFrame : public GenericVideoFilter
 {
 public:
   DuplicateFrame(int _frame, PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -230,9 +240,9 @@ class Reverse : public GenericVideoFilter
 {
 public:
   Reverse(PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
-  void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
+  void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -251,9 +261,9 @@ class Loop : public GenericVideoFilter {
 **/
 public:
 	Loop(PClip _child, int times, int _start, int _end, IScriptEnvironment* env);
-	PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-	bool __stdcall GetParity(int n);
-  void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env);
+	PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+	bool __stdcall GetParity(int n) override;
+  void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -272,16 +282,7 @@ private:
 
 /**** A few factory methods ****/
 
-AVSValue __cdecl Create_FadeOut0(AVSValue args, void*, IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeOut(AVSValue args, void*, IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeOut2(AVSValue args, void*, IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeIn0(AVSValue args, void*, IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeIn(AVSValue args, void*, IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeIn2(AVSValue args, void*,IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeIO0(AVSValue args, void*,IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeIO(AVSValue args, void*,IScriptEnvironment* env);
-AVSValue __cdecl Create_FadeIO2(AVSValue args, void*,IScriptEnvironment* env);
-
+AVSValue __cdecl Create_Fade(AVSValue args, void* user_data, IScriptEnvironment* env);
 PClip new_Splice(PClip _child1, PClip _child2, bool realign_sound, IScriptEnvironment* env);
 
 

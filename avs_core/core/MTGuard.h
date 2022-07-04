@@ -1,6 +1,8 @@
 #ifndef _AVS_MTGUARD_H
 #define _AVS_MTGUARD_H
 
+// #define OLD_PREFETCH
+
 #include "internal.h"
 #include <vector>
 #include <memory>
@@ -17,6 +19,9 @@ private:
 
 	std::unique_ptr<MTGuardChildFilter[]> ChildFilters;
   size_t nThreads;
+#ifndef OLD_PREFETCH
+  bool mt_enabled;
+#endif
   VideoInfo vi;
 
   std::unique_ptr<const FilterConstructor> FilterCtor;

@@ -59,7 +59,7 @@ class GeneralConvolution : public GenericVideoFilter
 
 public:
     GeneralConvolution(PClip _child, double _divisor, float _nBias, const char * _matrix, bool _autoscale, bool _luma, bool _chroma, bool _alpha, IScriptEnvironment* _env);
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
     static AVSValue __cdecl Create(AVSValue args, void* user_data, IScriptEnvironment* env);
 
     int __stdcall SetCacheHints(int cachehints, int frame_range) override {

@@ -821,7 +821,7 @@ AVISource::AVISource(const char filename[], bool fAudio, const char pixel_type[]
         char ch;
         int number = 0;
         const char* fc = fourCC;
-        while (ch = *fc++) {
+        while ((ch = *fc++)) {
           if (len == 4)
             env->ThrowError("Avisource: fourCC must be four characters");
           if (ch == '[') {

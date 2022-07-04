@@ -179,7 +179,6 @@ void af_vertical_uint16_t_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch
 
     _mm256_store_si256(reinterpret_cast<__m256i*>(dstp + x), result);
   }
-  _mm256_zeroupper();
 }
 
 void af_vertical_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount) {
@@ -230,7 +229,6 @@ void af_vertical_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int wid
 
     _mm256_store_si256(reinterpret_cast<__m256i*>(dstp + x), result);
   }
-  _mm256_zeroupper();
 }
 
 // -------------------------------------
@@ -268,6 +266,7 @@ static AVS_FORCEINLINE void af_horizontal_planar_process_line_uint16_c(uint16_t 
   dstp[x] = ScaledPixelClipEx((weight_t)(dstp[x] * (weight_t)center_weight + (left + dstp[x]) * (weight_t)outer_weight), max_pixel_value);
 }
 
+#if 0
 static AVS_FORCEINLINE void af_horizontal_planar_process_line_float_c(float left, float *dstp, size_t row_size, float center_weight, float outer_weight) {
     size_t x;
     size_t width = row_size / sizeof(float);
@@ -292,6 +291,7 @@ static void af_horizontal_planar_float_c(BYTE* dstp8, size_t height, size_t pitc
         dstp += pitch;
     }
 }
+#endif
 
 void af_horizontal_planar_avx2(BYTE* dstp, size_t height, size_t pitch, size_t width, size_t amount) {
   size_t mod32_width = (width / 32) * 32;
@@ -306,10 +306,14 @@ void af_horizontal_planar_avx2(BYTE* dstp, size_t height, size_t pitch, size_t w
   __m256i zero = _mm256_setzero_si256();
 
   __m128i left_mask_128 = _mm_set_epi32(0, 0, 0, 0xFF);
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable: 4309)
+#endif
   __m128i right_mask_128 = _mm_set_epi8(0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
 
   __m256i left;
 
@@ -358,12 +362,10 @@ void af_horizontal_planar_avx2(BYTE* dstp, size_t height, size_t pitch, size_t w
 
     dstp += pitch;
   }
-  _mm256_zeroupper();
 }
 
 void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch, size_t row_size, size_t amount, int bits_per_pixel) {
   size_t mod32_width = (row_size / 32) * 32;
-  size_t mod16_width = (row_size / 16) * 16;
   size_t sse_loop_limit = row_size == mod32_width ? mod32_width - 32 : mod32_width;
   int center_weight_c = int(amount * 2);
   int outer_weight_c = int(32768 - amount);
@@ -374,11 +376,15 @@ void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch,
   __m256i round_mask = _mm256_set1_epi32(0x40);
   __m256i zero = _mm256_setzero_si256();
 
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable: 4309)
+#endif
   __m128i left_mask_128 = _mm_set_epi16(0, 0, 0, 0, 0, 0, 0, 0xFFFF); // 0, 0, 0, 0, 0, 0, 0, FFFF
   __m128i right_mask_128 = _mm_set_epi16(0xFFFF, 0, 0, 0, 0, 0, 0, 0);
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
 
   __m256i left;
 
@@ -426,5 +432,4 @@ void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch,
 
     dstp += pitch;
   }
-  _mm256_zeroupper();
 }

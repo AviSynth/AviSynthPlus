@@ -32,48 +32,20 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
-#ifndef __Greyscale_H__
-#define __Greyscale_H__
+#ifndef __Greyscale_sse_H__
+#define __Greyscale_sse_H__
 
 #include <avisynth.h>
 
+void greyscale_yuy2_sse2(BYTE *srcp, size_t /*width*/, size_t height, size_t pitch);
+void greyscale_rgb32_sse2(BYTE *srcp, size_t /*width*/, size_t height, size_t pitch, int cyb, int cyg, int cyr);
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
+void greyscale_rgb64_sse41(BYTE *srcp, size_t /*width*/, size_t height, size_t pitch, int cyb, int cyg, int cyr);
+#ifdef X86_32
+void greyscale_rgb32_mmx(BYTE* srcp, size_t width, size_t height, size_t pitch, int cyb, int cyg, int cyr);
+void greyscale_yuy2_mmx(BYTE *srcp, size_t width, size_t height, size_t pitch);
+#endif
 
-struct GreyConversionMatrix {
-  int r;    // for 15bit scaled integer arithmetic
-  int g;
-  int b;
-  float r_f;    // for float operation
-  float g_f;
-  float b_f;
-};
-
-class Greyscale : public GenericVideoFilter
-/**
-  * Class to convert video to greyscale
- **/
-{
-public:
-  Greyscale(PClip _child, const char* matrix, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-
-  static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
-
-  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-    AVS_UNUSED(frame_range);
-    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-  }
-
-private:
-  void BuildGreyMatrix();
-  GreyConversionMatrix greyMatrix;
-  int matrix_;
-  enum {Rec601 = 0, Rec709, Average, Rec2020 };
-  int pixelsize;
-  int bits_per_pixel;
-
-};
-
-
-
-
-#endif  // __Greyscale_H__
+#endif  // __Greyscale_sse_H__

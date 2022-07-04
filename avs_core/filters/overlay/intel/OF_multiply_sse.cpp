@@ -33,7 +33,6 @@
 // import and export plugins, or graphical user interfaces.
 
 #include "avisynth.h"
-#include "overlayfunctions_sse.h"
 #include "OF_multiply_sse.h"
 
 #include <stdint.h>

@@ -1,9 +1,11 @@
-# We need CMake 3.8 at least, because we require
-# CMAKE_CXX_STANDARD to be set to C++17.
-CMAKE_MINIMUM_REQUIRED( VERSION 3.8.2 )
+CMAKE_MINIMUM_REQUIRED( VERSION 3.6.2 )
 
 if (WIN32)
-  set(CoreName "AviSynth")
+  if(BUILD_SHARED_LIBS)
+    set(CoreName "AviSynth")
+  else()
+    set(CoreName "avisynth")
+  endif()
 else()
   set(CoreName "avisynth")
 endif()
@@ -17,8 +19,10 @@ if (NOT WIN32)
   set_target_properties("AvsCore" PROPERTIES VERSION "${PROJECT_VERSION}" SOVERSION "${AVISYNTH_INTERFACE_VERSION}")
 endif()
 if (MINGW)
-  set_target_properties("AvsCore" PROPERTIES PREFIX "")
-  set_target_properties("AvsCore" PROPERTIES IMPORT_PREFIX "")
+  if(BUILD_SHARED_LIBS)
+    set_target_properties("AvsCore" PROPERTIES PREFIX "")
+    set_target_properties("AvsCore" PROPERTIES IMPORT_PREFIX "")
+  endif()
 endif()
 
 # Automatically group source files according to directory structure
@@ -101,31 +105,35 @@ if (EXISTS ${GHS_FILESYSTEM_INCLUDE_DIR})
     target_include_directories("AvsCore" SYSTEM PRIVATE ${GHS_FILESYSTEM_INCLUDE_DIR})
 endif()
 
-# stdc++fs was mainlined into stdc++ in GCC 9, but GCC 8 can build it too
-if (CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
-    set(FSLIB "stdc++fs")
-endif()
-
 if (CMAKE_SYSTEM_NAME STREQUAL "Haiku")
     set(SYSLIB "root")
-    set(SYSLIBS "-lroot")
-else()
-if (CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "OpenBSD")
     set(SYSLIB "pthread")
-    set(SYSLIBS "-lpthread")
+elseif(MSVC OR MINGW)
+    set(SYSLIB "uuid" "winmm" "vfw32" "msacm32" "gdi32" "user32" "advapi32" "ole32" "imagehlp")
 else()
-    set(SYSLIB "pthread" "dl")
-    set(SYSLIBS "-lpthread -ldl")
-endif()
+    set(SYSLIB "pthread" "dl" "m")
 endif()
 
-# Per-OS link dependencies
-if (MSVC OR MINGW)
-  target_link_libraries("AvsCore" "uuid" "winmm" "vfw32" "msacm32" "gdi32" "user32" "advapi32" "ole32" "imagehlp")
-else()
-  target_link_libraries("AvsCore" "${SYSLIB}" "${FSLIB}")
+if(MINGW)
+    set(CMAKE_THREAD_PREFER_PTHREAD TRUE)
+    set(THREADS_PREFER_PTHREAD_FLAG TRUE)
+    find_package(Threads REQUIRED)
+
+    list(APPEND SYSLIB "pthread")
 endif()
 
+if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+    list(APPEND SYSLIB "stdc++")
+    # stdc++fs was mainlined into stdc++ in GCC 9, but GCC 8 can build it too
+    if (CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
+        list(APPEND SYSLIB "stdc++fs")
+    endif()
+elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    list(APPEND SYSLIB "c++")
+endif()
+
+target_link_libraries("AvsCore" ${SYSLIB})
 
 if(ENABLE_CUDA)
   if(${CMAKE_VERSION} VERSION_LESS "3.19.5")
@@ -136,6 +144,7 @@ if(ENABLE_CUDA)
       #target_link_libraries ("AvsCore" ${CUDA_LIBRARIES})
       target_link_libraries ("AvsCore" ${CUDA_cudart_static_LIBRARY})
       target_compile_definitions("AvsCore" PUBLIC ENABLE_CUDA)
+      list(APPEND SYSLIB "cudart_static")
     endif()
   else()
     # Fixed in 3.19.5: https://gitlab.kitware.com/cmake/cmake/-/issues/21740
@@ -145,6 +154,7 @@ if(ENABLE_CUDA)
       target_include_directories("AvsCore" PRIVATE ${CUDAToolkit_INCLUDE_DIRS})
       target_link_libraries ("AvsCore" CUDA::cudart_static)
       target_compile_definitions("AvsCore" PUBLIC ENABLE_CUDA)
+      list(APPEND SYSLIB "cudart_static")
     endif()
   endif()
 endif()
@@ -197,6 +207,14 @@ endif()
 # Generate pkg-config file
 get_target_property(LIB_NAME AvsCore OUTPUT_NAME)
 set(LIBS "-l${LIB_NAME}")
+set(_SYSLIBS_ITEMS ${SYSLIB})
+list(TRANSFORM _SYSLIBS_ITEMS PREPEND "-l")
+list(JOIN _SYSLIBS_ITEMS " " SYSLIBS)
+
+if(MINGW)
+set(SYSLIBS "${SYSLIBS} -static")
+endif()
+
 CONFIGURE_FILE("avisynth.pc.in" "avisynth.pc" @ONLY)
 
 # Generate avisynth.conf
@@ -209,6 +227,10 @@ INSTALL(TARGETS AvsCore
 
 INSTALL(DIRECTORY "include/"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/avisynth")
+
+INSTALL(FILES "${CMAKE_CURRENT_BINARY_DIR}/version.h"
+              "${CMAKE_CURRENT_BINARY_DIR}/arch.h"
+        DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/avisynth/avs")
 
 INSTALL(FILES "${CMAKE_CURRENT_BINARY_DIR}/avisynth.pc"
         DESTINATION "${CMAKE_INSTALL_LIBDIR}/pkgconfig")

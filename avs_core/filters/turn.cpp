@@ -39,6 +39,9 @@
 */
 
 #include "turn.h"
+#ifdef INTEL_INTRINSICS
+#include "intel/turn_sse.h"
+#endif
 #include "resample.h"
 #include "planeswap.h"
 #include "../core/internal.h"
@@ -64,7 +67,7 @@ enum TurnDirection
 // Therefore, we don't have to implement both TurnRight() and TurnLeft().
 
 template <typename T>
-static inline void turn_right_plane_c(const BYTE* srcp, BYTE* dstp, int src_rowsize, int height, int src_pitch, int dst_pitch)
+void turn_right_plane_c(const BYTE* srcp, BYTE* dstp, int src_rowsize, int height, int src_pitch, int dst_pitch)
 {
     const BYTE* s0 = srcp + src_pitch * (height - 1);
 
@@ -80,6 +83,10 @@ static inline void turn_right_plane_c(const BYTE* srcp, BYTE* dstp, int src_rows
         dstp += sizeof(T);
     }
 }
+
+
+// Explicit instantiation, can be used from other modules.
+template void turn_right_plane_c<uint64_t>(const BYTE*, BYTE*, int, int, int, int);
 
 
 void turn_right_plane_8_c(const BYTE* srcp, BYTE* dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch)
@@ -213,7 +220,7 @@ static void turn_left_yuy2(const BYTE* srcp, BYTE* dstp, int src_rowsize, int sr
 
 
 template <typename T>
-static void turn_180_plane_c(const BYTE* srcp, BYTE* dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch)
+void turn_180_plane_c(const BYTE* srcp, BYTE* dstp, int src_rowsize, int src_height, int src_pitch, int dst_pitch)
 {
     dstp += dst_pitch * (src_height - 1) + src_rowsize - sizeof(T);
     src_rowsize /= sizeof(T);
@@ -323,51 +330,98 @@ void Turn::SetUVSource(int mod_h, int mod_v, IScriptEnvironment* env)
 void Turn::SetTurnFunction(int direction, IScriptEnvironment* env)
 {
 #ifdef INTEL_INTRINSICS
-    int cpu = env->GetCPUFlags();
+  const int cpu = env->GetCPUFlags();
+  const bool sse2 = cpu & CPUF_SSE2;
+  const bool ssse3 = cpu & CPUF_SSSE3;
 #endif
 
-    TurnFuncPtr funcs[3];
-    auto set_funcs = [&funcs](TurnFuncPtr tleft, TurnFuncPtr tright, TurnFuncPtr t180) {
-        funcs[0] = tleft;
-        funcs[1] = tright;
-        funcs[2] = t180;
-    };
+  TurnFuncPtr funcs[3];
+  auto set_funcs = [&funcs](TurnFuncPtr tleft, TurnFuncPtr tright, TurnFuncPtr t180) {
+    funcs[0] = tleft;
+    funcs[1] = tright;
+    funcs[2] = t180;
+  };
 
-    if (vi.IsRGB64())
+  if (vi.IsRGB64())
+  {
+#ifdef INTEL_INTRINSICS
+    if (sse2)
+      set_funcs(turn_left_rgb64_sse2, turn_right_rgb64_sse2, turn_180_plane_sse2<uint64_t>);
+    else
+#endif
     {
-        set_funcs(turn_left_rgb64_c, turn_right_rgb64_c, turn_180_plane_c<uint64_t>);
+      set_funcs(turn_left_rgb64_c, turn_right_rgb64_c, turn_180_plane_c<uint64_t>);
     }
-    else if (vi.IsRGB48())
-    {
-        set_funcs(turn_left_rgb48_c, turn_right_rgb48_c, turn_180_plane_c<Rgb48>);
-    }
-    else if (vi.IsRGB32())
-    {
-        set_funcs(turn_left_rgb32_c, turn_right_rgb32_c, turn_180_plane_c<uint32_t>);
-    }
-    else if (vi.IsRGB24())
-    {
-        set_funcs(turn_left_rgb24, turn_right_rgb24, turn_180_plane_c<Rgb24>);
-    }
-    else if (vi.IsYUY2())
-    {
-        set_funcs(turn_left_yuy2, turn_right_yuy2, turn_180_yuy2);
-    }
-    else if (vi.ComponentSize() == 1) // 8 bit
-    {
-        set_funcs(turn_left_plane_8_c, turn_right_plane_8_c, turn_180_plane_c<BYTE>);
-    }
-    else if (vi.ComponentSize() == 2) // 16 bit
-    {
-        set_funcs(turn_left_plane_16_c, turn_right_plane_16_c, turn_180_plane_c<uint16_t>);
-    }
-    else if (vi.ComponentSize() == 4) // 32 bit
-    {
-        set_funcs(turn_left_plane_32_c, turn_right_plane_32_c, turn_180_plane_c<uint32_t>);
-    }
-    else env->ThrowError("Turn: Image format not supported!");
 
-    turn_function = funcs[direction];
+  }
+  else if (vi.IsRGB48())
+  {
+    set_funcs(turn_left_rgb48_c, turn_right_rgb48_c, turn_180_plane_c<Rgb48>);
+  }
+  else if (vi.IsRGB32())
+  {
+#ifdef INTEL_INTRINSICS
+    if (sse2)
+      set_funcs(turn_left_rgb32_sse2, turn_right_rgb32_sse2, turn_180_plane_sse2<uint32_t>);
+    else
+#endif
+    {
+      set_funcs(turn_left_rgb32_c, turn_right_rgb32_c, turn_180_plane_c<uint32_t>);
+    }
+  }
+  else if (vi.IsRGB24())
+  {
+    set_funcs(turn_left_rgb24, turn_right_rgb24, turn_180_plane_c<Rgb24>);
+  }
+  else if (vi.IsYUY2())
+  {
+    set_funcs(turn_left_yuy2, turn_right_yuy2, turn_180_yuy2);
+  }
+  else if (vi.ComponentSize() == 1) // 8 bit
+  {
+#ifdef INTEL_INTRINSICS
+    if (sse2)
+    {
+      set_funcs(turn_left_plane_8_sse2, turn_right_plane_8_sse2,
+        ssse3 ? turn_180_plane_ssse3<BYTE> : turn_180_plane_sse2<BYTE>);
+    }
+    else
+#endif
+    {
+      set_funcs(turn_left_plane_8_c, turn_right_plane_8_c, turn_180_plane_c<BYTE>);
+    }
+  }
+  else if (vi.ComponentSize() == 2) // 16 bit
+  {
+#ifdef INTEL_INTRINSICS
+    if (sse2)
+    {
+      set_funcs(turn_left_plane_16_sse2, turn_right_plane_16_sse2,
+        ssse3 ? turn_180_plane_ssse3<uint16_t> : turn_180_plane_sse2<uint16_t>);
+    }
+    else
+
+#endif
+    {
+      set_funcs(turn_left_plane_16_c, turn_right_plane_16_c, turn_180_plane_c<uint16_t>);
+    }
+  }
+  else if (vi.ComponentSize() == 4) // 32 bit
+  {
+#ifdef INTEL_INTRINSICS
+    if (sse2) {
+      set_funcs(turn_left_plane_32_sse2, turn_right_plane_32_sse2, turn_180_plane_sse2<uint32_t>);
+    }
+    else
+
+#endif
+    {
+      set_funcs(turn_left_plane_32_c, turn_right_plane_32_c, turn_180_plane_c<uint32_t>);
+    }
+  }
+  else env->ThrowError("Turn: Image format not supported!");
+
+  turn_function = funcs[direction];
 }
 
 
@@ -425,5 +479,3 @@ AVSValue __cdecl Turn::create_turn180(AVSValue args, void* , IScriptEnvironment*
 {
     return new Turn(args[0].AsClip(), DIRECTION_180, env);
 }
-
-

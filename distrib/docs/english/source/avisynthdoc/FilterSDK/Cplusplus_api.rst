@@ -1,4 +1,3 @@
-
 C++ API
 =======
 
@@ -10,7 +9,7 @@ a plugin. All external plugins should #include it:
     #include "avisynth.h"
 
 Note, sometimes there is a reference to a version number of the plugin
-api (for example v3 or v6). This refers to the value of
+api (for example v3, v6, v8). This refers to the value of
 :doc:`AVISYNTH_INTERFACE_VERSION <AviSynthInterfaceVersion>`. The
 classes and miscellaneous constants are described below.
 
@@ -76,12 +75,12 @@ VideoFrameBuffer
 VideoFrameBuffer (VFB) holds information about a memory block which is
 used for video data. For efficiency, instances of this class are not
 deleted when the refcount reaches zero; instead they are stored in a
-linked list to be reused. The instances are deleted when the
-corresponding AVS file is closed. Or more accurately, a
-VideoFrameBuffer once new'd generally is not released until the
-IScriptEnvironment is deleted, except if SetMemoryMax is exceeded by
-too much then not in use VideoFrameBuffer's are forcible deleted until
-SetMemoryMax is satisfied.
+linked list to be reused. In Avisynth+ this is called frame registry.
+The instances are deleted when the corresponding AVS file is closed.
+Or more accurately, a VideoFrameBuffer once new'd generally is not 
+released until the IScriptEnvironment is deleted, except if SetMemoryMax
+is exceeded by too much then not in use VideoFrameBuffer's are forcible
+deleted until SetMemoryMax is satisfied.
 
 
 .. _cplusplus_videoframe:
@@ -98,9 +97,9 @@ overloaded to recycle class instances. Its members can be called by:
 
 
 VideoFrame has the following members: GetPitch, GetRowSize, GetHeight,
-GetReadPtr, GetWritePtr and IsWritable.
+GetReadPtr, GetWritePtr, IsWritable and IsPropertyWritable
 
-All those filters (except IsWritable) will give you a property (pitch,
+All those filters (except IsWritable and IsPropertyWritable) will give you a property (pitch,
 rowsize, etc ...) of a plane (of the frame it points to). The
 interleaved formats (BGR(A) or YUY2) consist of one plane, and the
 planar formats consists of one (Y) or three (YUV) planes. The default
@@ -124,15 +123,18 @@ next. The source and destination buffers won't necessarily have the
 same pitch. The pitch can vary among frames in a clip, and it can
 differ from the width of the clip. [todo add link]
 
-| The scan line will be padded to a multiple of 8 (if necessary) due to
-  speed reasons, so the pitch will always be a multiple of 8. Image
-  processing is expensive, so SIMD instructions are used to speed tasks
-  up:
+| The scan line will be padded to a multiple of 8 or 16 (classic Avisynth) 
+  or even 64 bytes (Avisynth+) due to speed reasons, so the pitch will 
+  always be a multiple of that (e.g. mod64). Image processing is expensive, 
+  so SIMD instructions are used to speed tasks up:
 
-| SSE uses 128 bit = 16 byte registers, so 8 YUY2 pixels can be processed
+| SSE uses 128 bit = 16 byte registers, so 16 byte-pixels (4 floats) can be processed
   the same time.
 
-| AVX uses 256 bit = 32 byte registers, so 16 YUY2 pixels can be
+| AVX uses 256 bit = 32 byte registers, so 32 byte-pixels (8 floats) can be
+  processed the same time.
+
+| AVX512 uses 512 bit = 64 byte registers, so 64 byte-pixels (16 floats) can be
   processed the same time.
 
 NOTE that the pitch can change anytime, so in most use cases you must
@@ -266,10 +268,43 @@ rule guarantees that as long as you hold on to a PVideoFrame and don't
 write to it yourself, that frame will remain unchanged. The only
 drawback is that you can't have two PVideoFrames pointing to a writable
 buffer.
+
+MakeWritable makes the properties writable as well.
 ::
 
     PVideoFrame src = child->GetFrame(n, env);
     if (src->IsWritetable()) {...}
+
+
+.. _cplusplus_ispropertywritable:
+
+IsPropertyWritable V9
+^^^^^^^^^^^^^^^^^^^^^
+
+::
+
+    bool IsPropertyWritable() const;
+
+
+All frame properties connected to frame buffers are readable, but not all are writable.
+This method can be used to find out if a property set is writable or not.
+
+The rule about writability is this: A buffer is writable if and only if
+there is exactly one PVideoFrame pointing to it. In other words, you
+can only write to a buffer if no one else might be reading it. This
+rule guarantees that as long as you hold on to a PVideoFrame and don't
+write to it yourself, that frame will remain unchanged.
+
+See also :ref:`getFramePropsRW <cplusplus_getframepropsrw>`.
+
+::
+
+    PVideoFrame src = child->GetFrame(n, env);
+    if (!src->IsPropertyWritable())
+      env->MakePropertyWritable(&src);
+    }
+    AVSMap *props = env->getFramePropsRW(dst);
+
 
 
 .. _cplusplus_alignplanar:
@@ -834,6 +869,7 @@ NewVideoFrame
     virtual PVideoFrame __stdcall NewVideoFrame(const VideoInfo& vi, int align=FRAME_ALIGN) = 0;
     // default align is 16
 
+See also :ref:`NewVideoFrameP <cplusplus_newvideoframep>`.
 
 The NewVideoFrame callback allocates space for a video frame of the
 supplied size. (In this case it will hold our filter's output.) The
@@ -866,6 +902,7 @@ new video frame from it:
     frame = env->NewVideoFrame(vi);
 
 
+
 .. _cplusplus_checkversion:
 
 CheckVersion
@@ -881,7 +918,7 @@ error if 'version' is bigger than the used interface version. The
 following interface versions are in use:
 
 AVISYNTH_INTERFACE_VERSION = 1 (v1.0-v2.0.8), 2 (v2.5.0-v2.5.5), 3
-(v2.5.6-v2.5.8), 5 (v2.6.0a1-v2.6.0a5), or 6 (v2.6.0) [version 4 doesn't exist].
+(v2.5.6-v2.5.8), 5 (v2.6.0a1-v2.6.0a5), 6 (v2.6.0), 8 (Avisynth+) from a specific build [version 4 doesn't exist].
 
 This example will throw an error if v2.5x or an older AviSynth version
 is being used:
@@ -892,6 +929,28 @@ is being used:
 
 This can be used in a plugin, for example, if it needs at least a
 certain interface version for it to work.
+
+Interface V9 (8.1) introduced new methods for establishing actual interface version both on C++ and C interfaces.
+See :ref:`GetEnvProperty <cplusplus_getenvproperty>`
+
+::
+
+    Example of usage with CPP interface (through avisynth.h).
+
+    IScriptEnvironment *env = ...
+    int avisynth_if_ver = 6;
+    int avisynth_bugfix_ver = 0;
+    try { 
+      avisynth_if_ver = env->GetEnvProperty(AEP_INTERFACE_VERSION); 
+      avisynth_bugfix_ver = env->GetEnvProperty(AEP_INTERFACE_BUGFIX);      
+    } 
+    catch (const AvisynthError&) { 
+      try { env->CheckVersion(8); avisynth_if_ver = 8; } catch (const AvisynthError&) { }
+    }
+    has_at_least_v8 = avisynth_if_ver >= 8; // frame properties, NewVideoFrameP, other V8 environment functions
+    has_at_least_v8_1 = avisynth_if_ver > 8 || (avisynth_if_ver == 8 && avisynth_bugfix_ver >= 1);
+    // 8.1: C interface frameprop access fixed, IsPropertyWritable/MakePropertyWritable support, extended GetEnvProperty queries
+    has_at_least_v9 = avisynth_if_ver >= 9; // future
 
 
 .. _cplusplus_subframe:
@@ -1044,6 +1103,641 @@ Returns the :doc:`AVSLinkage <AVSLinkage>`.
 todo: how and when to use that ...
 
 
+.. _cplusplus_subframeplanara:
+
+SubframePlanarA, v8
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual PVideoFrame __stdcall SubframePlanarA(PVideoFrame src, int rel_offset, int new_pitch, int new_row_size, int new_height, int rel_offsetU, int rel_offsetV, int new_pitchUV, int rel_offsetA) = 0;
+
+Alpha plane aware version of SubframePlanar.
+
+
+.. _cplusplus_copyframeprops:
+
+copyFrameProps, v8
+^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual void __stdcall copyFrameProps(const PVideoFrame& src, PVideoFrame& dst) = 0;
+
+copy frame properties between video frames.
+
+
+.. _cplusplus_getframepropsro:
+
+getFramePropsRO, v8
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual const AVSMap* __stdcall getFramePropsRO(const PVideoFrame& frame) = 0;
+
+get pointer for reading frame properties
+
+
+.. _cplusplus_getframePropsrw:
+
+getFramePropsRW, v8
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual AVSMap* __stdcall getFramePropsRW(PVideoFrame& frame) = 0;
+
+get pointer for reading/writing frame properties.
+
+Important note: a frame property set is safely writable if
+
+- frame is just obtained with NewVideoFrame
+- frame is obtained with SubFrame, SubFramePlanar or SubFramePlanarA
+- env->MakeWritable is used
+- or env->MakePropertyWritable is used
+
+MakePropertyWritable (v9) vs MakeWritable: MakePropertyWritable does not make
+a full copy of video buffer content, just re-references the frame (internally
+is working like SubFramePlanarA)
+
+.. _cplusplus_propnumkeys:
+
+propNumKeys, v8
+^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propNumKeys(const AVSMap* map) = 0;
+
+ get number of frame properties for a frame.
+
+
+.. _cplusplus_propgetkey:
+
+propGetKey, v8
+^^^^^^^^^^^^^^
+
+::
+
+    virtual const char* __stdcall propGetKey(const AVSMap* map, int index) = 0;
+
+ get name of key by index.
+
+
+.. _cplusplus_propnumelements:
+
+propNumElements, v8
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propNumElements(const AVSMap* map, const char* key) = 0;
+
+get array size of a property
+
+
+.. _cplusplus_propGetType:
+
+propGetType, v8
+^^^^^^^^^^^^^^^
+
+::
+
+    virtual char __stdcall propGetType(const AVSMap* map, const char* key) = 0;
+
+get property data type.
+
+::
+
+    // enums for frame property types
+    enum AVSPropTypes {
+      PROPTYPE_UNSET = 'u', // ptUnset
+      PROPTYPE_INT = 'i', // peType
+      PROPTYPE_FLOAT = 'f', // ptFloat
+      PROPTYPE_DATA = 's', // ptData
+      PROPTYPE_CLIP = 'c', // ptClip
+      PROPTYPE_FRAME = 'v' // ptFrame
+      //  ptFunction = 'm'
+    };
+
+
+.. _cplusplus_propgetint:
+
+propGetInt, v8
+^^^^^^^^^^^^^^
+
+::
+
+    virtual int64_t __stdcall propGetInt(const AVSMap* map, const char* key, int index, int* error) = 0;
+
+get property value as integer (int64).
+You can pass nullptr to error, but if given, the following error codes are set (0 = O.K.)
+Though AVSValue in Avisynth does not support int64_t (as of December 2021), you can freely
+use int64_t frame property values in plugins. Internally there is no special 32 bit integer
+version, only 64 bit integer exists.
+
+Possible error codes defined in Avisynth.h:
+
+::
+
+  enum AVSGetPropErrors {
+    GETPROPERROR_UNSET = 1, // peUnset
+    GETPROPERROR_TYPE = 2, // peType
+    GETPROPERROR_INDEX = 4 // peIndex
+  };
+
+
+
+.. _cplusplus_propgetfloat:
+
+propGetFloat, v8
+^^^^^^^^^^^^^^^^
+
+::
+
+    virtual double __stdcall propGetFloat(const AVSMap* map, const char* key, int index, int* error) = 0;
+
+Get property value as float (double).
+No special 32 bit float is handled for frame properties, only 64 bit double.
+
+
+.. _cplusplus_propgetdata:
+
+propGetData, v8
+^^^^^^^^^^^^^^^
+
+::
+
+    virtual const char* __stdcall propGetData(const AVSMap* map, const char* key, int index, int* error) = 0;
+
+get property value as string buffer.
+
+
+.. _cplusplus_propgetdatasize:
+
+propGetDataSize, v8
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propGetDataSize(const AVSMap* map, const char* key, int index, int* error) = 0;
+
+get string/data buffer size.
+String length is without the terminating 0.
+
+
+.. _cplusplus_propgetclip:
+
+propGetClip, v8
+^^^^^^^^^^^^^^^
+
+::
+
+    virtual PClip __stdcall propGetClip(const AVSMap* map, const char* key, int index, int* error) = 0;
+
+get property value as Clip.
+
+
+.. _cplusplus_propgetframe:
+
+propGetFrame, v8
+^^^^^^^^^^^^^^^^
+
+::
+
+    virtual const PVideoFrame __stdcall propGetFrame(const AVSMap* map, const char* key, int index, int* error) = 0;
+
+get property value as Frame.
+
+
+.. _cplusplus_propdeletekey:
+
+propDeleteKey, v8
+^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propDeleteKey(AVSMap* map, const char* key) = 0;
+
+removes a frame property by name (key).
+
+
+.. _cplusplus_propsetint:
+
+propSetInt, v8
+^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propSetInt(AVSMap* map, const char* key, int64_t i, int append) = 0;
+
+sets integer (int64) frame property.
+In setter function the append parameter rules that the key is replaced if exists, added otherwise (PROPAPPENDMODE_REPLACE).
+For populating an array use PROPAPPENDMODE_APPEND. For just creating the key use PROPAPPENDMODE_TOUCH.
+
+::
+
+  enum AVSPropAppendMode {
+    PROPAPPENDMODE_REPLACE = 0, // paReplace
+    PROPAPPENDMODE_APPEND = 1, // paAppend
+    PROPAPPENDMODE_TOUCH = 2 // paTouch
+  };
+
+
+.. _cplusplus_propsetfloat:
+
+propSetFloat, v8
+^^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propSetFloat(AVSMap* map, const char* key, double d, int append) = 0;
+
+sets float (double) frame property.
+
+
+.. _cplusplus_propsetdata:
+
+propSetData, v8
+^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propSetData(AVSMap* map, const char* key, const char* d, int length, int append) = 0;
+
+sets string (byte buffer) frame property.
+
+
+.. _cplusplus_propsetclip:
+
+propSetClip, v8
+^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propSetClip(AVSMap* map, const char* key, PClip& clip, int append) = 0;
+
+sets PClip type frame property.
+
+
+.. _cplusplus_propsetframe:
+
+propSetFrame, v8
+^^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propSetFrame(AVSMap* map, const char* key, const PVideoFrame& frame, int append) = 0;
+
+sets PVideoFrame type frame property..
+
+
+.. _cplusplus_propgetintarray:
+
+propGetIntArray, v8
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual const int64_t* __stdcall propGetIntArray(const AVSMap* map, const char* key, int* error) = 0;
+
+array version of propGetInt.
+
+
+.. _cplusplus_propgetfloatarray:
+
+propGetFloatArray, v8
+^^^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual const double* __stdcall propGetFloatArray(const AVSMap* map, const char* key, int* error) = 0;
+
+array version of propGetFloat.
+
+
+.. _cplusplus_propsetintarray:
+
+propSetIntArray, v8
+^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propSetIntArray(AVSMap* map, const char* key, const int64_t* i, int size) = 0;
+
+array version of propSetInt.
+
+
+.. _cplusplus_propsetfloatarray:
+
+propSetFloatArray, v8
+^^^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual int __stdcall propSetFloatArray(AVSMap* map, const char* key, const double* d, int size) = 0;
+
+array version of propSetFloat.
+
+
+.. _cplusplus_createmap:
+
+createMap, v8
+^^^^^^^^^^^^^
+
+::
+
+    virtual AVSMap* __stdcall createMap() = 0;
+
+internal use only, creating frame property buffer.
+
+
+.. _cplusplus_freemap:
+
+freeMap, v8
+^^^^^^^^^^^
+
+::
+
+    virtual void __stdcall freeMap(AVSMap* map) = 0;
+
+internal use only, frees up frame property buffer.
+
+
+.. _cplusplus_clearmap:
+
+clearMap, v8
+^^^^^^^^^^^^
+
+::
+
+    virtual void __stdcall clearMap(AVSMap* map) = 0;
+
+clears all properties for a frame.
+
+
+.. _cplusplus_newvideoframep:
+
+NewVideoFrameP, v8
+^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual PVideoFrame __stdcall NewVideoFrameP(const VideoInfo& vi, PVideoFrame* propSrc, int align = FRAME_ALIGN) = 0;
+
+NewVideoFrame with frame property source.
+
+
+.. _cplusplus_getenvproperty:
+
+GetEnvProperty, v8
+^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual size_t  __stdcall GetEnvProperty(AvsEnvProperty prop) = 0;
+
+Query to ask for various system (not frame!) properties.
+
+::
+
+    // IScriptEnvironment GetEnvProperty
+    enum AvsEnvProperty
+    {
+      AEP_PHYSICAL_CPUS = 1,
+      AEP_LOGICAL_CPUS = 2,
+      AEP_THREADPOOL_THREADS = 3,
+      AEP_FILTERCHAIN_THREADS = 4,
+      AEP_THREAD_ID = 5,
+      AEP_VERSION = 6,
+      AEP_HOST_SYSTEM_ENDIANNESS = 7, // V9
+      AEP_INTERFACE_VERSION = 8, // V9
+      AEP_INTERFACE_BUGFIX = 9,  // V9
+
+      // Neo additionals
+      AEP_NUM_DEVICES = 901,
+      AEP_FRAME_ALIGN = 902,
+      AEP_PLANE_ALIGN = 903,
+
+      AEP_SUPPRESS_THREAD = 921,
+      AEP_GETFRAME_RECURSIVE = 922,
+    };
+
+AEP_HOST_SYSTEM_ENDIANNESS (c++) AVS_AEP_HOST_SYSTEM_ENDIANNESS (c)
+
+Populated by 'little', 'big', or 'middle' based on what GCC and/or Clang report at compile time.
+
+AEP_INTERFACE_VERSION (c++) AVS_AEP_INTERFACE_VERSION (c)
+
+For requesting actual interface (main) version. An long awaited function. 
+So far the actual interface version could be queried only indirectly, with trial and error, by starting from e.g. 10 then
+going back one by one until CheckVersion() did not report an exception/error code. 
+
+Even for V8 interface this was a bit tricky, the only way to detect was the infamous
+
+::
+
+      has_at_least_v8 = true;
+      try { env->CheckVersion(8); } catch (const AvisynthError&) { has_at_least_v8 = false; }
+
+method.
+
+Now (starting from interface version 8.1) a direct version query is supported as well.
+Of course this (one or two direct call only) is the future.
+Programs or plugins which would like to identify older systems still must rely partially on the CheckVersion method.
+
+CPP interface (through avisynth.h).
+
+::
+
+    IScriptEnvironment *env = ...
+    int avisynth_if_ver = 6;
+    int avisynth_bugfix_ver = 0;
+    try { 
+      avisynth_if_ver = env->GetEnvProperty(AEP_INTERFACE_VERSION); 
+      avisynth_bugfix_ver = env->GetEnvProperty(AEP_INTERFACE_BUGFIX);      
+    } 
+    catch (const AvisynthError&) { 
+      try { env->CheckVersion(8); avisynth_if_ver = 8; } catch (const AvisynthError&) { }
+    }
+    has_at_least_v8 = avisynth_if_ver >= 8; // frame properties, NewVideoFrameP, other V8 environment functions
+    has_at_least_v8_1 = avisynth_if_ver > 8 || (avisynth_if_ver == 8 && avisynth_bugfix_ver >= 1);
+    // 8.1: C interface frameprop access fixed, IsPropertyWritable/MakePropertyWritable support, extended GetEnvProperty queries
+    has_at_least_v9 = avisynth_if_ver >= 9; // future
+
+C interface (through avisynth_c.h)
+
+::
+
+    AVS_ScriptEnvironment *env = ...
+    int avisynth_if_ver = 6; // guessed minimum
+    int avisynth_bugfix_ver = 0;
+    int retval = avs_check_version(env, 8);
+    if (retval == 0) {
+      avisynth_if_ver = 8;
+      // V8 at least, we have avs_get_env_property but AVS_AEP_INTERFACE_VERSION query may not be supported
+      int retval = avs_get_env_property(env, AVS_AEP_INTERFACE_VERSION);
+      if(env->error == 0) {
+        avisynth_if_ver = retval;
+        retval = avs_get_env_property(env, AVS_AEP_INTERFACE_BUGFIX);
+        if(env->error == 0)
+          avisynth_bugfix_ver = retval;
+      }
+    }
+    has_at_least_v8 = avisynth_if_ver >= 8; // frame properties, NewVideoFrameP, other V8 environment functions
+    has_at_least_v8_1 = avisynth_if_ver > 8 || (avisynth_if_ver == 8 && avisynth_bugfix_ver >= 1);
+    // 8.1: C interface frameprop access fixed, IsPropertyWritable/MakePropertyWritable support, extended GetEnvProperty queries
+    has_at_least_v9 = avisynth_if_ver >= 9; // future
+
+
+AEP_INTERFACE_BUGFIX (c++) AVS_AEP_INTERFACE_BUGFIX (c)
+
+Denotes situations where there isn't a breaking change to the API,
+but we need to identify when a particular change, fix or addition
+to various API-adjacent bits might have occurred.  Could also be
+used when any new functions get added.
+
+Since the number is modelled as 'changes since API bump' and
+intended to be used in conjunction with checking the main
+AVISYNTH_INTERFACE_VERSION, whenever the main INTERFACE_VERSION
+gets raised, the value of INTERFACE_BUGFIX should be reset to zero.
+
+The BUGFIX version is added here with already incremented once,
+both because the addition of AVISYNTH_INTERFACE_BUGFIX_VERSION
+itself would require it, but also because it's intended to signify
+the fix to the C interface allowing frame properties to be read
+back (which was the situation that spurred this define to exist
+in the first place).
+
+
+.. _cplusplus_allocate:
+
+Allocate, v8
+^^^^^^^^^^^^
+
+::
+
+    virtual void* __stdcall Allocate(size_t nBytes, size_t alignment, AvsAllocType type) = 0;
+
+buffer pool allocate.
+
+::
+
+    // IScriptEnvironment Allocate
+    enum AvsAllocType
+    {
+      AVS_NORMAL_ALLOC = 1,
+      AVS_POOLED_ALLOC = 2
+    };
+
+
+.. _cplusplus_free:
+
+Free, v8
+^^^^^^^^
+
+::
+
+    virtual void __stdcall Free(void* ptr) = 0;
+
+buffer pool free.
+
+
+.. _cplusplus_getvartry:
+
+GetVarTry, v8
+^^^^^^^^^^^^^
+
+::
+
+    virtual bool  __stdcall GetVarTry(const char* name, AVSValue* val) const = 0;
+
+get variable with success indicator.
+Returns true and the requested variable. If the method fails, returns false and does not touch 'val'.
+
+
+.. _cplusplus_getvarbool:
+
+GetVarBool, v8
+^^^^^^^^^^^^^^
+
+::
+
+    virtual bool __stdcall GetVarBool(const char* name, bool def) const = 0;
+
+Get bool value with default.
+Return the value of the requested variable. If the variable was not found or had the wrong type, return the supplied default value.
+
+
+.. _cplusplus_getvarint:
+
+GetVarInt, v8
+^^^^^^^^^^^^^
+
+::
+
+    virtual int  __stdcall GetVarInt(const char* name, int def) const = 0;
+
+Get int value with default.
+Return the value of the requested variable. If the variable was not found or had the wrong type, return the supplied default value.
+
+
+.. _cplusplus_getvardouble:
+
+GetVarDouble, v8
+^^^^^^^^^^^^^^^^
+
+::
+
+    virtual double  __stdcall GetVarDouble(const char* name, double def) const = 0;
+
+Get floating point value with default. As of 2021 there is no double support for variables, 32 bit float only.
+Return the value of the requested variable. If the variable was not found or had the wrong type, return the supplied default value.
+
+
+.. _cplusplus_getvarstring:
+
+GetVarString, v8
+^^^^^^^^^^^^^^^^
+
+::
+
+    virtual const char* __stdcall GetVarString(const char* name, const char* def) const = 0;
+
+Get string with default.
+Return the value of the requested variable. If the variable was not found or had the wrong type, return the supplied default value.
+
+
+.. _cplusplus_getvarlong:
+
+GetVarLong, v8
+^^^^^^^^^^^^^^
+
+::
+
+    virtual int64_t __stdcall GetVarLong(const char* name, int64_t def) const = 0;
+
+Get int64 with default. As of 2021 there is no int64 support for variables. On Windows it is 32 bit int.
+Return the value of the requested variable. If the variable was not found or had the wrong type, return the supplied default value.
+
+
+.. _cplusplus_makepropertywritable:
+
+MakePropertyWritable v9
+^^^^^^^^^^^^^^^^^^^^^^^
+
+::
+
+    virtual bool __stdcall MakePropertyWritable(PVideoFrame* pvf) = 0;
+
+like MakeWritable but for frame properties only.
+See also 
+- :ref:`IsPropertyWritable <cplusplus_ispropertywritable>` like IsWritable but for frame properties only.
+- :ref:`getFramePropsRW <cplusplus_getframepropsrw>`.
+
+
+
 .. _cplusplus_pvideoframe:
 
 PVideoFrame
@@ -1068,6 +1762,16 @@ In this example it gives a pointer to a new created VideoFrame from vi
 ::
 
     PVideoFrame dst = env->NewVideoFrame(vi);
+
+Interface V8 introduced frame properties. One can create a new frame with
+specifying a source frame from which the frame properties are copied.
+
+In this example it gives a pointer to a new created VideoFrame from vi,
+with the actual child clip as frame property source:
+::
+
+    PVideoFrame src = child->GetFrame(n, env);
+    PVideoFrame dst = env->NewVideoFrameP(vi, src);
 
 
 "vi" is another protected member of GenericVideoFilter (the only other
@@ -1108,7 +1812,9 @@ GetVersion
 GetVersion returns the interface version of the loaded avisynth.dll:
 
 AVISYNTH_INTERFACE_VERSION = 1 (v1.0-v2.0.8), 2 (v2.5.0-v2.5.5), 3
-(v2.5.6-v2.5.8), 5 (v2.6.0a1-v2.6.0a5), or 6 (v2.6.0) [version 4 doesn't exist].
+(v2.5.6-v2.5.8), 5 (v2.6.0a1-v2.6.0a5), 6 (v2.6.0), 8 (Avisynth+ from a specific build on) [version 4 doesn't exist].
+2021 note: this returns the interface version of how the plugin was built against actual avisynth header.
+In interface V9 (working version 8.1) use GetEnvProperty(AEP_INTERFACE_VERSION) and GetEnvProperty(AEP_INTERFACE_BUGFIX) for this task.
 
 
 .. _cplusplus_getframe:
@@ -1194,6 +1900,11 @@ SetCacheHints
     // We do not pass cache requests upwards, only to the next filter.
 
 
+Avisynth+: frame cacheing was completely rewritten compared to Avisynth 5 or 6.
+Specifying cache ranges are not relevant.
+
+Avisynth classic up to v6:
+
 SetCacheHints should be used in filters that request multiple frames
 from any single PClip source per input GetFrame call. frame_range is
 maximal 21.
@@ -1224,6 +1935,31 @@ for frame 100 and you in turn then ask for frames 98, 99, 100, 101 and
 Frames outside the specified radius are candidate for normal LRU
 caching.
 
+Avisynth+: A filter when requested with CACHE_GET_MTMODE can return its 
+multithreaded model to the core. MT_NICE_FILTER (fully reentrant), 
+MT_MULTI_INSTANCE and MT_SERIALIZED (not MT friendly) can be returned.
+
+::
+
+    class ConvertToRGB : public GenericVideoFilter {
+      ...
+    int __stdcall SetCacheHints(int cachehints, int frame_range) override {
+      AVS_UNUSED(frame_range);
+      return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
+    }
+
+::
+
+    enum MtMode
+    {
+      MT_INVALID = 0,
+      MT_NICE_FILTER = 1,
+      MT_MULTI_INSTANCE = 2,
+      MT_SERIALIZED = 3,
+      MT_SPECIAL_MT = 4, // do not use, test only
+      MT_MODE_COUNT = 5
+    }; 
+
 | // TODO - describe input and output for v5 //
 | http://forum.doom9.org/showthread.php?p=1595750#post1595750
 
@@ -1239,6 +1975,25 @@ GetVideoInfo
 
 
 GetVideoInfo returns a :doc:`VideoInfo <VideoInfo>` structure.
+
+
+.. _cplusplus_pfunction:
+
+PFunction v8
+~~~~~~~~~~~~
+
+PFunction is a smart pointer to an IFunction, and IFunction is a generic abstract
+class.. It maintains a reference count on the IFunction object and
+automagically deletes it when the last PFunction referencing it goes away.
+For obvious reasons, you should always use PFunction rather than IFunction* to
+refer to function.
+
+Like a genuine pointer, a PFunction is only four/eight bytes long, so you can
+pass it around by value. Also like a pointer, a PFunction can be assigned a
+null value (0), which is often useful as a sentinel. Unlike a pointer,
+PFunction is initialized to 0 by default.
+
+A function is a new object type in Avisynth+ since V8, originally introduced in Neo fork.
 
 
 .. _cplusplus_pclip:
@@ -1284,8 +2039,8 @@ AVSValue
 
 AVSValue is a variant type which can hold any one of the following
 types: a boolean value (true/false); an integer; a floating-point
-number; a string; a video clip (PClip); an array of AVSValues; or
-nothing ("undefined").
+number; a string; a video clip (PClip); an array of AVSValues; 
+a function (Avisynth+) or nothing ("undefined").
 
 It holds an array of AVSValues in the following way:
 ::
@@ -1324,7 +2079,7 @@ Structures
 The following structure is available: VideoInfo structure. It holds
 global information about a clip (i.e. information that does not depend
 on the framenumber). The GetVideoInfo method in IClip returns this
-structure. A description (for AVISYNTH_INTERFACE_VERSION=6) of it can
+structure. A description (for AVISYNTH_INTERFACE_VERSION=6, 8 and 9) of it can
 be found :doc:`here <VideoInfo>`.
 
 
@@ -1353,113 +2108,152 @@ The following constants are defined in avisynth.h:
 
 ::
 
-    enum { // plane types
-        PLANAR_Y = 1<<0,
-        PLANAR_U = 1<<1,
-        PLANAR_V = 1<<2,
-        PLANAR_ALIGNED = 1<<3,
-        PLANAR_Y_ALIGNED = PLANAR_Y | PLANAR_ALIGNED,
-        PLANAR_U_ALIGNED = PLANAR_U | PLANAR_ALIGNED,
-        PLANAR_V_ALIGNED = PLANAR_V | PLANAR_ALIGNED,
-        PLANAR_A = 1<<4, // v5
-        PLANAR_R = 1<<5, // v5
-        PLANAR_G = 1<<6, // v5
-        PLANAR_B = 1<<7, // v5
-        PLANAR_A_ALIGNED = PLANAR_A | PLANAR_ALIGNED, // v5
-        PLANAR_R_ALIGNED = PLANAR_R | PLANAR_ALIGNED, // v5
-        PLANAR_G_ALIGNED = PLANAR_G | PLANAR_ALIGNED, // v5
-        PLANAR_B_ALIGNED = PLANAR_B | PLANAR_ALIGNED, // v5
-    };
+    enum {
+       PLANAR_Y=1<<0,
+       PLANAR_U=1<<1,
+       PLANAR_V=1<<2,
+       PLANAR_ALIGNED=1<<3,
+       PLANAR_Y_ALIGNED=PLANAR_Y|PLANAR_ALIGNED,
+       PLANAR_U_ALIGNED=PLANAR_U|PLANAR_ALIGNED,
+       PLANAR_V_ALIGNED=PLANAR_V|PLANAR_ALIGNED,
+       PLANAR_A=1<<4,
+       PLANAR_R=1<<5,
+       PLANAR_G=1<<6,
+       PLANAR_B=1<<7,
+       PLANAR_A_ALIGNED=PLANAR_A|PLANAR_ALIGNED,
+       PLANAR_R_ALIGNED=PLANAR_R|PLANAR_ALIGNED,
+       PLANAR_G_ALIGNED=PLANAR_G|PLANAR_ALIGNED,
+       PLANAR_B_ALIGNED=PLANAR_B|PLANAR_ALIGNED,
+      };
 
 
 ::
 
-    enum { // cache types
-        // Old 2.5 poorly defined cache hints (v3).
-        // Reserve values used by 2.5 API
-        // Do not use in new filters
-        CACHE_25_NOTHING = 0,    // Filter requested no caching.
-        CACHE_25_RANGE = 1,      // An explicit cache of "frame_range" frames around the current frame.
-        CACHE_25_ALL = 2,        // This is default operation, a simple LRU cache.
-        CACHE_25_AUDIO = 3,      // Audio caching.
-        CACHE_25_AUDIO_NONE = 4, // Filter requested no audio caching.
-        CACHE_25_AUDIO_AUTO = 5, // Audio caching (difference with CACHE_AUDIO?).
+    enum CachePolicyHint {
+      // Values 0 to 5 are reserved for old 2.5 plugins
+      // do not use them in new plugins
 
-        // New 2.6 explicitly defined cache hints (v5).
-        CACHE_NOTHING = 10,       // Do not cache video.
-        CACHE_WINDOW = 11,        // Hard protect upto X frames within a range of X from the current frame N.
-        CACHE_GENERIC = 12,       // LRU cache upto X frames.
-        CACHE_FORCE_GENERIC = 13, // LRU cache upto X frames, override any previous CACHE_WINDOW.
+      // New 2.6 explicitly defined cache hints.
+      CACHE_NOTHING=10, // Do not cache video.
+      CACHE_WINDOW=11, // Hard protect upto X frames within a range of X from the current frame N.
+      CACHE_GENERIC=12, // LRU cache upto X frames.
+      CACHE_FORCE_GENERIC=13, // LRU cache upto X frames, override any previous CACHE_WINDOW.
 
-        CACHE_GET_POLICY = 30, // Get the current policy.
-        CACHE_GET_WINDOW = 31, // Get the current window h_span.
-        CACHE_GET_RANGE = 32,  // Get the current generic frame range.
+      CACHE_GET_POLICY=30, // Get the current policy.
+      CACHE_GET_WINDOW=31, // Get the current window h_span.
+      CACHE_GET_RANGE=32, // Get the current generic frame range.
 
-        CACHE_AUDIO = 50,         // Explicitly do cache audio, X byte cache.
-        CACHE_AUDIO_NOTHING = 51, // Explicitly do not cache audio.
-        CACHE_AUDIO_NONE = 52,    // Audio cache off (auto mode), X byte intial cache.
-        CACHE_AUDIO_AUTO = 53,    // Audio cache on (auto mode), X byte intial cache.
+      CACHE_AUDIO=50, // Explicitly cache audio, X byte cache.
+      CACHE_AUDIO_NOTHING=51, // Explicitly do not cache audio.
+      CACHE_AUDIO_NONE=52, // Audio cache off (auto mode), X byte intial cache.
+      CACHE_AUDIO_AUTO=53, // Audio cache on (auto mode), X byte intial cache.
 
-        CACHE_GET_AUDIO_POLICY = 70, // Get the current audio policy.
-        CACHE_GET_AUDIO_SIZE = 71,   // Get the current audio cache size.
+      CACHE_GET_AUDIO_POLICY=70, // Get the current audio policy.
+      CACHE_GET_AUDIO_SIZE=71, // Get the current audio cache size.
 
-        CACHE_PREFETCH_FRAME = 100, // Queue request to prefetch frame N.
-        CACHE_PREFETCH_GO = 101,    // Action video prefetches.
+      CACHE_PREFETCH_FRAME=100, // Queue request to prefetch frame N.
+      CACHE_PREFETCH_GO=101, // Action video prefetches.
 
-        CACHE_PREFETCH_AUDIO_BEGIN = 120,   // Begin queue request transaction to prefetch audio (take critical section).
-        CACHE_PREFETCH_AUDIO_STARTLO = 121, // Set low 32 bits of start.
-        CACHE_PREFETCH_AUDIO_STARTHI = 122, // Set high 32 bits of start.
-        CACHE_PREFETCH_AUDIO_COUNT = 123,   // Set low 32 bits of length.
-        CACHE_PREFETCH_AUDIO_COMMIT = 124,  // Enqueue request transaction to prefetch audio (release critical section).
-        CACHE_PREFETCH_AUDIO_GO = 125,      // Action audio prefetches.
+      CACHE_PREFETCH_AUDIO_BEGIN=120, // Begin queue request transaction to prefetch audio (take critical section).
+      CACHE_PREFETCH_AUDIO_STARTLO=121, // Set low 32 bits of start.
+      CACHE_PREFETCH_AUDIO_STARTHI=122, // Set high 32 bits of start.
+      CACHE_PREFETCH_AUDIO_COUNT=123, // Set low 32 bits of length.
+      CACHE_PREFETCH_AUDIO_COMMIT=124, // Enqueue request transaction to prefetch audio (release critical section).
+      CACHE_PREFETCH_AUDIO_GO=125, // Action audio prefetches.
 
-        CACHE_GETCHILD_CACHE_MODE = 200, // Cache ask Child for desired video cache mode.
-        CACHE_GETCHILD_CACHE_SIZE = 201, // Cache ask Child for desired video cache size.
-        CACHE_GETCHILD_AUDIO_MODE = 202, // Cache ask Child for desired audio cache mode.
-        CACHE_GETCHILD_AUDIO_SIZE = 203, // Cache ask Child for desired audio cache size.
+      CACHE_GETCHILD_CACHE_MODE=200, // Cache ask Child for desired video cache mode.
+      CACHE_GETCHILD_CACHE_SIZE=201, // Cache ask Child for desired video cache size.
+      CACHE_GETCHILD_AUDIO_MODE=202, // Cache ask Child for desired audio cache mode.
+      CACHE_GETCHILD_AUDIO_SIZE=203, // Cache ask Child for desired audio cache size.
 
-        CACHE_GETCHILD_COST = 220, // Cache ask Child for estimated processing cost.
-        CACHE_COST_ZERO = 221,     // Child response of zero cost (ptr arithmetic only).
-        CACHE_COST_UNIT = 222,     // Child response of unit cost (less than or equal 1 full frame blit).
-        CACHE_COST_LOW = 223,      // Child response of light cost. (Fast)
-        CACHE_COST_MED = 224,      // Child response of medium cost. (Real time)
-        CACHE_COST_HI = 225,       // Child response of heavy cost. (Slow)
+      CACHE_GETCHILD_COST=220, // Cache ask Child for estimated processing cost.
+        CACHE_COST_ZERO=221, // Child response of zero cost (ptr arithmetic only).
+        CACHE_COST_UNIT=222, // Child response of unit cost (less than or equal 1 full frame blit).
+        CACHE_COST_LOW=223, // Child response of light cost. (Fast)
+        CACHE_COST_MED=224, // Child response of medium cost. (Real time)
+        CACHE_COST_HI=225, // Child response of heavy cost. (Slow)
 
-        CACHE_GETCHILD_THREAD_MODE = 240, // Cache ask Child for thread safetyness.
-        CACHE_THREAD_UNSAFE = 241,        // Only 1 thread allowed for all instances. 2.5 filters default!
-        CACHE_THREAD_CLASS = 242,         // Only 1 thread allowed for each instance. 2.6 filters default!
-        CACHE_THREAD_SAFE = 243,          // Allow all threads in any instance.
-        CACHE_THREAD_OWN = 244,           // Safe but limit to 1 thread, internally threaded.
+      CACHE_GETCHILD_THREAD_MODE=240, // Cache ask Child for thread safetyness.
+        CACHE_THREAD_UNSAFE=241, // Only 1 thread allowed for all instances. 2.5 filters default!
+        CACHE_THREAD_CLASS=242, // Only 1 thread allowed for each instance. 2.6 filters default!
+        CACHE_THREAD_SAFE=243, //  Allow all threads in any instance.
+        CACHE_THREAD_OWN=244, // Safe but limit to 1 thread, internally threaded.
 
-        CACHE_GETCHILD_ACCESS_COST = 260, // Cache ask Child for preferred access pattern.
-        CACHE_ACCESS_RAND = 261,          // Filter is access order agnostic.
-        CACHE_ACCESS_SEQ0 = 262,          // Filter prefers sequential access (low cost)
-        CACHE_ACCESS_SEQ1 = 263,          // Filter needs sequential access (high cost)
-    };
+      CACHE_GETCHILD_ACCESS_COST=260, // Cache ask Child for preferred access pattern.
+        CACHE_ACCESS_RAND=261, // Filter is access order agnostic.
+        CACHE_ACCESS_SEQ0=262, // Filter prefers sequential access (low cost)
+        CACHE_ACCESS_SEQ1=263, // Filter needs sequential access (high cost)
+
+      CACHE_AVSPLUS_CONSTANTS = 500,    // Smaller values are reserved for classic Avisynth
+
+      CACHE_DONT_CACHE_ME,              // Filters that don't need caching (eg. trim, cache etc.) should return 1 to this request
+      CACHE_SET_MIN_CAPACITY,
+      CACHE_SET_MAX_CAPACITY,
+      CACHE_GET_MIN_CAPACITY,
+      CACHE_GET_MAX_CAPACITY,
+      CACHE_GET_SIZE,
+      CACHE_GET_REQUESTED_CAP,
+      CACHE_GET_CAPACITY,
+      CACHE_GET_MTMODE,
+
+      CACHE_IS_CACHE_REQ,
+      CACHE_IS_CACHE_ANS,
+      CACHE_IS_MTGUARD_REQ,
+      CACHE_IS_MTGUARD_ANS,
+
+      CACHE_AVSPLUS_CUDA_CONSTANTS = 600,
+
+      CACHE_GET_DEV_TYPE,           // Device types a filter can return
+      CACHE_GET_CHILD_DEV_TYPE,    // Device types a fitler can receive
+
+      CACHE_USER_CONSTANTS = 1000       // Smaller values are reserved for the core
+
+    };  
 
 
 ::
 
-    enum { // For GetCPUFlags. These are backwards-compatible with those in VirtualDub.
-        /* oldest CPU to support extension */
-        CPUF_FORCE = 0x01,       // N/A
-        CPUF_FPU = 0x02,         // 386/486DX
-        CPUF_MMX = 0x04,         // P55C, K6, PII
-        CPUF_INTEGER_SSE = 0x08, // PIII, Athlon
-        CPUF_SSE = 0x10,         // PIII, Athlon XP/MP
-        CPUF_SSE2 = 0x20,        // PIV, K8
-        CPUF_3DNOW = 0x40,       // K6-2
-        CPUF_3DNOW_EXT = 0x80,   // Athlon
-        CPUF_X86_64 = 0xA0,      // Hammer (note: equiv. to 3DNow + SSE2, which only Hammer will have anyway)
-        CPUF_SSE3 = 0x100,       // PIV+, K8 Venice
+    // For GetCPUFlags.  These are backwards-compatible with those in VirtualDub.
+    // ending with SSE4_2
+    // For emulation see https://software.intel.com/en-us/articles/intel-software-development-emulator
+    enum {
+                        /* oldest CPU to support extension */
+      CPUF_FORCE        =  0x01,   //  N/A
+      CPUF_FPU          =  0x02,   //  386/486DX
+      CPUF_MMX          =  0x04,   //  P55C, K6, PII
+      CPUF_INTEGER_SSE  =  0x08,   //  PIII, Athlon
+      CPUF_SSE          =  0x10,   //  PIII, Athlon XP/MP
+      CPUF_SSE2         =  0x20,   //  PIV, K8
+      CPUF_3DNOW        =  0x40,   //  K6-2
+      CPUF_3DNOW_EXT    =  0x80,   //  Athlon
+      CPUF_X86_64       =  0xA0,   //  Hammer (note: equiv. to 3DNow + SSE2, which
+                                   //          only Hammer will have anyway)
+      CPUF_SSE3         = 0x100,   //  PIV+, K8 Venice
+      CPUF_SSSE3        = 0x200,   //  Core 2
+      CPUF_SSE4         = 0x400,
+      CPUF_SSE4_1       = 0x400,   //  Penryn, Wolfdale, Yorkfield
+      CPUF_AVX          = 0x800,   //  Sandy Bridge, Bulldozer
+      CPUF_SSE4_2       = 0x1000,  //  Nehalem
+      // AVS+
+      CPUF_AVX2         = 0x2000,   //  Haswell
+      CPUF_FMA3         = 0x4000,
+      CPUF_F16C         = 0x8000,
+      CPUF_MOVBE        = 0x10000,  // Big Endian move
+      CPUF_POPCNT       = 0x20000,
+      CPUF_AES          = 0x40000,
+      CPUF_FMA4         = 0x80000,
 
-        // Additional CPU flags in 2.6 (v5).
-        CPUF_SSSE3 = 0x200,     // Core 2
-        CPUF_SSE4 = 0x400,      // Penryn, Wolfdale, Yorkfield
-        CPUF_SSE4_1 = 0x400,
-        CPUF_SSE4_2 = 0x1000,   //  Nehalem (note this was 0x800 in v5)
+      CPUF_AVX512F      = 0x100000,  // AVX-512 Foundation.
+      CPUF_AVX512DQ     = 0x200000,  // AVX-512 DQ (Double/Quad granular) Instructions
+      CPUF_AVX512PF     = 0x400000,  // AVX-512 Prefetch
+      CPUF_AVX512ER     = 0x800000,  // AVX-512 Exponential and Reciprocal
+      CPUF_AVX512CD     = 0x1000000, // AVX-512 Conflict Detection
+      CPUF_AVX512BW     = 0x2000000, // AVX-512 BW (Byte/Word granular) Instructions
+      CPUF_AVX512VL     = 0x4000000, // AVX-512 VL (128/256 Vector Length) Extensions
+      CPUF_AVX512IFMA   = 0x8000000, // AVX-512 IFMA integer 52 bit
+      CPUF_AVX512VBMI   = 0x10000000,// AVX-512 VBMI
     };
-
+ 
 
 ____
 

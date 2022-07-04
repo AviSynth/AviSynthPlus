@@ -83,7 +83,6 @@
 // just a note, to be removed
 template<typename pixel_t>
 void average_plane_avx2(BYTE *p1, const BYTE *p2, int p1_pitch, int p2_pitch, int rowsize, int height) {
-  _mm256_zeroupper();
   // width is RowSize here
   int mod32_width = rowsize / 32 * 32;
   int mod16_width = rowsize / 16 * 16;
@@ -148,7 +147,6 @@ void average_plane_avx2(BYTE *p1, const BYTE *p2, int p1_pitch, int p2_pitch, in
     p1 += p1_pitch;
     p2 += p2_pitch;
   }
-  _mm256_zeroupper();
 }
 
 // instantiate to let them access from other modules
@@ -245,7 +243,6 @@ void weighted_merge_planar_uint16_avx2(BYTE *p1, const BYTE *p2, int p1_pitch, i
     p1 += p1_pitch;
     p2 += p2_pitch;
   }
-  _mm256_zeroupper();
 }
 
 // instantiate to let them access from other modules
@@ -344,5 +341,4 @@ void weighted_merge_planar_avx2(BYTE *p1, const BYTE *p2, int p1_pitch, int p2_p
     p1 += p1_pitch;
     p2 += p2_pitch;
   }
-  _mm256_zeroupper();
 }

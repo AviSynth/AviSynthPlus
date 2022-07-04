@@ -170,6 +170,9 @@ public:
            case 'f': ss += '\f'; ++i; continue;
            case '\\': ss += '\\'; ++i; continue;
            case '\"': ss += '\"'; ++i; continue;
+           case '\'': ss += '\''; ++i; continue;
+           case 'b': ss += '\b'; ++i; continue;
+           case 'v': ss += '\v'; ++i; continue;
            }
          }
          ss += s[i];

@@ -11,6 +11,8 @@ distrib/Prerequisites/VC_redist.x64.exe
 distrib/Prerequisites/VC_redist.x86.exe
 distrib/Prerequisites/vcredist_x64.exe
 distrib/Prerequisites/vcredist_x86.exe
+distrib/Prerequisites/VC_redist_14.27.29114.0.x86.exe
+distrib/Prerequisites/VC_redist_14.27.29114.0.x64.exe
 
 avs_core/CMakeCache.txt
 avs_core/CMakeFiles/*
@@ -71,6 +73,7 @@ plugins/VFAPIFilter/release/*
 *.vcxproj.filters
 arch.c
 avs_core/arch.h
+avs_core/avisynth_conf.h
 avs_core/version.h
 avs_core/avisynth.pc
 cmake_install.cmake

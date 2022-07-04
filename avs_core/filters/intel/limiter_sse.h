@@ -32,41 +32,19 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
-#ifndef __Limiter_H__
-#define __Limiter_H__
+#ifndef __Limiter_SSE_H__
+#define __Limiter_SSE_H__
 
 #include <avisynth.h>
 
-class Limiter : public GenericVideoFilter
-{
-public:
-    Limiter(PClip _child, float _min_luma, float _max_luma, float _min_chroma, float _max_chroma, int _show, bool paramscale, IScriptEnvironment* env);
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+void limit_plane_sse2(BYTE *ptr, int min_value, int max_value, int pitch, int width, int height);
+void limit_plane_uint16_sse2(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int height);
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
+void limit_plane_uint16_sse4(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int height);
+#ifdef X86_32
+void limit_plane_isse(BYTE *ptr, int min_value, int max_value, int pitch, int width, int height);
+#endif
 
-    int __stdcall SetCacheHints(int cachehints, int frame_range) override {
-      AVS_UNUSED(frame_range);
-      return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
-    }
-
-    static AVSValue __cdecl Create(AVSValue args, void* user_data, IScriptEnvironment* env);
-private:
-
-  int max_luma;
-  int min_luma;
-  int max_chroma;
-  int min_chroma;
-
-  float max_luma_f;
-  float min_luma_f;
-  float max_chroma_f;
-  float min_chroma_f;
-
-  enum show_e{show_none, show_luma, show_luma_grey, show_chroma, show_chroma_grey};
-  const show_e show;
-
-  // avs+
-  int pixelsize;
-  int bits_per_pixel; // 8,10..16
-};
-
-#endif  // __Limiter_H__
+#endif  // __Limiter_SSE_H__

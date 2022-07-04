@@ -9,7 +9,7 @@
 #define       AVS_PROJECT       AviSynth+
 #define       AVS_MAJOR_VER     3
 #define       AVS_MINOR_VER     7
-#define       AVS_BUGFIX_VER    0
+#define       AVS_BUGFIX_VER    2
 #ifdef RELEASE_TARBALL
 #define       AVS_FULLVERSION	AVS_PPSTR(AVS_PROJECT) " " AVS_PPSTR(AVS_MAJOR_VER) "." AVS_PPSTR(AVS_MINOR_VER) "." AVS_PPSTR(AVS_BUGFIX_VER) " (" AVS_PPSTR(AVS_ARCH) ")"
 #else

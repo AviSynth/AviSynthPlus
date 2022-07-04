@@ -73,14 +73,18 @@ void convert_rgb_to_rgbp_avx2(const BYTE *srcp, BYTE * (&dstp)[4], int src_pitch
     mask = _mm256_set_epi8(15, 14, 13, 12, 11, 10, 5, 4, 9, 8, 3, 2, 7, 6, 1, 0,
       15, 14, 13, 12, 11, 10, 5, 4, 9, 8, 3, 2, 7, 6, 1, 0); // same for both lanes
 
+#ifdef _MSC_VER
 #pragma warning(push)
 #pragma warning(disable:4309)
+#endif
   __m256i max_pixel_value;
   if constexpr(sizeof(pixel_t) == 1)
     max_pixel_value = _mm256_set1_epi8(0xFF);
   else
     max_pixel_value = _mm256_set1_epi16((1 << bits_per_pixel) - 1); // bits_per_pixel is 16
+#ifdef _MSC_VER
 #pragma warning(pop)
+#endif
 
 // read-optimized
 #define SRC_ADDRESS_ADVANCES
@@ -180,7 +184,6 @@ void convert_rgb_to_rgbp_avx2(const BYTE *srcp, BYTE * (&dstp)[4], int src_pitch
       dstp[3] += dst_pitch[3];
 #endif
   }
-  _mm256_zeroupper();
 #undef SRC_ADDRESS_ADVANCES
 }
 

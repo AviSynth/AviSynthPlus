@@ -60,7 +60,7 @@ public:
         return;
     }
 
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
     {
         PVideoFrame src = child->GetFrame(n, env);
         PVideoFrame dst = env->NewVideoFrameP(vi, &src);
@@ -178,7 +178,7 @@ public:
         return;
     }
 
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
     {
         PVideoFrame src = child->GetFrame(n, env);
         PVideoFrame dst = env->NewVideoFrameP(vi, &src);
@@ -301,7 +301,7 @@ public:
         vi.width /= 2;
     }
 
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
     {
         return child->GetFrame(n, env);
     }
@@ -339,7 +339,7 @@ public:
         vi.width *= 2;
     }
 
-    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env)
+    PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override
     {
         return child->GetFrame(n, env);
     }

@@ -43,7 +43,7 @@ typedef void (*ResamplerV)(BYTE* dst, const BYTE* src, int dst_pitch, int src_pi
 typedef void (*ResamplerH)(BYTE* dst, const BYTE* src, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel);
 
 // Turn function pointer -- copied from turn.h
-typedef void (*TurnFuncPtr) (const BYTE *srcp, BYTE *dstp, int width, int height, int src_pitch, int dst_pitch);
+typedef void (*TurnFuncPtr) (const BYTE* srcp, BYTE* dstp, int width, int height, int src_pitch, int dst_pitch);
 
 /**
   * Class to resize in the horizontal direction using a specified sampling filter
@@ -52,23 +52,23 @@ typedef void (*TurnFuncPtr) (const BYTE *srcp, BYTE *dstp, int width, int height
 class FilteredResizeH : public GenericVideoFilter
 {
 public:
-  FilteredResizeH( PClip _child, double subrange_left, double subrange_width, int target_width,
-                   ResamplingFunction* func, IScriptEnvironment* env );
+  FilteredResizeH(PClip _child, double subrange_left, double subrange_width, int target_width,
+    ResamplingFunction* func, IScriptEnvironment* env);
   virtual ~FilteredResizeH(void);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
     return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
   }
 
-  static ResamplerH GetResampler(bool aligned, int pixelsize, int bits_per_pixel, ResamplingProgram* program, IScriptEnvironment* env);
+  static ResamplerH GetResampler(int CPU, bool aligned, int pixelsize, int bits_per_pixel, ResamplingProgram* program, IScriptEnvironment* env);
 
 private:
   // Resampling
-  ResamplingProgram *resampling_program_luma;
-  ResamplingProgram *resampling_program_chroma;
-  int *src_pitch_table_luma;
+  ResamplingProgram* resampling_program_luma;
+  ResamplingProgram* resampling_program_chroma;
+  int* src_pitch_table_luma;
 
   // Note: these pointer are currently not used; they are used to pass data into run-time resampler.
   // They are kept because this may be needed later (like when we implemented actual horizontal resizer.)
@@ -100,24 +100,24 @@ private:
 class FilteredResizeV : public GenericVideoFilter
 {
 public:
-  FilteredResizeV( PClip _child, double subrange_top, double subrange_height, int target_height, ResamplingFunction* func, IScriptEnvironment* env );
+  FilteredResizeV(PClip _child, double subrange_top, double subrange_height, int target_height, ResamplingFunction* func, IScriptEnvironment* env);
   virtual ~FilteredResizeV(void);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
     return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
   }
 
-  static ResamplerV GetResampler(bool aligned, int pixelsize, int bits_per_pixel, void*& storage, ResamplingProgram* program);
+  static ResamplerV GetResampler(int CPU, bool aligned, int pixelsize, int bits_per_pixel, void*& storage, ResamplingProgram* program);
 
 private:
   bool grey;
   int pixelsize; // AVS16
   int bits_per_pixel;
 
-  ResamplingProgram *resampling_program_luma;
-  ResamplingProgram *resampling_program_chroma;
+  ResamplingProgram* resampling_program_luma;
+  ResamplingProgram* resampling_program_chroma;
 
   // Note: these pointer are currently not used; they are used to pass data into run-time resampler.
   // They are kept because this may be needed later (like when we implemented actual horizontal resizer.)
@@ -132,42 +132,42 @@ private:
 /*** Resample factory methods ***/
 
 class FilteredResize
-/**
-  * Helper for resample functions
- **/
+  /**
+    * Helper for resample functions
+   **/
 {
 public:
-static PClip CreateResizeH( PClip clip, double subrange_left, double subrange_width, int target_width,
-                            ResamplingFunction* func, IScriptEnvironment* env );
+  static PClip CreateResizeH(PClip clip, double subrange_left, double subrange_width, int target_width,
+    ResamplingFunction* func, IScriptEnvironment* env);
 
-static PClip CreateResizeV( PClip clip, double subrange_top, double subrange_height, int target_height,
-                            ResamplingFunction* func, IScriptEnvironment* env );
+  static PClip CreateResizeV(PClip clip, double subrange_top, double subrange_height, int target_height,
+    ResamplingFunction* func, IScriptEnvironment* env);
 
-static PClip CreateResize( PClip clip, int target_width, int target_height, const AVSValue* args,
-                           ResamplingFunction* f, IScriptEnvironment* env );
+  static PClip CreateResize(PClip clip, int target_width, int target_height, const AVSValue* args,
+    ResamplingFunction* f, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_PointResize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_PointResize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_BilinearResize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_BilinearResize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_BicubicResize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_BicubicResize(AVSValue args, void*, IScriptEnvironment* env);
 
-// 09-14-2002 - Vlad59 - Lanczos3Resize -
-static AVSValue __cdecl Create_LanczosResize(AVSValue args, void*, IScriptEnvironment* env);
+  // 09-14-2002 - Vlad59 - Lanczos3Resize -
+  static AVSValue __cdecl Create_LanczosResize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_Lanczos4Resize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_Lanczos4Resize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_BlackmanResize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_BlackmanResize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_Spline16Resize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_Spline16Resize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_Spline36Resize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_Spline36Resize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_Spline64Resize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_Spline64Resize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_GaussianResize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_GaussianResize(AVSValue args, void*, IScriptEnvironment* env);
 
-static AVSValue __cdecl Create_SincResize(AVSValue args, void*, IScriptEnvironment* env);
+  static AVSValue __cdecl Create_SincResize(AVSValue args, void*, IScriptEnvironment* env);
 };
 
 

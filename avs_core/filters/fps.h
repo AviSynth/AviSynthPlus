@@ -79,8 +79,8 @@ class ChangeFPS : public GenericVideoFilter
 {
 public:
   ChangeFPS(PClip _child, unsigned new_numerator, unsigned new_denominator, bool linear, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -109,8 +109,8 @@ class ConvertFPS : public GenericVideoFilter
 public:
   ConvertFPS( PClip _child, unsigned new_numerator, unsigned new_denominator, int _zone,
               int _vbi, IScriptEnvironment* env );
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
-  bool __stdcall GetParity(int n);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+  bool __stdcall GetParity(int n) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);

@@ -35,7 +35,7 @@ public:
   AVSPromise* Add()
   {
     if (nJobs == max_jobs)
-      throw new AvisynthError("The completion object is already full.");
+      throw AvisynthError("The completion object is already full.");
 
     AVSPromise* ret = &(pairs[nJobs].first);
     ++nJobs;

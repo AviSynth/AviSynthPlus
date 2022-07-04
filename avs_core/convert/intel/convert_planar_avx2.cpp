@@ -122,7 +122,6 @@ void convert_planarrgb_to_yuv_uint16_avx2(BYTE* (&dstp)[3], int(&dstPitch)[3], c
     dstp[1] += dstPitch[1];
     dstp[2] += dstPitch[2];
   }
-  _mm256_zeroupper();
 }
 
 // Instantiate them

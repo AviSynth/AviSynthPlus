@@ -50,20 +50,26 @@
 ********************************************************************/
 
 class Mask : public IClip
-/**
-  * Class for overlaying a mask clip on a video clip
- **/
+  /**
+    * Class for overlaying a mask clip on a video clip
+   **/
 {
 public:
   Mask(PClip _child1, PClip _child2, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
-  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
-    { child1->GetAudio(buf, start, count, env); }
-  inline virtual const VideoInfo& __stdcall GetVideoInfo()
-    { return vi; }
-  inline virtual bool __stdcall GetParity(int n)
-    { return child1->GetParity(n); }
+  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) override
+  {
+    child1->GetAudio(buf, start, count, env);
+  }
+  inline virtual const VideoInfo& __stdcall GetVideoInfo() override
+  {
+    return vi;
+  }
+  inline virtual bool __stdcall GetParity(int n) override
+  {
+    return child1->GetParity(n);
+  }
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 
@@ -84,13 +90,13 @@ private:
 
 
 class ColorKeyMask : public GenericVideoFilter
-/**
-  * Class for setting a mask on a video clip based on a color key
-**/
+  /**
+    * Class for setting a mask on a video clip based on a color key
+  **/
 {
 public:
-  ColorKeyMask(PClip _child, int _color, int _tolB, int _tolG, int _tolR, IScriptEnvironment *env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment *env);
+  ColorKeyMask(PClip _child, int _color, int _tolB, int _tolG, int _tolR, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -112,13 +118,13 @@ private:
 
 
 class ResetMask : public GenericVideoFilter
-/**
-  * Class to set the mask to all-opaque
-**/
+  /**
+    * Class to set the mask to all-opaque
+  **/
 {
 public:
   ResetMask(PClip _child, float _mask_f, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -128,20 +134,20 @@ public:
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
 
 private:
-    float mask_f;
-    int mask;
+  float mask_f;
+  int mask;
 };
 
 
 
 class Invert : public GenericVideoFilter
-/**
-  * Class to invert selected RGBA channels
-**/
+  /**
+    * Class to invert selected RGBA channels
+  **/
 {
 public:
-  Invert(PClip _child, const char * _channels, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  Invert(PClip _child, const char* _channels, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -162,13 +168,13 @@ private:
 
 
 class ShowChannel : public GenericVideoFilter
-/**
-  * Class to set the RGB components to the alpha mask
-**/
+  /**
+    * Class to set the RGB components to the alpha mask
+  **/
 {
 public:
-  ShowChannel(PClip _child, const char * _pixel_type, int _channel, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  ShowChannel(PClip _child, const char* _pixel_type, int _channel, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -186,20 +192,23 @@ private:
   bool input_type_is_yuv;
   bool input_type_is_yuva;
   bool input_type_is_planar;
+  bool input_type_is_packed_rgb;
+  bool target_hasalpha;
+  bool source_hasalpha;
 };
 
 
 
 
 class MergeRGB : public GenericVideoFilter
-/**
-  * Class to load the RGB components from specified clips
-**/
+  /**
+    * Class to load the RGB components from specified clips
+  **/
 {
 public:
   MergeRGB(PClip _child, PClip _blue, PClip _green, PClip _red, PClip _alpha,
-           const char * _pixel_type, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+    const char* _pixel_type, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -209,29 +218,52 @@ public:
   static AVSValue __cdecl Create(AVSValue args, void* mode, IScriptEnvironment* env);
 private:
   const PClip blue, green, red, alpha;
-  const VideoInfo &viB, &viG, &viR, &viA;
+  const VideoInfo& viB, & viG, & viR, & viA;
   const char* myname;
 };
 
 
+enum
+{
+  LIGHTEN = 0,
+  DARKEN = 1
+};
 
+// 15 bit scaled constants used for calculating luma mask from RGB
+// original constants (3736,19235,9798) cause int32 overfloat at 16 bits as sum()=32769
+// modified constants (3736,19234,9798) O.K. at 16 bits as sum()=32768
+// 32769 * 65535 + 16384 = 8000BFFF int32 overflow
+// 32768 * 65535 + 16384 = 7FFFC000 OK
+const int cyb = 3736;      // int(0.114 * 32768 + 0.5); // 3736
+const int cyg = 19235 - 1; // int(0.587 * 32768 + 0.5); // 19235
+const int cyr = 9798;      // int(0.299 * 32768 + 0.5); // 9798
+// w/o correction: 32769
+const float cyb_f = 0.114f;
+const float cyg_f = 0.587f;
+const float cyr_f = 0.299f;
 
-class Layer: public IClip
-/**
-  * Class for layering two clips on each other, combined by various functions
- **/
+class Layer : public IClip
+  /**
+    * Class for layering two clips on each other, combined by various functions
+   **/
 {
 public:
-  Layer( PClip _child1, PClip _child2, const char _op[], int _lev, int _x, int _y,
-         int _t, bool _chroma, float _strength, int _placement, IScriptEnvironment* env );
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  Layer(PClip _child1, PClip _child2, const char _op[], int _lev, int _x, int _y,
+    int _t, bool _chroma, float _strength, int _placement, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
-  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
-    { child1->GetAudio(buf, start, count, env); }
-  inline virtual const VideoInfo& __stdcall GetVideoInfo()
-    { return vi; }
-  inline virtual bool __stdcall GetParity(int n)
-    { return child1->GetParity(n); }
+  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) override
+  {
+    child1->GetAudio(buf, start, count, env);
+  }
+  inline virtual const VideoInfo& __stdcall GetVideoInfo() override
+  {
+    return vi;
+  }
+  inline virtual bool __stdcall GetParity(int n) override
+  {
+    return child1->GetParity(n);
+  }
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -257,20 +289,26 @@ private:
 
 
 class Subtract : public IClip
-/**
-  * Class for subtracting one clip from another
- **/
+  /**
+    * Class for subtracting one clip from another
+   **/
 {
 public:
   Subtract(PClip _child1, PClip _child2, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
-  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
-    { child1->GetAudio(buf, start, count, env);  }
-  inline virtual const VideoInfo& __stdcall GetVideoInfo()
-    { return vi; }
-  inline virtual bool __stdcall GetParity(int n)
-    { return child1->GetParity(n); }
+  inline virtual void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) override
+  {
+    child1->GetAudio(buf, start, count, env);
+  }
+  inline virtual const VideoInfo& __stdcall GetVideoInfo() override
+  {
+    return vi;
+  }
+  inline virtual bool __stdcall GetParity(int n) override
+  {
+    return child1->GetParity(n);
+  }
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -283,7 +321,7 @@ private:
   const PClip child1, child2;
   VideoInfo vi;
 
-// Common to all instances
+  // Common to all instances
   static bool DiffFlag;
   static BYTE LUT_Diff8[513];
   int pixelsize;

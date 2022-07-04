@@ -177,14 +177,14 @@ private:
 
 public:
   SeparateColumns(PClip _child, int _interval, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
     return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
   }
 
-  inline bool __stdcall GetParity(int n) {
+  inline bool __stdcall GetParity(int n) override {
     return child->GetParity(n/interval);
   }
 
@@ -203,14 +203,14 @@ private:
 
 public:
   WeaveColumns(PClip _child, int _period, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
     return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
   }
 
-  inline bool __stdcall GetParity(int n) {
+  inline bool __stdcall GetParity(int n) override {
     return child->GetParity(n*period);
   }
 
@@ -249,14 +249,14 @@ private:
 
 public:
   WeaveRows(PClip _child, int _period, IScriptEnvironment* env);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
     return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
   }
 
-  inline bool __stdcall GetParity(int n) {
+  inline bool __stdcall GetParity(int n) override{
     return child->GetParity(n*period);
   }
 
@@ -288,7 +288,7 @@ class DoubleWeaveFields : public GenericVideoFilter
 {
 public:
   DoubleWeaveFields(PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
   int __stdcall SetCacheHints(int cachehints, int frame_range) override {
     AVS_UNUSED(frame_range);
@@ -304,9 +304,9 @@ class DoubleWeaveFrames : public GenericVideoFilter
 {
 public:
   DoubleWeaveFrames(PClip _child);
-  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
 
-  inline bool __stdcall GetParity(int n) {
+  inline bool __stdcall GetParity(int n) override {
     return child->GetParity(n>>1) ^ (n&1);
   }
 

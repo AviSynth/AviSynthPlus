@@ -1,7 +1,11 @@
 ﻿;!!!Conditional!!!  comment out the following define to ignore VS redistributables
 ;#define WITH_VC_REDIST
-;Note: Microsoft Visual C++ Redistributable 2019 (2015-2019) still installs on older OS's 
-;such as WinXP SP3 to support apps built with v141(_xp) toolset
+#define WITH_VC_REDIST_XP
+;Note 1: do not enable both.
+;Note 2: XP: Though Microsoft Visual C++ Redistributable (2015-2022) still installs on older OS's,
+;XP support has been ended, an older redistributable (officially 14.27.29114.0) needed for XP
+;along with a specially built version of Avisynth+ (v141_xp toolset, /Zc:threadSafeInit-).
+;XP version of redistributable must be renamed to VC_redist_14.27.29114.0.x86.exe and VC_redist_14.27.29114.0.x64.exe
 
 ;headers and c lib are OK, but documentation is not up to date, anyway we include them
 #define WITH_SDK
@@ -24,12 +28,20 @@
 #endif
 
 ;There is no specific x86/x64 output directory.
+;folders must be created relative to the folder of iss script.
 ;Build x86 avs+ then copy the Output folder (with the folder itself) here
 #define BuildDir32 "x86"
 ;Build x64 avs+ then copy the Output folder (with the folder itself) here
 #define BuildDir64 "x64"
+;.\x86\Output\...
+;.\x64\Output\...
 
-#define VcVersion "Microsoft Visual C++ Redistributable for Visual Studio 2019"
+#ifdef WITH_VC_REDIST_XP
+#define VcVersion "Microsoft Visual C++ Redistributable for Visual Studio 2015-2019 (latest XP compatible)"
+#else
+#define VcVersion "Microsoft Visual C++ Redistributable for Visual Studio 2015-2022"
+#endif
+
 #define BuildDate GetFileDateTimeString(AddBackslash(BuildDir32) + "Output\AviSynth.dll", 'yyyy/mm/dd', '-',);
 
 #expr Exec("powershell", "-ExecutionPolicy unrestricted -File update_git_rev.ps1", SourcePath, 1)
@@ -149,13 +161,16 @@ Source: "{commonprograms}\AviSynth 2.5\*"; DestDir:{code:GetAvsDirsLegacy|Prog}\
 Source: "..\gpl*.txt"; DestDir: "{app}\License"; Components: main; Flags: ignoreversion
 Source: "..\lgpl_for_used_libs.txt"; DestDir: "{app}\License"; Components: main; Flags: ignoreversion
 
-Source: "..\Readme\readme.txt"; DestDir: "{app}"; Components: main; Flags: ignoreversion
+;Source: "..\Readme\readme.txt"; DestDir: "{app}"; Components: main; Flags: ignoreversion
 Source: "..\Readme\readme_history.txt"; DestDir: "{app}"; Components: main; Flags: ignoreversion
 
 Source: "{#BuildDir32}\Output\AviSynth.dll"; DestDir:{sys}; Components: main\avs32; Flags: 32bit ignoreversion 
 Source: "{#BuildDir32}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main\avs32; Flags: 32bit ignoreversion 
 Source: "{#BuildDir32}\Output\Plugins\*.dll"; DestDir:{code:GetAvsDirsPlus|PlugPlus32}; Components: main\avs32; Flags: ignoreversion 
 Source: "..\ColorPresets\*"; DestDir:{code:GetAvsDirsPlus|PlugPlus32}; Components: main\avs32; Flags: ignoreversion 
+#ifdef WITH_VC_REDIST_XP
+Source: "..\Prerequisites\VC_redist_14.27.29114.0.x86.exe"; DestDir: {app}; Components: main\avs32; Flags: deleteafterinstall; Check: IncludeVcRedist()
+#endif
 #ifdef WITH_VC_REDIST
 ;get latest from https://www.visualstudio.com/downloads/
 Source: "..\Prerequisites\VC_redist.x86.exe"; DestDir: {app}; Components: main\avs32; Flags: deleteafterinstall; Check: IncludeVcRedist()
@@ -165,12 +180,17 @@ Source: "{#BuildDir64}\Output\AviSynth.dll"; DestDir:{sys}; Components: main\avs
 Source: "{#BuildDir64}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main\avs64; Flags: 64bit ignoreversion 
 Source: "{#BuildDir64}\Output\Plugins\*.dll"; DestDir:{code:GetAvsDirsPlus|PlugPlus64}; Components: main\avs64; Flags: ignoreversion 
 Source: "..\ColorPresets\*"; DestDir:{code:GetAvsDirsPlus|PlugPlus64}; Components: main\avs64; Flags: ignoreversion
+#ifdef WITH_VC_REDIST_XP
+Source: "..\Prerequisites\VC_redist_14.27.29114.0.x64.exe"; DestDir: {app}; Components: main\avs64; Flags: deleteafterinstall; Check: IncludeVcRedist()
+#endif
 #ifdef WITH_VC_REDIST
 ;get latest from https://www.visualstudio.com/downloads/
 Source: "..\Prerequisites\VC_redist.x64.exe"; DestDir: {app}; Components: main\avs64; Flags: deleteafterinstall; Check: IncludeVcRedist()
 #endif
 
 #ifdef WITH_DOCS
+;don't forget to render .rst sources into html-format by issuing 'make html'. E.g. in the ..\docs\english\
+;You needed a working python sphinx-build. https://www.sphinx-doc.org/
 Source: "..\docs\*.css"; DestDir: "{app}\docs"; Components: docs; Flags: ignoreversion
 ;Source: "..\docs\czech\*"; DestDir: "{app}\docs\Czech"; Components: docs\cs; Flags: ignoreversion recursesubdirs 
 Source: "..\docs\english\build\html\*"; DestDir: "{app}\docs\English"; Components: docs\en docs\enall; Flags: ignoreversion recursesubdirs 

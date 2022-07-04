@@ -40,7 +40,10 @@
 #endif
 
 #include "text-overlay.h"
-#include "../convert/convert.h"  // for RGB2YUV
+#ifdef INTEL_INTRINSICS
+#include "intel/text-overlay_sse.h"
+#endif
+#include "../convert/convert_matrix.h"  // for RGB2YUV_Rec601
 
 #define __STDC_FORMAT_MACROS
 #include <inttypes.h>
@@ -118,7 +121,7 @@ extern const AVSFunction Text_filters[] = {
  *****************************/
 
 Antialiaser::Antialiaser(int width, int height, const char fontname[], int size, int _textcolor, int _halocolor, int font_width, int font_angle, bool _interlaced) :
-  w(width), h(height), textcolor(_textcolor), halocolor(_halocolor), alpha_calcs(0),
+  alpha_calcs(0), w(width), h(height), textcolor(_textcolor), halocolor(_halocolor),
   dirty(true), interlaced(_interlaced)
 {
   struct {
@@ -1069,16 +1072,17 @@ void Antialiaser::GetAlphaRect()
  ************************************/
 
 ShowFrameNumber::ShowFrameNumber(PClip _child, bool _scroll, int _offset, int _x, int _y, const char _fontname[],
-					 int _size, int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env)
- : GenericVideoFilter(_child), scroll(_scroll), offset(_offset), size(_size), x(_x), y(_y),
+                                 int _size, int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env)
+ : GenericVideoFilter(_child),
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
   antialiaser(vi.width, vi.height, _fontname, _size,
-     vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor,
-     vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor,
-     font_width, font_angle),
+    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor,
+    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor,
+    font_width, font_angle),
 #endif
-  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor),
-  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor)
+  scroll(_scroll), offset(_offset), size(_size), x(_x), y(_y),
+  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor),
+  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor)
 {
   AVS_UNUSED(env);
 
@@ -1152,11 +1156,12 @@ PVideoFrame ShowFrameNumber::GetFrame(int n, IScriptEnvironment* env) {
       TextOut(hdc, child->GetParity(n) ? 32 : vi.width * 8 + 8, y2, text, text_len);
 #else
     std::wstring ws = charToWstring(text, true);
-    for (int y2 = size; y2 < vi.height; y2 += size) {
+    // size-1 because of bottom alignment
+    for (int y2 = size - 1; y2 < vi.height; y2 += size) {
       if (child->GetParity(n))
-        SimpleTextOutW(current_font.get(), vi, frame, 4, y2, ws, false, textcolor, halocolor, true, 1); // left
+        SimpleTextOutW(current_font.get(), vi, frame, 4, y2, ws, false, textcolor, halocolor, true, 1); // bottom-left
       else
-        SimpleTextOutW(current_font.get(), vi, frame, vi.width - 1, y2, ws, false, textcolor, halocolor, true, 3); // right
+        SimpleTextOutW(current_font.get(), vi, frame, vi.width - 1, y2, ws, false, textcolor, halocolor, true, 3); // bottom-right
     }
 #endif
   }
@@ -1207,15 +1212,16 @@ AVSValue __cdecl ShowFrameNumber::Create(AVSValue args, void*, IScriptEnvironmen
 
 ShowCRC32::ShowCRC32(PClip _child, bool _scroll, int _offset, int _x, int _y, const char _fontname[],
   int _size, int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env)
-  : GenericVideoFilter(_child), scroll(_scroll), offset(_offset), x(_x), y(_y), size(_size),
+  : GenericVideoFilter(_child),
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
   antialiaser(vi.width, vi.height, _fontname, _size,
-    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor,
-    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor,
+    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor,
+    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor,
     font_width, font_angle),
 #endif
-  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor),
-  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor)
+  scroll(_scroll), offset(_offset), size(_size), x(_x), y(_y),
+  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor),
+  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor)
 {
   AVS_UNUSED(env);
   
@@ -1276,10 +1282,10 @@ PVideoFrame ShowCRC32::GetFrame(int n, IScriptEnvironment* env) {
   auto height = frame->GetHeight();
   uint32_t crc = 0xFFFFFFFF;;
 
-  for (int y = 0; y < height; y++) {
-    for (int x = 0; x < width; x++)
+  for (int yy = 0; yy < height; yy++) {
+    for (int xx = 0; xx < width; xx++)
     {
-      uint8_t b = ptr[x];
+      uint8_t b = ptr[xx];
       uint32_t t = (b ^ crc) & 0xFF;
       crc = (crc >> 8) ^ crc32_table[t];
     }
@@ -1380,16 +1386,17 @@ AVSValue __cdecl ShowCRC32::Create(AVSValue args, void*, IScriptEnvironment* env
  **********************************/
 
 ShowSMPTE::ShowSMPTE(PClip _child, double _rate, const char* offset, int _offset_f, int _x, int _y, const char _fontname[],
-					 int _size, int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env)
-  : GenericVideoFilter(_child), x(_x), y(_y),
+                     int _size, int _textcolor, int _halocolor, int font_width, int font_angle, IScriptEnvironment* env)
+  : GenericVideoFilter(_child),
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
   antialiaser(vi.width, vi.height, _fontname, _size,
-      vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor,
-      vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor,
+      vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor,
+      vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor,
       font_width, font_angle),
 #endif
-  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor),
-  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor)
+  x(_x), y(_y),
+  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor),
+  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor)
 {
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
 #else
@@ -1613,17 +1620,19 @@ AVSValue __cdecl ShowSMPTE::CreateTime(AVSValue args, void*, IScriptEnvironment*
  *******   Subtitle Filter    ******
  **********************************/
 
-
 Subtitle::Subtitle( PClip _child, const char _text[], int _x, int _y, int _firstframe,
                     int _lastframe, const char _fontname[], int _size, int _textcolor,
                     int _halocolor, int _align, int _spc, bool _multiline, int _lsp,
-					int _font_width, int _font_angle, bool _interlaced, const char _font_filename[], const bool _utf8, IScriptEnvironment* env)
- : GenericVideoFilter(_child), antialiaser(0), text(_text), x(_x), y(_y),
-   firstframe(_firstframe), lastframe(_lastframe), fontname(_fontname), size(_size),
-   textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor),
-   halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor),
-   align(_align), spc(_spc), multiline(_multiline), lsp(_lsp),
-   font_width(_font_width), font_angle(_font_angle), interlaced(_interlaced), font_filename(_font_filename), utf8(_utf8)
+                    int _font_width, int _font_angle, bool _interlaced, const char _font_filename[], const bool _utf8, IScriptEnvironment* env)
+ : GenericVideoFilter(_child),
+  x(_x), y(_y),
+  firstframe(_firstframe), lastframe(_lastframe), size(_size),
+  lsp(_lsp), font_width(_font_width), font_angle(_font_angle), multiline(_multiline), interlaced(_interlaced),
+  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor),
+  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor),
+  align(_align), spc(_spc),
+  fontname(_fontname), text(_text), font_filename(_font_filename), utf8(_utf8),
+  antialiaser(nullptr)
 {
   if (*font_filename) {
     int added_font_count = AddFontResourceEx(
@@ -1906,18 +1915,19 @@ SimpleText::SimpleText(PClip _child, const char _text[], int _x, int _y, int _fi
   int _lastframe, const char _fontname[], int _size, int _textcolor,
   int _halocolor, int _align, int _spc, bool _multiline, int _lsp,
   int _font_width, int _font_angle, bool _interlaced, const char _font_filename[], const bool _utf8, const bool _bold, IScriptEnvironment* env)
-  : GenericVideoFilter(_child), x(_x), y(_y),
+  : GenericVideoFilter(_child),
+  x(_x), y(_y),
   firstframe(_firstframe), lastframe(_lastframe), size(_size), lsp(_lsp),
-  font_width(_font_width), font_angle(_font_angle), multiline(_multiline),
-  interlaced(_interlaced),
-  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor),
-  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor), // not supported
-  align(_align), spc(_spc),
+  multiline(_multiline),
+  textcolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor),
+  halocolor(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor), // not supported
+  align(_align),
   halocolor_orig(_halocolor),
-  fontname(_fontname), text(_text),
+  fontname(_fontname),
+  text(_text),
+  // spc(_spc), font_width(_font_width), font_angle(_font_angle), interlaced(_interlaced),
   font_filename(_font_filename), utf8(_utf8),
   bold(_bold)
-  /*antialiaser(0),*/
 {
 
   if (*font_filename) {
@@ -2070,14 +2080,14 @@ AVSValue __cdecl SimpleText::Create(AVSValue args, void*, IScriptEnvironment* en
  **********************************/
 
 FilterInfo::FilterInfo( PClip _child, const char _fontname[], int _size, int _textcolor, int _halocolor, IScriptEnvironment* env)
-: GenericVideoFilter(_child), vii(AdjustVi()), size(_size),
+  : GenericVideoFilter(_child), vii(AdjustVi()), size(_size),
+  text_color(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor),
+  halo_color(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor)
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
-      antialiaser(vi.width, vi.height, _fontname, size,
-      vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor,
-      vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor),
+  ,antialiaser(vi.width, vi.height, _fontname, size,
+    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_textcolor) : _textcolor,
+    vi.IsYUV() || vi.IsYUVA() ? RGB2YUV_Rec601(_halocolor) : _halocolor)
 #endif
-  text_color(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_textcolor) : _textcolor),
-  halo_color(vi.IsYUV() || vi.IsYUVA() ? RGB2YUV(_halocolor) : _halocolor)
 {
   AVS_UNUSED(env);
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
@@ -2131,19 +2141,84 @@ const char* const t_ABFF="Assumed Bottom Field First ";
 const char* const t_STFF="Top Field (Separated)      ";
 const char* const t_SBFF="Bottom Field (Separated)   ";
 
+#ifdef INTEL_INTRINSICS
+std::string GetCpuMsg(IScriptEnvironment * env, bool avx512)
+{
+  int flags = env->GetCPUFlags();
+  std::stringstream ss;
 
+  if (!avx512) {
+#ifndef _M_X64
+    // don't display old capabilities when at least AVX is used
+    if (!(flags & CPUF_AVX)) {
+    //if (flags & CPUF_FPU)
+    //  ss << "x87 ";
+      if (flags & CPUF_MMX)
+        ss << "MMX ";
+      if (flags & CPUF_INTEGER_SSE)
+        ss << "ISSE ";
+
+      if (flags & CPUF_3DNOW_EXT)
+        ss << "3DNOW_EXT";
+      else if (flags & CPUF_3DNOW)
+        ss << "3DNOW ";
+    }
+
+    if (flags & CPUF_SSE)
+      ss << "SSE ";
+#endif
+    if (flags & CPUF_SSE2)
+      ss << "SSE2 ";
+    if (flags & CPUF_SSE3)
+      ss << "SSE3 ";
+    if (flags & CPUF_SSSE3)
+      ss << "SSSE3 ";
+    if (flags & CPUF_SSE4_1)
+      ss << "SSE4.1 ";
+    if (flags & CPUF_SSE4_2)
+      ss << "SSE4.2 ";
+
+    if (flags & CPUF_AVX)
+      ss << "AVX ";
+    if (flags & CPUF_AVX2)
+      ss << "AVX2 ";
+    if (flags & CPUF_FMA3)
+      ss << "FMA3 ";
+    if (flags & CPUF_FMA4)
+      ss << "FMA4 ";
+    if (flags & CPUF_F16C)
+      ss << "F16C ";
+  }
+  else {
+    if (flags & CPUF_AVX512F)
+      ss << "AVX512F ";
+    if (flags & CPUF_AVX512DQ)
+      ss << "AVX512DQ ";
+    if (flags & CPUF_AVX512PF)
+      ss << "AVX512PF ";
+    if (flags & CPUF_AVX512ER)
+      ss << "AVX512ER ";
+    if (flags & CPUF_AVX512CD)
+      ss << "AVX512CD ";
+    if (flags & CPUF_AVX512BW)
+      ss << "AVX512BW ";
+    if (flags & CPUF_AVX512VL)
+      ss << "AVX512VL ";
+    if (flags & CPUF_AVX512IFMA)
+      ss << "AVX512IFMA ";
+    if (flags & CPUF_AVX512VBMI)
+      ss << "AVX512VBMI ";
+  }
+  return ss.str();
+}
+#else
 std::string GetCpuMsg(IScriptEnvironment * env)
 {
-#ifdef INTEL_INTRINSICS
-  int flags = env->GetCPUFlags();
-#else
-  int flags = 0;
-#endif
   std::stringstream ss;
 
   return ss.str();
 }
-
+#endif
 
 bool FilterInfo::GetParity(int n)
 {
@@ -2257,8 +2332,23 @@ PVideoFrame FilterInfo::GetFrame(int n, IScriptEnvironment* env)
     // CPU capabilities
     tlen += snprintf(text + tlen, sizeof(text) - tlen,
       "CPU: %s\n"
+#ifdef INTEL_INTRINSICS
+      , GetCpuMsg(env, false).c_str()
+#else
       , GetCpuMsg(env).c_str()
+#endif
     );
+#ifdef INTEL_INTRINSICS
+    // AVX512 flags in new line (too long)
+    std::string avx512 = GetCpuMsg(env, true);
+    if (avx512.length() > 0) {
+      tlen += snprintf(text + tlen, sizeof(text) - tlen,
+        "     %s\n"
+        , avx512.c_str()
+      );
+    }
+#endif
+
 
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
     // So far RECT dimensions were hardcoded: RECT r = { 32, 16, min(3440,vi.width * 8), 900*2 };
@@ -2362,20 +2452,19 @@ AVSValue __cdecl FilterInfo::Create(AVSValue args, void*, IScriptEnvironment* en
  *******    Compare Filter    *******
  ***********************************/
 
-
 Compare::Compare(PClip _child1, PClip _child2, const char* channels, const char *fname, bool _show_graph, IScriptEnvironment* env)
   : GenericVideoFilter(_child1),
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
-    antialiaser(vi.width, vi.height, "Courier New", 16*8,
+  antialiaser(vi.width, vi.height, "Courier New", 16 * 8,
     (vi.IsYUV() || vi.IsYUVA()) ? 0xD21092 : 0xFFFF00,
     (vi.IsYUV() || vi.IsYUVA()) ? 0x108080 : 0),
 #endif
-    child2(_child2),
-    log(NULL),
-    show_graph(_show_graph),
-    framecount(0),
-    text_color((vi.IsYUV() || vi.IsYUVA()) ? 0xD21092 : 0xFFFF00),
-    halo_color((vi.IsYUV() || vi.IsYUVA()) ? 0x108080 : 0)
+  child2(_child2),
+  log(nullptr),
+  show_graph(_show_graph),
+  framecount(0),
+  text_color((vi.IsYUV() || vi.IsYUVA()) ? 0xD21092 : 0xFFFF00),
+  halo_color((vi.IsYUV() || vi.IsYUVA()) ? 0x108080 : 0)
 {
   const VideoInfo& vi2 = child2->GetVideoInfo();
   psnrs = 0;
@@ -2390,6 +2479,7 @@ Compare::Compare(PClip _child1, PClip _child2, const char* channels, const char 
     env->ThrowError("Compare: Clips have unknown pixel format. RGB24/32/48/64, YUY2 and YUV/RGB Planar supported.");
 
   pixelsize = vi.ComponentSize();
+  bits_per_pixel = vi.BitsPerComponent();
 
   if (pixelsize == 4)
       env->ThrowError("Compare: Float pixel format not supported.");
@@ -2397,6 +2487,8 @@ Compare::Compare(PClip _child1, PClip _child2, const char* channels, const char 
   if (channels[0] == 0) {
     if (vi.IsRGB())
       channels = "RGB";
+    else if (vi.IsY())
+      channels = "Y";
     else if (vi.IsYUV() || vi.IsYUVA())
       channels = "YUV";
     else env->ThrowError("Compare: Clips have unknown colorspace. RGB and YUV supported.");
@@ -2507,7 +2599,7 @@ Compare::~Compare()
     fprintf(log,"Mean Absolute Deviation: %9.4f %9.4f %9.4f\n", MAD_min, MAD_tot/framecount, MAD_max);
     fprintf(log,"         Mean Deviation: %+9.4f %+9.4f %+9.4f\n", MD_min, MD_tot/framecount, MD_max);
     fprintf(log,"                   PSNR: %9.4f %9.4f %9.4f\n", PSNR_min, PSNR_tot/framecount, PSNR_max);
-    double factor = pixelsize == 1 ? 255.0 : 65535.0;
+    double factor = (1 << bits_per_pixel) - 1;
     double PSNR_overall = 10.0 * log10(bytecount_overall * factor * factor / SSD_overall);
     fprintf(log,"           Overall PSNR: %9.4f\n", PSNR_overall);
     fclose(log);
@@ -2679,21 +2771,41 @@ PVideoFrame __stdcall Compare::GetFrame(int n, IScriptEnvironment* env)
     const int height = f1->GetHeight();
 
     bytecount = (rowsize / pixelsize) * height * masked_bytes / 4;
+#ifdef INTEL_INTRINSICS
 
-    if(pixelsize==1)
-        compare_c(mask, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+    if (((vi.IsRGB32() && (rowsize % 16 == 0)) || (vi.IsRGB24() && (rowsize % 12 == 0)) || (vi.IsYUY2() && (rowsize % 16 == 0))) &&
+      (pixelsize == 1) && (env->GetCPUFlags() & CPUF_SSE2)) // only for uint8_t (pixelsize==1), todo
+    {
+
+      compare_sse2(mask, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+    }
     else
-        compare_uint16_t_c(mask64, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD_64, SD_64, pos_D, neg_D, SSD);
+#ifdef X86_32
+      if (((vi.IsRGB32() && (rowsize % 8 == 0)) || (vi.IsRGB24() && (rowsize % 6 == 0)) || (vi.IsYUY2() && (rowsize % 8 == 0))) &&
+        (pixelsize == 1) && (env->GetCPUFlags() & CPUF_INTEGER_SSE)) // only for uint8_t (pixelsize==1), todo
+      {
+        compare_isse(mask, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+      }
+      else
+#endif
+#endif
+      {
+
+        if (pixelsize == 1)
+          compare_c(mask, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+        else
+          compare_uint16_t_c(mask64, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD_64, SD_64, pos_D, neg_D, SSD);
+      }
   }
   else { // Planar
 
     int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
     int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
-    int *planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;
-    for (int p=0; p<3; p++) {
+    int* planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;
+    for (int p = 0; p < 3; p++) {
       const int plane = planes[p];
 
-	  if (planar_plane & plane) {
+      if (planar_plane & plane) {
 
         const BYTE* f1ptr = f1->GetReadPtr(plane);
         const BYTE* f2ptr = f2->GetReadPtr(plane);
@@ -2703,11 +2815,28 @@ PVideoFrame __stdcall Compare::GetFrame(int n, IScriptEnvironment* env)
         const int height = f1->GetHeight(plane);
 
         bytecount += (rowsize / pixelsize) * height;
+#ifdef INTEL_INTRINSICS
 
-        if(pixelsize==1)
-            compare_planar_c(f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+        if ((pixelsize == 1) && (rowsize % 16 == 0) && (env->GetCPUFlags() & CPUF_SSE2))
+        {
+          compare_sse2(mask, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+        }
         else
-            compare_planar_uint16_t_c(f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD_64, SD_64, pos_D, neg_D, SSD);
+#ifdef X86_32
+          if ((pixelsize == 1) && (rowsize % 8 == 0) && (env->GetCPUFlags() & CPUF_INTEGER_SSE))
+          {
+            compare_isse(mask, incr, f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+          }
+          else
+#endif
+#endif
+          {
+
+            if (pixelsize == 1)
+              compare_planar_c(f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD, SD, pos_D, neg_D, SSD);
+            else
+              compare_planar_uint16_t_c(f1ptr, pitch1, f2ptr, pitch2, rowsize, height, SAD_64, SD_64, pos_D, neg_D, SSD);
+          }
       }
     }
   }
@@ -2715,7 +2844,8 @@ PVideoFrame __stdcall Compare::GetFrame(int n, IScriptEnvironment* env)
   double MAD = ((pixelsize==1) ? (double)SAD : (double)SAD_64) / bytecount;
   double MD = ((pixelsize==1) ? (double)SD : (double)SD_64) / bytecount;
   if (SSD == 0.0) SSD = 1.0;
-  double factor = (pixelsize == 1) ? 255.0 : 65535.0;
+  const int max_pixel_value = (1 << bits_per_pixel) - 1;
+  double factor = (double)(max_pixel_value);
   double PSNR = 10.0 * log10(bytecount * factor * factor / SSD);
 
   framecount++;
@@ -2860,9 +2990,9 @@ PVideoFrame __stdcall Compare::GetFrame(int n, IScriptEnvironment* env)
                                     dstp_RGBP[1][x] = 0xFF;
                                     dstp_RGBP[2][x] = 0xFF;
                                 } else {
-                                    reinterpret_cast<uint16_t *>(dstp_RGBP[0])[x] = 0xFFFF;
-                                    reinterpret_cast<uint16_t *>(dstp_RGBP[1])[x] = 0xFFFF;
-                                    reinterpret_cast<uint16_t *>(dstp_RGBP[2])[x] = 0xFFFF;
+                                    reinterpret_cast<uint16_t *>(dstp_RGBP[0])[x] = max_pixel_value;
+                                    reinterpret_cast<uint16_t *>(dstp_RGBP[1])[x] = max_pixel_value;
+                                    reinterpret_cast<uint16_t *>(dstp_RGBP[2])[x] = max_pixel_value;
                                 }
                             }
                         }
@@ -2874,6 +3004,8 @@ PVideoFrame __stdcall Compare::GetFrame(int n, IScriptEnvironment* env)
             } else {
                 // planar YUV
                 dstp += (vi.height - 1) * dst_pitch;
+                const int black = 16 << (bits_per_pixel - 8);
+                const int white = 235 << (bits_per_pixel - 8);
                 for (int y = 0; y <= 100; y++) {
                     for (int x = max(0, vi.width - n - 1); x < vi.width; x++) {
                         if (y <= psnrs[n - vi.width + 1 + x]) {
@@ -2881,19 +3013,19 @@ PVideoFrame __stdcall Compare::GetFrame(int n, IScriptEnvironment* env)
                                 if(pixelsize==1)
                                     dstp[x] = 16; // Y
                                 else
-                                    reinterpret_cast<uint16_t *>(dstp)[x] = 16*256; // Y
+                                    reinterpret_cast<uint16_t *>(dstp)[x] = black; // Y
                             } else {
                                 if(pixelsize==1)
                                     dstp[x] = 235; // Y
                                 else
-                                    reinterpret_cast<uint16_t *>(dstp)[x] = 235*256; // Y
+                                    reinterpret_cast<uint16_t *>(dstp)[x] = white; // Y
                             }
                         }
                     } // for x
                     dstp -= dst_pitch;
             }
           } // for y
-        } else {  // RGB
+        } else {  // packed RGB 8 or 16 bits
           for (int y = 0; y <= 100; y++) {
             for (int x = max(0, vi.width - n - 1); x < vi.width; x++) {
               if (y <= psnrs[n - vi.width + 1 + x]) {
@@ -3045,8 +3177,8 @@ void ApplyMessage( PVideoFrame* frame, const VideoInfo& vi, const char* message,
   AVS_UNUSED(bgcolor);
   AVS_UNUSED(env);
   if (vi.IsYUV() || vi.IsYUVA()) {
-    textcolor = RGB2YUV(textcolor);
-    halocolor = RGB2YUV(halocolor);
+    textcolor = RGB2YUV_Rec601(textcolor);
+    halocolor = RGB2YUV_Rec601(halocolor);
   }
 
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)

@@ -33,7 +33,6 @@
 // import and export plugins, or graphical user interfaces.
 
 #include "avisynth.h"
-#include "overlayfunctions_sse.h"
 #include "OF_multiply_avx2.h"
 
 #include <stdint.h>
@@ -249,7 +248,6 @@ void of_multiply_avx2(
     ovY += overlaypitch;
 
   }
-  _mm256_zeroupper();
 }
 
 // instantiate

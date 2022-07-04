@@ -33,6 +33,10 @@
 // import and export plugins, or graphical user interfaces.
 
 #include "focus.h"
+#ifdef INTEL_INTRINSICS
+#include "intel/focus_sse.h"
+#include "intel/focus_avx2.h"
+#endif
 #include <cmath>
 #include <vector>
 #include <avs/alignment.h>
@@ -131,12 +135,55 @@ template<typename pixel_t>
 static void af_vertical_process(BYTE* line_buf, BYTE* dstp, size_t height, size_t pitch, size_t row_size, int half_amount, int bits_per_pixel, IScriptEnvironment* env) {
   size_t width = row_size / sizeof(pixel_t);
   // only for 8/16 bit, float separated
-  af_vertical_c<pixel_t>(line_buf, dstp, (int)height, (int)pitch, (int)width, half_amount, bits_per_pixel);
+#ifdef INTEL_INTRINSICS
+  if (sizeof(pixel_t) == 1 && (env->GetCPUFlags() & CPUF_AVX2) && width >= 32) {
+    //pitch of aligned frames is always >= 32 so we'll just process some garbage if width is not mod32
+    af_vertical_avx2(line_buf, dstp, (int)height, (int)pitch, (int)width, half_amount);
+  }
+  else
+  if (sizeof(pixel_t) == 1 && (env->GetCPUFlags() & CPUF_SSE2) && width >= 16) {
+    //pitch of aligned frames is always >= 16 so we'll just process some garbage if width is not mod16
+    af_vertical_sse2(line_buf, dstp, (int)height, (int)pitch, (int)width, half_amount);
+  }
+  else if (sizeof(pixel_t) == 2 && (env->GetCPUFlags() & CPUF_AVX2) && row_size >= 32) {
+    af_vertical_uint16_t_avx2(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount);
+  }
+  else if (sizeof(pixel_t) == 2 && (env->GetCPUFlags() & CPUF_SSE4_1) && row_size >= 16) {
+    af_vertical_uint16_t_sse41(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount);
+  }
+  else if (sizeof(pixel_t) == 2 && (env->GetCPUFlags() & CPUF_SSE2) && row_size >= 16) {
+    af_vertical_uint16_t_sse2(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount);
+  }
+  else
+#ifdef X86_32
+  if (sizeof(pixel_t) == 1 && (env->GetCPUFlags() & CPUF_MMX) && width >= 8)
+  {
+    size_t mod8_width = width / 8 * 8;
+    af_vertical_mmx(line_buf, dstp, height, pitch, mod8_width, half_amount);
+    if (mod8_width != width) {
+      //yes, this is bad for caching. MMX shouldn't be used these days anyway
+      af_vertical_c<uint8_t>(line_buf, dstp + mod8_width, height, pitch, width - mod8_width, half_amount, bits_per_pixel);
+    }
+  } else
+#endif
+#endif
+  {
+    af_vertical_c<pixel_t>(line_buf, dstp, (int)height, (int)pitch, (int)width, half_amount, bits_per_pixel);
+  }
 }
 
 static void af_vertical_process_float(BYTE* line_buf, BYTE* dstp, size_t height, size_t pitch, size_t row_size, double amountd, IScriptEnvironment* env) {
     size_t width = row_size / sizeof(float);
-    af_vertical_c_float(line_buf, dstp, (int)height, (int)pitch, (int)width, (float)amountd);
+#ifdef INTEL_INTRINSICS
+    if ((env->GetCPUFlags() & CPUF_SSE2) && width >= 16) {
+        //pitch of aligned frames is always >= 16 so we'll just process some garbage if width is not mod16
+        af_vertical_sse2_float(line_buf, dstp, (int)height, (int)pitch, (int)row_size, (float)amountd);
+    } 
+    else
+#endif
+    {
+      af_vertical_c_float(line_buf, dstp, (int)height, (int)pitch, (int)width, (float)amountd);
+    }
 }
 
 // --------------------------------
@@ -327,6 +374,7 @@ static void af_horizontal_rgb24_48_c(BYTE* dstp8, int height, int pitch8, int wi
 // Blur/Sharpen Horizontal YV12 C++ Code
 // -------------------------------------
 
+// for linker reasons these forceinlined functions appear in C, intel sse2 and avx2 source as well
 template<typename pixel_t>
 static AVS_FORCEINLINE void af_horizontal_planar_process_line_c(pixel_t left, BYTE *dstp8, size_t row_size, int center_weight, int outer_weight) {
   size_t x;
@@ -358,6 +406,17 @@ static AVS_FORCEINLINE void af_horizontal_planar_process_line_uint16_c(uint16_t 
   dstp[x] = ScaledPixelClipEx((weight_t)(dstp[x] * (weight_t)center_weight + (left + dstp[x]) * (weight_t)outer_weight), max_pixel_value);
 }
 
+static AVS_FORCEINLINE void af_horizontal_planar_process_line_float_c(float left, float* dstp, size_t row_size, float center_weight, float outer_weight) {
+  size_t x;
+  size_t width = row_size / sizeof(float);
+  for (x = 0; x < width - 1; ++x) {
+    float temp = dstp[x] * center_weight + (left + dstp[x + 1]) * outer_weight;
+    left = dstp[x];
+    dstp[x] = temp;
+  }
+  dstp[x] = dstp[x] * center_weight + (left + dstp[x]) * outer_weight;
+}
+
 template<typename pixel_t>
 static void af_horizontal_planar_c(BYTE* dstp8, size_t height, size_t pitch8, size_t row_size, size_t half_amount, int bits_per_pixel)
 {
@@ -374,17 +433,6 @@ static void af_horizontal_planar_c(BYTE* dstp8, size_t height, size_t pitch8, si
           af_horizontal_planar_process_line_uint16_c(left, (BYTE *)dstp, row_size, center_weight, outer_weight, bits_per_pixel);
         dstp += pitch;
     }
-}
-
-static AVS_FORCEINLINE void af_horizontal_planar_process_line_float_c(float left, float *dstp, size_t row_size, float center_weight, float outer_weight) {
-    size_t x;
-    size_t width = row_size / sizeof(float);
-    for (x = 0; x < width-1; ++x) {
-        float temp = dstp[x] * center_weight + (left + dstp[x+1]) * outer_weight;
-        left = dstp[x];
-        dstp[x] = temp;
-    }
-    dstp[x] = dstp[x] * center_weight + (left + dstp[x]) * outer_weight;
 }
 
 static void af_horizontal_planar_float_c(BYTE* dstp8, size_t height, size_t pitch8, size_t row_size, float amount)
@@ -433,23 +481,83 @@ PVideoFrame __stdcall AdjustFocusH::GetFrame(int n, IScriptEnvironment* env)
       BYTE* q = dst->GetWritePtr(plane);
       int pitch = dst->GetPitch(plane);
       int height = dst->GetHeight(plane);
+#ifdef INTEL_INTRINSICS
+      if (pixelsize == 1 && (env->GetCPUFlags() & CPUF_AVX2) && row_size > 32) {
+        af_horizontal_planar_avx2(q, height, pitch, row_size, half_amount);
+      }
+      else
+        if (pixelsize==1 && (env->GetCPUFlags() & CPUF_SSE2) && row_size > 16) {
+        af_horizontal_planar_sse2(q, height, pitch, row_size, half_amount);
+      } else
+#ifdef X86_32
+        if (pixelsize == 1 && (env->GetCPUFlags() & CPUF_MMX) && row_size > 8) {
+          af_horizontal_planar_mmx(q,height,pitch,row_size,half_amount);
+        } else
+#endif
+        if (pixelsize == 2 && (env->GetCPUFlags() & CPUF_AVX2) && row_size > 32) {
+          af_horizontal_planar_uint16_t_avx2(q, height, pitch, row_size, half_amount, bits_per_pixel);
+        }
+        else if (pixelsize == 2 && (env->GetCPUFlags() & CPUF_SSE4_1) && row_size > 16) {
+          af_horizontal_planar_uint16_t_sse41(q, height, pitch, row_size, half_amount, bits_per_pixel);
+        }
+        else if (pixelsize == 2 && (env->GetCPUFlags() & CPUF_SSE2) && row_size > 16) {
+          af_horizontal_planar_uint16_t_sse2(q, height, pitch, row_size, half_amount, bits_per_pixel);
+        }
+        else if (pixelsize == 4 && (env->GetCPUFlags() & CPUF_SSE2) && row_size > 16) {
+          af_horizontal_planar_float_sse2(q, height, pitch, row_size, (float)amountd);
+        }
+        else
+#endif
+        {
           switch (pixelsize) {
           case 1: af_horizontal_planar_c<uint8_t>(q, height, pitch, row_size, half_amount, bits_per_pixel); break;
           case 2: af_horizontal_planar_c<uint16_t>(q, height, pitch, row_size, half_amount, bits_per_pixel); break;
           default: // 4: float
             af_horizontal_planar_float_c(q, height, pitch, row_size, (float)amountd); break;
           }
+        }
     }
   } else {
     if (vi.IsYUY2()) {
       BYTE* q = dst->GetWritePtr();
       const int pitch = dst->GetPitch();
+#ifdef INTEL_INTRINSICS
+      if ((env->GetCPUFlags() & CPUF_SSE2) && vi.width>8) {
+        af_horizontal_yuy2_sse2(dst->GetWritePtr(), src->GetReadPtr(), dst->GetPitch(), src->GetPitch(), vi.height, vi.width, half_amount);
+      } else
+#ifdef X86_32
+      if ((env->GetCPUFlags() & CPUF_MMX) && vi.width>8) {
+        af_horizontal_yuy2_mmx(dst->GetWritePtr(), src->GetReadPtr(), dst->GetPitch(), src->GetPitch(), vi.height, vi.width, half_amount);
+      } else
+#endif
+#endif
       {
         copy_frame(src, dst, env, planesYUV, 1); //in-place
         af_horizontal_yuy2_c(q,vi.height,pitch,vi.width,half_amount);
       }
     }
     else if (vi.IsRGB32() || vi.IsRGB64()) {
+#ifdef INTEL_INTRINSICS
+      if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_SSE2) && vi.width>4) {
+        //this one is NOT in-place
+        af_horizontal_rgb32_sse2(dst->GetWritePtr(), src->GetReadPtr(), dst->GetPitch(), src->GetPitch(), vi.height, vi.width, half_amount);
+      }
+      else if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE4_1) && vi.width > 2) {
+        //this one is NOT in-place
+        af_horizontal_rgb64_sse41(dst->GetWritePtr(), src->GetReadPtr(), dst->GetPitch(), src->GetPitch(), vi.height, vi.width, half_amount); // really width
+      }
+      else if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE2) && vi.width > 2) {
+        //this one is NOT in-place
+        af_horizontal_rgb64_sse2(dst->GetWritePtr(), src->GetReadPtr(), dst->GetPitch(), src->GetPitch(), vi.height, vi.width, half_amount); // really width
+      }
+      else
+#ifdef X86_32
+      if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_MMX) && vi.width > 2)
+      { //so as this one
+        af_horizontal_rgb32_mmx(dst->GetWritePtr(), src->GetReadPtr(), dst->GetPitch(), src->GetPitch(), vi.height, vi.width, half_amount);
+      } else
+#endif
+#endif
       {
         copy_frame(src, dst, env, planesYUV, 1);
         if(pixelsize==1)
@@ -533,11 +641,11 @@ AVSValue __cdecl Create_Blur(AVSValue args, void*, IScriptEnvironment* env)
 
 TemporalSoften::TemporalSoften( PClip _child, unsigned radius, unsigned luma_thresh,
                                 unsigned chroma_thresh, int _scenechange, IScriptEnvironment* env )
-  : GenericVideoFilter  (_child),
-    scenechange (_scenechange),
-    luma_threshold      (min(luma_thresh,255u)),
-    chroma_threshold    (min(chroma_thresh,255u)),
-    kernel              (2*min(radius,(unsigned int)MAX_RADIUS)+1)
+  : GenericVideoFilter(_child),
+  scenechange(_scenechange),
+  luma_threshold(min(luma_thresh, 255u)),
+  chroma_threshold(min(chroma_thresh, 255u)),
+  kernel(2 * min(radius, (unsigned int)MAX_RADIUS) + 1)
 {
 
   child->SetCacheHints(CACHE_WINDOW,kernel);
@@ -682,13 +790,79 @@ static void accumulate_line_yuy2_c(BYTE* c_plane, const BYTE** planeP, int plane
   }
 }
 
-static void accumulate_line_yuy2(BYTE* c_plane, const BYTE** planeP, int planes, size_t width, BYTE threshold_luma, BYTE threshold_chroma, int div, bool aligned16, IScriptEnvironment* env) {
+static void accumulate_line_yuy2(BYTE* c_plane, const BYTE** planeP, int planes, size_t width, BYTE threshold_luma, BYTE threshold_chroma, int div, IScriptEnvironment* env)
+{
+#ifdef INTEL_INTRINSICS
+  if ((env->GetCPUFlags() & CPUF_SSE2) && width >= 16) {
+    accumulate_line_sse2<false>(c_plane, planeP, planes, width, threshold_luma | (threshold_chroma << 8), div);
+  } else
+#ifdef X86_32
+  if ((env->GetCPUFlags() & CPUF_MMX) && width >= 8) {
+    accumulate_line_mmx(c_plane, planeP, planes, width, threshold_luma | (threshold_chroma << 8), div); //yuy2 is always at least mod8
+  } else
+#endif
+#endif
     accumulate_line_yuy2_c(c_plane, planeP, planes, width, threshold_luma, threshold_chroma, div);
 }
 
-static void accumulate_line(BYTE* c_plane, const BYTE** planeP, int planes, size_t rowsize, BYTE threshold, int div, bool aligned16, int pixelsize, int bits_per_pixel, IScriptEnvironment* env) {
+static void accumulate_line(BYTE* c_plane, const BYTE** planeP, int planes, size_t rowsize, BYTE threshold, int div, int pixelsize, int bits_per_pixel, IScriptEnvironment* env) {
   // threshold == 255: simple average
   bool maxThreshold = (threshold == 255);
+#ifdef INTEL_INTRINSICS
+  if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE4) && rowsize >= 16) {
+    // <maxThreshold, lessThan16bit>
+    if(maxThreshold) {
+      if(bits_per_pixel < 16)
+        accumulate_line_16_sse41<true, true>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+      else
+        accumulate_line_16_sse41<true, false>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+    }
+    else {
+      if (bits_per_pixel < 16)
+        accumulate_line_16_sse41<false, true>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+      else
+        accumulate_line_16_sse41<false, false>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+    }
+  } else if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+    // <maxThreshold, lessThan16bit>
+    if(maxThreshold) {
+      if(bits_per_pixel < 16)
+        accumulate_line_16_sse2<true, true>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+      else
+        accumulate_line_16_sse2<true, false>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+    }
+    else {
+      if (bits_per_pixel < 16)
+        accumulate_line_16_sse2<false, true>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+      else
+        accumulate_line_16_sse2<false, false>(c_plane, planeP, planes, rowsize, threshold << (bits_per_pixel - 8), div, bits_per_pixel);
+    }
+  }
+  else if ((pixelsize == 1) && (env->GetCPUFlags() & CPUF_SSSE3) && rowsize >= 16) {
+    if (maxThreshold) // <maxThreshold
+      accumulate_line_ssse3<true>(c_plane, planeP, planes, rowsize, threshold | (threshold << 8), div);
+    else
+      accumulate_line_ssse3<false>(c_plane, planeP, planes, rowsize, threshold | (threshold << 8), div);
+  } else if ((pixelsize == 1) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+    if (maxThreshold)
+      accumulate_line_sse2<true>(c_plane, planeP, planes, rowsize, threshold | (threshold << 8), div);
+    else
+      accumulate_line_sse2<false>(c_plane, planeP, planes, rowsize, threshold | (threshold << 8), div);
+  }
+  else
+#ifdef X86_32
+  if ((pixelsize == 1) && (env->GetCPUFlags() & CPUF_MMX) && rowsize >= 8) {
+    size_t mod8_width = rowsize / 8 * 8;
+    accumulate_line_mmx(c_plane, planeP, planes, rowsize, threshold | (threshold << 8), div);
+
+    if (mod8_width != rowsize) {
+      accumulate_line_c<uint8_t, false>(c_plane, planeP, planes, mod8_width, rowsize - mod8_width, threshold, div, bits_per_pixel);
+    }
+  } else
+#endif
+#endif
+
+    {
     switch(pixelsize) {
     case 1:
       if (maxThreshold)
@@ -709,6 +883,7 @@ static void accumulate_line(BYTE* c_plane, const BYTE** planeP, int planes, size
         accumulate_line_c<float, false>(c_plane, planeP, planes, 0, rowsize, threshold, div, bits_per_pixel);
       break;
     }
+   }
 }
 
 template<typename pixel_t>
@@ -743,6 +918,21 @@ static int64_t calculate_sad_c(const BYTE* cur_ptr, const BYTE* other_ptr, int c
 
 // sum of byte-diffs.
 static int64_t calculate_sad(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height, int pixelsize, int bits_per_pixel, IScriptEnvironment* env) {
+#ifdef INTEL_INTRINSICS
+  // todo: sse for float
+  if ((pixelsize == 1) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+    return (int64_t)calculate_sad_sse2<false>(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
+  }
+#ifdef X86_32
+  if ((pixelsize ==1 ) && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && rowsize >= 8) {
+    return (int64_t)calculate_sad_isse(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
+  }
+#endif
+  // sse2 uint16_t
+  if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
+    return calculate_sad_8_or_16_sse2<uint16_t, false>(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height) >> (bits_per_pixel-8);
+  }
+#endif
 
   switch(pixelsize) {
   case 1: return calculate_sad_c<uint8_t>(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
@@ -863,13 +1053,12 @@ PVideoFrame TemporalSoften::GetFrame(int n, IScriptEnvironment* env)
 
     int c_div = 32768/(d+1);  // We also have the tetplane included, thus d+1.
     if (current_thresh) {
-      bool aligned16 = IsPtrAligned(c_plane, 16);
       // for threshold==255 -> simple average
       for (int y = 0; y<h; y++) { // One line at the time
         if (vi.IsYUY2()) {
-          accumulate_line_yuy2(c_plane, planeP, d, rowsize, luma_threshold, chroma_threshold, c_div, aligned16, env);
+          accumulate_line_yuy2(c_plane, planeP, d, rowsize, luma_threshold, chroma_threshold, c_div, env);
         } else {
-          accumulate_line(c_plane, planeP, d, rowsize, current_thresh, c_div, aligned16, pixelsize, bits_per_pixel, env);
+          accumulate_line(c_plane, planeP, d, rowsize, current_thresh, c_div, pixelsize, bits_per_pixel, env);
         }
         for (int p = 0; p<d; p++)
           planeP[p] += planePitch[p];

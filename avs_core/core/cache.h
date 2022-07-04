@@ -100,7 +100,7 @@ private:
 	int GetOrDefault(int cachehints, int frame_range, int def);
 
 public:
-    CacheGuard(const PClip& child, IScriptEnvironment* env);
+    CacheGuard(const PClip& child, const char *name, IScriptEnvironment* env);
     ~CacheGuard();
     PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env);
     void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env);
@@ -112,6 +112,7 @@ public:
   static bool __stdcall IsCache(const PClip& c);
 
 private:
+  std::string name;
   enum {
     // Old 2.5 poorly defined cache hints.
     // Reserve values used by 2.5 API

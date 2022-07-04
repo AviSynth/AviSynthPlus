@@ -33,7 +33,13 @@
 // import and export plugins, or graphical user interfaces.
 
 #include "convert_yuy2.h"
+#ifdef INTEL_INTRINSICS
+#include "intel/convert_yuy2_sse.h"
+#endif
 #include "convert.h"
+#include "convert_matrix.h"
+#include "convert_helper.h"
+#include "convert_planar.h"
 #include <avs/alignment.h>
 
 #ifdef AVS_WINDOWS
@@ -43,53 +49,11 @@
 #endif
 
 
-//these are to be used only in asm routines
-static const int cyb_rec601 = int(0.114 * 219 / 255 * 65536 + 0.5);
-static const int cyg_rec601 = int(0.587 * 219 / 255 * 65536 + 0.5);
-static const int cyr_rec601 = int(0.299 * 219 / 255 * 65536 + 0.5);
-
-static const int ku_rec601  = int(112.0 / (255.0 * (1.0 - 0.114)) * 65536 + 0.5);
-static const int kv_rec601  = int(112.0 / (255.0 * (1.0 - 0.299)) * 65536 + 0.5);
-
-static const int cyb_rec709 = int(0.0722 * 219 / 255 * 65536 + 0.5);
-static const int cyg_rec709 = int(0.7152 * 219 / 255 * 65536 + 0.5);
-static const int cyr_rec709 = int(0.2126 * 219 / 255 * 65536 + 0.5);
-
-static const int ku_rec709  = int(112.0 / (255.0 * (1.0 - 0.0722)) * 65536 + 0.5);
-static const int kv_rec709  = int(112.0 / (255.0 * (1.0 - 0.2126)) * 65536 + 0.5);
-
-
-static const int cyb_pc601 = int(0.114 * 65536 + 0.5);
-static const int cyg_pc601 = int(0.587 * 65536 + 0.5);
-static const int cyr_pc601 = int(0.299 * 65536 + 0.5);
-
-static const int ku_pc601  = int(127.0 / (255.0 * (1.0 - 0.114)) * 65536 + 0.5);
-static const int kv_pc601  = int(127.0 / (255.0 * (1.0 - 0.299)) * 65536 + 0.5);
-
-static const int cyb_pc709 = int(0.0722 * 65536 + 0.5);
-static const int cyg_pc709 = int(0.7152 * 65536 + 0.5);
-static const int cyr_pc709 = int(0.2126 * 65536 + 0.5);
-
-static const int ku_pc709  = int(127.0 / (255.0 * (1.0 - 0.0722)) * 65536 + 0.5);
-static const int kv_pc709  = int(127.0 / (255.0 * (1.0 - 0.2126)) * 65536 + 0.5);
-
-
-static const int cyb_values[4] = {cyb_rec601 / 2, cyb_rec709 / 2, cyb_pc601 / 2, cyb_pc709 / 2};
-static const int cyg_values[4] = {cyg_rec601 / 2, cyg_rec709 / 2, cyg_pc601 / 2, cyg_pc709 / 2};
-static const int cyr_values[4] = {cyr_rec601 / 2, cyr_rec709 / 2, cyr_pc601 / 2, cyr_pc709 / 2};
-
-static const double luma_rec_scale = 255.0/219.0 * 65536+0.5;
-
-static const int ku_values[4]       = {ku_rec601 / 2, ku_rec709 / 2, ku_pc601 / 2, ku_pc709 / 2};
-static const int ku_values_luma[4]  = {-int((ku_rec601/2) * luma_rec_scale) / 65536, -int((ku_rec709/2) * luma_rec_scale) / 65536, -ku_pc601 / 2, -ku_pc709 / 2};
-static const int kv_values[4]       = {kv_rec601 / 2, kv_rec709 / 2, kv_pc601 / 2, kv_pc709 / 2};
-static const int kv_values_luma[4]  = {-int((kv_rec601/2) * luma_rec_scale) / 65536, -int((kv_rec709/2) * luma_rec_scale) / 65536, -kv_pc601 / 2, -kv_pc709 / 2};
-
 /**********************************
  *******   Convert to YUY2   ******
  *********************************/
 
-ConvertToYUY2::ConvertToYUY2(PClip _child, bool _dupl, bool _interlaced, const char *matrix, IScriptEnvironment* env)
+ConvertToYUY2::ConvertToYUY2(PClip _child, bool _dupl, bool _interlaced, const char *matrix_name, IScriptEnvironment* env)
   : GenericVideoFilter(_child), interlaced(_interlaced),src_cs(vi.pixel_type)
 {
   AVS_UNUSED(_dupl);
@@ -102,62 +66,69 @@ ConvertToYUY2::ConvertToYUY2(PClip _child, bool _dupl, bool _interlaced, const c
   if (vi.width & 1)
     env->ThrowError("ConvertToYUY2: Image width must be even. Use Crop!");
 
-  theMatrix = Rec601;
-  if (matrix) {
-    if (!vi.IsRGB())
-      env->ThrowError("ConvertToYUY2: invalid \"matrix\" parameter (RGB data only)");
+  if (matrix_name && !vi.IsRGB())
+    env->ThrowError("ConvertToYUY2: invalid \"matrix\" parameter (RGB data only)");
 
-    if (!lstrcmpi(matrix, "rec709"))
-      theMatrix = Rec709;
-    else if (!lstrcmpi(matrix, "PC.601"))
-      theMatrix = PC_601;
-    else if (!lstrcmpi(matrix, "PC.709"))
-      theMatrix = PC_709;
-    else if (!lstrcmpi(matrix, "rec601"))
-      theMatrix = Rec601;
-    else
-      env->ThrowError("ConvertToYUY2: invalid \"matrix\" parameter (must be matrix=\"Rec601\", \"Rec709\", \"PC.601\" or \"PC.709\")");
-  }
+  auto frame0 = _child->GetFrame(0, env);
+  const AVSMap* props = env->getFramePropsRO(frame0);
+  matrix_parse_merge_with_props(vi, matrix_name, props, theMatrix, theColorRange, env);
+
+  const int shift = 15;
+  const int bits_per_pixel = 8;
+  if (!do_BuildMatrix_Rgb2Yuv(theMatrix, theColorRange, shift, bits_per_pixel, /*ref*/matrix))
+    env->ThrowError("ConvertToYUY2: invalid \"matrix\" parameter");
 
   vi.pixel_type = VideoInfo::CS_YUY2;
 }
 
-// 1-2-1 Kernel version
+// 1-2-1 kernel version: convert_rgb_to_yuy2
+// 0-1-0 kernel version: convert_rgb_back_to_yuy2_c
 
-static void convert_rgb_to_yuy2_c(const bool pcrange, const int cyb, const int cyg, const int cyr,
-                                  const int ku, const int kv, const BYTE* rgb,
+// 1-2-1 Kernel version
+template<bool TV_range>
+static void convert_rgb_to_yuy2_c(
+  const BYTE* rgb,
                                   BYTE* yuv, const int yuv_offset,
                                   const int rgb_offset, const int rgb_inc,
-                                  int width, int height) {
+  int width, int height, const ConversionMatrix& matrix)
+{
+  /*
+    int Y = matrix.offset_y + (((int)matrix.y_b * b + (int)matrix.y_g * g + (int)matrix.y_r * r + 16384) >> 15);
+    int U = 128 + (((int)matrix.u_b * b + (int)matrix.u_g * g + (int)matrix.u_r * r + 16384) >> 15);
+    int V = 128 + (((int)matrix.v_b * b + (int)matrix.v_g * g + (int)matrix.v_r * r + 16384) >> 15);
 
-  const int bias = pcrange ? 0x8000 : 0x108000; //  0.5 * 65536 : 16.5 * 65536
+    For U and V this is optimized by using ku and kv (though not that precise)
+  */
+  constexpr int PRECBITS = 15;
+  constexpr int PRECRANGE = 1 << PRECBITS; // 32768
+  constexpr int bias = TV_range ? 0x84000 : 0x4000; //  16.5 * 32768 : 0.5 * 32768
 
-  for (int y= height; y>0; --y)
+  for (int y = height; y > 0; --y)
   {
     // Use left most pixel for edge condition
-    int y0                 = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + bias) >> 16;
+    int y0 = (matrix.y_b * rgb[0] + matrix.y_g * rgb[1] + matrix.y_r * rgb[2] + bias) >> PRECBITS;
     const BYTE* rgb_prev   = rgb;
     for (int x = 0; x < width; x += 2)
     {
       const BYTE* const rgb_next = rgb + rgb_inc;
       // y1 and y2 can't overflow
-      const int y1         = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + bias) >> 16;
+      const int y1 = (matrix.y_b * rgb[0] + matrix.y_g * rgb[1] + matrix.y_r * rgb[2] + bias) >> PRECBITS;
       yuv[0]               = y1;
-      const int y2         = (cyb*rgb_next[0] + cyg*rgb_next[1] + cyr*rgb_next[2] + bias) >> 16;
+      const int y2 = (matrix.y_b * rgb_next[0] + matrix.y_g * rgb_next[1] + matrix.y_r * rgb_next[2] + bias) >> PRECBITS;
       yuv[2]               = y2;
-      if (pcrange) { // This is okay, the compiler optimises out the unused path when pcrange is a constant
-        const int scaled_y = y0+y1*2+y2;
-        const int b_y      = (rgb_prev[0]+rgb[0]*2+rgb_next[0]) - scaled_y;
-        yuv[1]             = PixelClip((b_y * ku + (128<<18) + (1<<17)) >> 18);  // u
-        const int r_y      = (rgb_prev[2]+rgb[2]*2+rgb_next[2]) - scaled_y;
-        yuv[3]             = PixelClip((r_y * kv + (128<<18) + (1<<17)) >> 18);  // v
+      if constexpr (!TV_range) {
+        const int scaled_y = y0 + y1 * 2 + y2; // 1-2-1 kernel
+        const int b_y = (rgb_prev[0] + rgb[0] * 2 + rgb_next[0]) - scaled_y;
+        yuv[1] = PixelClip((b_y * matrix.ku + (128 << (PRECBITS + 2)) + (1 << (PRECBITS + 1))) >> (PRECBITS + 2));  // u
+        const int r_y = (rgb_prev[2] + rgb[2] * 2 + rgb_next[2]) - scaled_y;
+        yuv[3] = PixelClip((r_y * matrix.kv + (128 << (PRECBITS + 2)) + (1 << (PRECBITS + 1))) >> (PRECBITS + 2));  // v
       }
       else {
-        const int scaled_y = (y0+y1*2+y2 - 64) * int(255.0/219.0*65536+0.5);
-        const int b_y      = ((rgb_prev[0]+rgb[0]*2+rgb_next[0]) << 16) - scaled_y;
-        yuv[1]             = PixelClip(((b_y >> 12) * ku + (128<<22) + (1<<21)) >> 22);  // u
-        const int r_y      = ((rgb_prev[2]+rgb[2]*2+rgb_next[2]) << 16) - scaled_y;
-        yuv[3]             = PixelClip(((r_y >> 12) * kv + (128<<22) + (1<<21)) >> 22);  // v
+        const int scaled_y = (y0 + y1 * 2 + y2 - (16 * 4)) * int(255.0 / 219.0 * PRECRANGE + 0.5);
+        const int b_y = ((rgb_prev[0] + rgb[0] * 2 + rgb_next[0]) << PRECBITS) - scaled_y;
+        yuv[1] = PixelClip(((b_y >> (PRECBITS + 2 - 6)) * matrix.ku + (128 << (PRECBITS + 6)) + (1 << (PRECBITS + 5))) >> (PRECBITS + 6));  // u
+        const int r_y = ((rgb_prev[2] + rgb[2] * 2 + rgb_next[2]) << PRECBITS) - scaled_y;
+        yuv[3] = PixelClip(((r_y >> (PRECBITS + 2 - 6)) * matrix.kv + (128 << (PRECBITS + 6)) + (1 << (PRECBITS + 5))) >> (PRECBITS + 6));  // v
       }
       y0       = y2;
 
@@ -170,10 +141,247 @@ static void convert_rgb_to_yuy2_c(const bool pcrange, const int cyb, const int c
   }
 }
 
-
+// matrix multiplication for u and v like in generic planar conversions
+// kept for reference
+#if 0
+static void convert_rgb_to_yuy2_generic_c(const bool pcrange, const BYTE* rgb,
+  BYTE* yuv, const int yuv_offset,
+  const int rgb_offset, const int rgb_inc,
+  int width, int height, ConversionMatrix& matrix) {
 /*
- Optimization note: you can template matrix parameter like in ConvertBackToYUY2 to get ~5% better performance
+    int Y = matrix.offset_y + (((int)matrix.y_b * b + (int)matrix.y_g * g + (int)matrix.y_r * r + 16384) >> 15);
+    int U = 128 + (((int)matrix.u_b * b + (int)matrix.u_g * g + (int)matrix.u_r * r + 16384) >> 15);
+    int V = 128 + (((int)matrix.v_b * b + (int)matrix.v_g * g + (int)matrix.v_r * r + 16384) >> 15);
 */
+  constexpr int PRECBITS = 15;
+  constexpr int ROUNDER = 1 << (PRECBITS - 1); // for 1<<(15-1)
+  constexpr int ROUNDER4X = ROUNDER << 2;
+
+  for (int y = height; y > 0; --y)
+  {
+    // Use left most pixel for edge condition
+    int y0 = matrix.offset_y + (((int)matrix.y_b * rgb[0] + (int)matrix.y_g * rgb[1] + (int)matrix.y_r * rgb[2] + ROUNDER) >> PRECBITS);
+    const BYTE* rgb_prev = rgb;
+    for (int x = 0; x < width; x += 2)
+    {
+      const BYTE* const rgb_next = rgb + rgb_inc;
+      // y1 and y2 can't overflow
+      const int y1 = matrix.offset_y + (((int)matrix.y_b * rgb[0] + (int)matrix.y_g * rgb[1] + (int)matrix.y_r * rgb[2] + ROUNDER) >> PRECBITS);
+      yuv[0] = y1;
+      const int y2 = matrix.offset_y + (((int)matrix.y_b * rgb_next[0] + (int)matrix.y_g * rgb_next[1] + (int)matrix.y_r * rgb_next[2] + ROUNDER) >> PRECBITS);
+      yuv[2] = y2;
+
+      int b = (rgb_prev[0] + rgb[0] * 2 + rgb_next[0]);
+      int g = (rgb_prev[1] + rgb[1] * 2 + rgb_next[1]);
+      int r = (rgb_prev[2] + rgb[2] * 2 + rgb_next[2]);
+
+      int u = 128 + (((int)matrix.u_b * b + (int)matrix.u_g * g + (int)matrix.u_r * r + ROUNDER4X) >> (PRECBITS + 2));
+      int v = 128 + (((int)matrix.v_b * b + (int)matrix.v_g * g + (int)matrix.v_r * r + ROUNDER4X) >> (PRECBITS + 2));
+
+      yuv[1] = PixelClip(u);
+      yuv[3] = PixelClip(v);
+
+      y0 = y2;
+
+      rgb_prev = rgb_next;
+      rgb = rgb_next + rgb_inc;
+      yuv += 4;
+    }
+    rgb += rgb_offset;
+    yuv += yuv_offset;
+  }
+}
+#endif
+
+/* YV12 -> YUY2 conversion */
+
+
+static inline void copy_yv12_line_to_yuy2_c(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, BYTE* dstp, int width) {
+  for (int x = 0; x < width / 2; ++x) {
+    dstp[x*4] = srcY[x*2];
+    dstp[x*4+2] = srcY[x*2+1];
+    dstp[x*4+1] = srcU[x];
+    dstp[x*4+3] = srcV[x];
+  }
+}
+
+void convert_yv12_to_yuy2_progressive_c(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, int src_width, int src_pitch_y, int src_pitch_uv, BYTE *dstp, int dst_pitch, int height) {
+  //first two lines
+  copy_yv12_line_to_yuy2_c(srcY, srcU, srcV, dstp, src_width);
+  copy_yv12_line_to_yuy2_c(srcY+src_pitch_y, srcU, srcV, dstp+dst_pitch, src_width);
+
+  //last two lines. Easier to do them here
+  copy_yv12_line_to_yuy2_c(
+    srcY + src_pitch_y * (height-2),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-2),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_c(
+    srcY + src_pitch_y * (height-1),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-1),
+    src_width
+    );
+
+  srcY += src_pitch_y*2;
+  srcU += src_pitch_uv;
+  srcV += src_pitch_uv;
+  dstp += dst_pitch*2;
+
+  for (int y = 2; y < height-2; y+=2) {
+    for (int x = 0; x < src_width / 2; ++x) {
+      dstp[x*4] = srcY[x*2];
+      dstp[x*4+2] = srcY[x*2+1];
+
+      //avg(avg(a, b)-1, b)
+      dstp[x*4+1] = ((((srcU[x-src_pitch_uv] + srcU[x] + 1) / 2) + srcU[x]) / 2);
+      dstp[x*4+3] = ((((srcV[x-src_pitch_uv] + srcV[x] + 1) / 2) + srcV[x]) / 2);
+
+      dstp[x*4 + dst_pitch] = srcY[x*2 + src_pitch_y];
+      dstp[x*4+2 + dst_pitch] = srcY[x*2+1 + src_pitch_y];
+
+      dstp[x*4+1 + dst_pitch] = ((((srcU[x] + srcU[x+src_pitch_uv] + 1) / 2) + srcU[x]) / 2);
+      dstp[x*4+3 + dst_pitch] = ((((srcV[x] + srcV[x+src_pitch_uv] + 1) / 2) + srcV[x]) / 2);
+    }
+    srcY += src_pitch_y*2;
+    dstp += dst_pitch*2;
+    srcU += src_pitch_uv;
+    srcV += src_pitch_uv;
+  }
+}
+
+void convert_yv12_to_yuy2_interlaced_c(const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, int src_width, int src_pitch_y, int src_pitch_uv, BYTE *dstp, int dst_pitch, int height) {
+  //first four lines
+  copy_yv12_line_to_yuy2_c(srcY, srcU, srcV, dstp, src_width);
+  copy_yv12_line_to_yuy2_c(srcY + src_pitch_y*2, srcU, srcV, dstp + dst_pitch*2, src_width);
+  copy_yv12_line_to_yuy2_c(srcY + src_pitch_y, srcU + src_pitch_uv, srcV + src_pitch_uv, dstp + dst_pitch, src_width);
+  copy_yv12_line_to_yuy2_c(srcY + src_pitch_y*3, srcU + src_pitch_uv, srcV + src_pitch_uv, dstp + dst_pitch*3, src_width);
+
+  //last four lines. Easier to do them here
+  copy_yv12_line_to_yuy2_c(
+    srcY + src_pitch_y * (height-4),
+    srcU + src_pitch_uv * ((height/2)-2),
+    srcV + src_pitch_uv * ((height/2)-2),
+    dstp + dst_pitch * (height-4),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_c(
+    srcY + src_pitch_y * (height-2),
+    srcU + src_pitch_uv * ((height/2)-2),
+    srcV + src_pitch_uv * ((height/2)-2),
+    dstp + dst_pitch * (height-2),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_c(
+    srcY + src_pitch_y * (height-3),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-3),
+    src_width
+    );
+  copy_yv12_line_to_yuy2_c(
+    srcY + src_pitch_y * (height-1),
+    srcU + src_pitch_uv * ((height/2)-1),
+    srcV + src_pitch_uv * ((height/2)-1),
+    dstp + dst_pitch * (height-1),
+    src_width
+    );
+
+  srcY += src_pitch_y * 4;
+  srcU += src_pitch_uv * 2;
+  srcV += src_pitch_uv * 2;
+  dstp += dst_pitch * 4;
+
+  for (int y = 4; y < height-4; y+= 2) {
+    for (int x = 0; x < src_width / 2; ++x) {
+      dstp[x*4] = srcY[x*2];
+      dstp[x*4+2] = srcY[x*2+1];
+
+      dstp[x*4+1] = ((((srcU[x-src_pitch_uv*2] + srcU[x] + 1) / 2) + srcU[x]) / 2);
+      dstp[x*4+3] = ((((srcV[x-src_pitch_uv*2] + srcV[x] + 1) / 2) + srcV[x]) / 2);
+
+      dstp[x*4 + dst_pitch*2] = srcY[x*2 + src_pitch_y*2];
+      dstp[x*4+2 + dst_pitch*2] = srcY[x*2+1 + src_pitch_y*2];
+
+      dstp[x*4+1 + dst_pitch*2] = ((((srcU[x] + srcU[x+src_pitch_uv*2] + 1) / 2) + srcU[x]) / 2);
+      dstp[x*4+3 + dst_pitch*2] = ((((srcV[x] + srcV[x+src_pitch_uv*2] + 1) / 2) + srcV[x]) / 2);
+    }
+
+    if (y % 4 == 0) {
+      //top field processed, jumb to the bottom
+      srcY += src_pitch_y;
+      dstp += dst_pitch;
+      srcU += src_pitch_uv;
+      srcV += src_pitch_uv;
+    } else {
+      //bottom field processed, jump to the next top
+      srcY += src_pitch_y*3;
+      srcU += src_pitch_uv;
+      srcV += src_pitch_uv;
+      dstp += dst_pitch*3;
+    }
+  }
+}
+
+
+/* YUY2 -> YV12 conversion */
+
+
+void convert_yuy2_to_yv12_progressive_c(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height) {
+  //src_width is twice the luma width of yv12 frame
+  const BYTE* srcp = src;
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < src_width / 2 ; ++x) {
+      dstY[x] = srcp[x*2];
+    }
+    dstY += dst_pitchY;
+    srcp += src_pitch;
+  }
+
+
+  for (int y = 0; y < height / 2; ++y) {
+    for (int x = 0; x < src_width / 4; ++x) {
+      dstU[x] = (src[x*4+1] + src[x*4+1+src_pitch] + 1) / 2;
+      dstV[x] = (src[x*4+3] + src[x*4+3+src_pitch] + 1) / 2;
+    }
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+    src += src_pitch * 2;
+  }
+}
+
+void convert_yuy2_to_yv12_interlaced_c(const BYTE* src, int src_width, int src_pitch, BYTE* dstY, BYTE* dstU, BYTE* dstV, int dst_pitchY, int dst_pitchUV, int height) {
+  const BYTE* srcp = src;
+  for (int y = 0; y < height; ++y) {
+    for (int x = 0; x < src_width / 2 ; ++x) {
+      dstY[x] = srcp[x*2];
+    }
+    dstY += dst_pitchY;
+    srcp += src_pitch;
+  }
+
+  for (int y = 0; y < height / 2; y+=2) {
+    for (int x = 0; x < src_width / 4; ++x) {
+      dstU[x] = ((src[x*4+1] + src[x*4+1+src_pitch*2] + 1) / 2 + src[x*4+1]) / 2;
+      dstV[x] = ((src[x*4+3] + src[x*4+3+src_pitch*2] + 1) / 2 + src[x*4+3]) / 2;
+    }
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+    src += src_pitch;
+
+    for (int x = 0; x < src_width / 4; ++x) {
+      dstU[x] = ((src[x*4+1] + src[x*4+1+src_pitch*2] + 1) / 2 + src[x*4+1+src_pitch*2]) / 2;
+      dstV[x] = ((src[x*4+3] + src[x*4+3+src_pitch*2] + 1) / 2 + src[x*4+3+src_pitch*2]) / 2;
+    }
+    dstU += dst_pitchUV;
+    dstV += dst_pitchUV;
+    src += src_pitch*3;
+  }
+} 
+
 PVideoFrame __stdcall ConvertToYUY2::GetFrame(int n, IScriptEnvironment* env)
 {
   PVideoFrame src = child->GetFrame(n, env);
@@ -189,12 +397,39 @@ PVideoFrame __stdcall ConvertToYUY2::GetFrame(int n, IScriptEnvironment* env)
     int dst_pitch = dst->GetPitch();
     int src_heigh = dst->GetHeight();
 
-    //todo: maybe check for source width being mod16/8?
     if (interlaced) {
+#ifdef INTEL_INTRINSICS
+      if (env->GetCPUFlags() & CPUF_SSE2)
+      {
+        convert_yv12_to_yuy2_interlaced_sse2(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
+      }
+      else
+#ifdef X86_32
+      if (env->GetCPUFlags() & CPUF_INTEGER_SSE)
+      {
+        convert_yv12_to_yuy2_interlaced_isse(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
+      }
+      else
+#endif
+#endif
       {
         convert_yv12_to_yuy2_interlaced_c(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
       }
     } else {
+#ifdef INTEL_INTRINSICS
+      if (env->GetCPUFlags() & CPUF_SSE2)
+      {
+        convert_yv12_to_yuy2_progressive_sse2(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
+      }
+      else
+#ifdef X86_32
+        if (env->GetCPUFlags() & CPUF_INTEGER_SSE)
+        {
+          convert_yv12_to_yuy2_progressive_isse(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
+        }
+        else
+#endif
+#endif
         {
           convert_yv12_to_yuy2_progressive_c(srcp_y, srcp_u, srcp_v, src->GetRowSize(PLANAR_Y), src_pitch_y, src_pitch_uv, dstp, dst_pitch ,src_heigh);
         }
@@ -202,56 +437,51 @@ PVideoFrame __stdcall ConvertToYUY2::GetFrame(int n, IScriptEnvironment* env)
     return dst;
   }
 
+  // convert from rgb
+
   PVideoFrame dst = env->NewVideoFrameP(vi, &src);
   BYTE* yuv = dst->GetWritePtr();
 
+  auto props = env->getFramePropsRW(dst);
+  update_Matrix_and_ColorRange(props, theMatrix, theColorRange, env);
+
+#ifdef INTEL_INTRINSICS
+  if (env->GetCPUFlags() & CPUF_SSE2)
+  {
+    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
+      convert_rgb_to_yuy2_sse2<4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    } else {
+      convert_rgb_to_yuy2_sse2<3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    }
+    return dst;
+  }
+
+#ifdef X86_32
+  if (env->GetCPUFlags() & CPUF_MMX)
+  {
+    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
+      convert_rgb_to_yuy2_mmx<4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    } else {
+      convert_rgb_to_yuy2_mmx<3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    }
+    return dst;
+  }
+#endif
+#endif
   const BYTE* rgb = src->GetReadPtr() + (vi.height-1) * src->GetPitch();
 
   const int yuv_offset = dst->GetPitch() - dst->GetRowSize();
   const int rgb_offset = -src->GetPitch() - src->GetRowSize();
   const int rgb_inc = ((src_cs&VideoInfo::CS_BGR32)==VideoInfo::CS_BGR32) ? 4 : 3;
 
-  if (theMatrix == PC_601) {
-    const int cyb = int(0.114*65536+0.5);
-    const int cyg = int(0.587*65536+0.5);
-    const int cyr = int(0.299*65536+0.5);
+  // this reference C matches best to the actual sse2 implementations
+  if (0 != matrix.offset_y)
+    convert_rgb_to_yuy2_c<true>(rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height, matrix); // rec
+  else
+    convert_rgb_to_yuy2_c<false>(rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height, matrix); // PC
 
-    const int ku  = int(127./(255.*(1.0-0.114))*65536+0.5);
-    const int kv  = int(127./(255.*(1.0-0.299))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(true, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  } else if (theMatrix == PC_709) {
-    const int cyb = int(0.0722*65536+0.5);
-    const int cyg = int(0.7152*65536+0.5);
-    const int cyr = int(0.2126*65536+0.5);
-
-    const int ku  = int(127./(255.*(1.0-0.0722))*65536+0.5);
-    const int kv  = int(127./(255.*(1.0-0.2126))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(true, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  } else if (theMatrix == Rec709) {
-    const int cyb = int(0.0722*219/255*65536+0.5);
-    const int cyg = int(0.7152*219/255*65536+0.5);
-    const int cyr = int(0.2126*219/255*65536+0.5);
-
-    const int ku  = int(112./(255.*(1.0-0.0722))*65536+0.5);
-    const int kv  = int(112./(255.*(1.0-0.2126))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(false, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  } else if (theMatrix == Rec601) {
-    const int cyb = int(0.114*219/255*65536+0.5);
-    const int cyg = int(0.587*219/255*65536+0.5);
-    const int cyr = int(0.299*219/255*65536+0.5);
-
-    const int ku  = int(112./(255.*(1.0-0.114))*65536+0.5);
-    const int kv  = int(112./(255.*(1.0-0.299))*65536+0.5);
-
-    convert_rgb_to_yuy2_c(false, cyb, cyg, cyr, ku, kv, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height);
-
-  }
+  // or using similar matrix multiplication inside like in other RGB to planar YUV, but it differs from sse implementation
+  // convert_rgb_to_yuy2_new_c(false, rgb, yuv, yuv_offset, rgb_offset, rgb_inc, vi.width, vi.height, matrix);
 
   return dst;
 }
@@ -319,84 +549,42 @@ static void convert_yv24_back_to_yuy2_c(const BYTE* srcY, const BYTE* srcU, cons
 }
 
 
-static void convert_rgb_back_to_yuy2_c(BYTE* yuv, const BYTE* rgb, int rgb_offset, int yuv_offset, int height, int width, int rgb_inc, int matrix) {
+template<bool TV_range>
+static void convert_rgb_back_to_yuy2_c(BYTE* yuv, const BYTE* rgb, int rgb_offset, int yuv_offset, int height, int width, int rgb_inc, const ConversionMatrix& matrix) {
   /* Existing 0-1-0 Kernel version */
-  int cyb, cyg, cyr, ku, kv;
+  /* As noted u and v is calculated only from left pixel of adjacent rgb pairs */
 
-  if (matrix == PC_601 || matrix == PC_709) {
-    if (matrix == PC_601) {
-      cyb = int(0.114 * 65536 + 0.5);
-      cyg = int(0.587 * 65536 + 0.5);
-      cyr = int(0.299 * 65536 + 0.5);
+  constexpr int PRECBITS = 15;
+  constexpr int PRECRANGE = 1 << PRECBITS; // 32768
+  constexpr int bias = TV_range ? 0x84000 : 0x4000; //  16.5 * 32768 : 0.5 * 32768
 
-      ku  = int(127.0 / (255.0 * (1.0 - 0.114)) * 65536 + 0.5);
-      kv  = int(127.0 / (255.0 * (1.0 - 0.299)) * 65536 + 0.5);
-    } else {
-      cyb = int(0.0722 * 65536 + 0.5);
-      cyg = int(0.7152 * 65536 + 0.5);
-      cyr = int(0.2126 * 65536 + 0.5);
-
-      ku  = int(127.0 / (255.0 * (1.0 - 0.0722)) * 65536 + 0.5);
-      kv  = int(127.0 / (255.0 * (1.0 - 0.2126)) * 65536 + 0.5);
-    }
-    for (int y = height; y>0; --y)
+  for (int y = height; y > 0; --y)
+  {
+    for (int x = 0; x < width; x += 2)
     {
-      for (int x = 0; x < width; x += 2)
-      {
-        const BYTE* const rgb_next = rgb + rgb_inc;
-        // y1 and y2 can't overflow
-        yuv[0] = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + 0x8000) >> 16;
-        yuv[2] = (cyb*rgb_next[0] + cyg*rgb_next[1] + cyr*rgb_next[2] + 0x8000) >> 16;
-
+      const BYTE* const rgb_next = rgb + rgb_inc;
+      // y1 and y2 can't overflow
+      yuv[0] = (matrix.y_b * rgb[0] + matrix.y_g * rgb[1] + matrix.y_r * rgb[2] + bias) >> PRECBITS;
+      yuv[2] = (matrix.y_b * rgb_next[0] + matrix.y_g * rgb_next[1] + matrix.y_r * rgb_next[2] + bias) >> PRECBITS;
+      if constexpr (!TV_range) {
         int scaled_y = yuv[0];
         int b_y = rgb[0] - scaled_y;
-        yuv[1] = ScaledPixelClip(b_y * ku + 0x800000);  // u
+        yuv[1] = Scaled15bitPixelClip(b_y * matrix.ku + (128 << PRECBITS));  // u
         int r_y = rgb[2] - scaled_y;
-        yuv[3] = ScaledPixelClip(r_y * kv + 0x800000);  // v
-        rgb = rgb_next + rgb_inc;
-        yuv += 4;
+        yuv[3] = Scaled15bitPixelClip(r_y * matrix.kv + (128 << PRECBITS));  // v
       }
-      rgb += rgb_offset;
-      yuv += yuv_offset;
-    }
-  } else {
-    if (matrix == Rec709) {
-      cyb = int(0.0722 * 219 / 255 * 65536 + 0.5);
-      cyg = int(0.7152 * 219 / 255 * 65536 + 0.5);
-      cyr = int(0.2126 * 219 / 255 * 65536 + 0.5);
-
-      ku  = int(112.0 / (255.0 * (1.0 - 0.0722)) * 32768 + 0.5);
-      kv  = int(112.0 / (255.0 * (1.0 - 0.2126)) * 32768 + 0.5);
-    } else {
-      cyb = int(0.114 * 219 / 255 * 65536 + 0.5);
-      cyg = int(0.587 * 219 / 255 * 65536 + 0.5);
-      cyr = int(0.299 * 219 / 255 * 65536 + 0.5);
-
-      ku  = int(1 / 2.018 * 32768 + 0.5);
-      kv  = int(1 / 1.596 * 32768 + 0.5);
-    }
-
-    for (int y = height; y>0; --y)
-    {
-      for (int x = 0; x < width; x += 2)
-      {
-        const BYTE* const rgb_next = rgb + rgb_inc;
-        // y1 and y2 can't overflow
-        yuv[0] = (cyb*rgb[0] + cyg*rgb[1] + cyr*rgb[2] + 0x108000) >> 16;
-        yuv[2] = (cyb*rgb_next[0] + cyg*rgb_next[1] + cyr*rgb_next[2] + 0x108000) >> 16;
-
-        int scaled_y = (yuv[0] - 16) * int(255.0 / 219.0 * 65536 + 0.5);
-        int b_y = ((rgb[0]) << 16) - scaled_y;
-        yuv[1] = ScaledPixelClip((b_y >> 15) * ku + 0x800000);  // u
-        int r_y = ((rgb[2]) << 16) - scaled_y;
-        yuv[3] = ScaledPixelClip((r_y >> 15) * kv + 0x800000);  // v
-
-        rgb = rgb_next + rgb_inc;
-        yuv += 4;
+      else {
+        int scaled_y = (yuv[0] - 16) * int(255.0 / 219.0 * PRECRANGE + 0.5);
+        int b_y = ((rgb[0]) << PRECBITS) - scaled_y;
+        yuv[1] = PixelClip(((b_y >> (PRECBITS - 6)) * matrix.ku + (128 << (PRECBITS + 6)) + (1 << (PRECBITS + 5))) >> (PRECBITS + 6));  // u
+        int r_y = ((rgb[2]) << PRECBITS) - scaled_y;
+        yuv[3] = PixelClip(((r_y >> (PRECBITS - 6)) * matrix.kv + (128 << (PRECBITS + 6)) + (1 << (PRECBITS + 5))) >> (PRECBITS + 6));  // v
       }
-      rgb += rgb_offset;
-      yuv += yuv_offset;
+      rgb = rgb_next + rgb_inc;
+      yuv += 4;
     }
+    rgb += rgb_offset;
+    yuv += yuv_offset;
   }
 }
 
@@ -418,6 +606,20 @@ PVideoFrame __stdcall ConvertBackToYUY2::GetFrame(int n, IScriptEnvironment* env
     const int pitchY  = src->GetPitch(PLANAR_Y);
     const int pitchUV = src->GetPitch(PLANAR_U);
 
+#ifdef INTEL_INTRINSICS
+    if (env->GetCPUFlags() & CPUF_SSE2)
+    { 
+      convert_yv24_back_to_yuy2_sse2(srcY, srcU, srcV, dstp, pitchY, pitchUV, dpitch, vi.height, vi.width);
+    }
+    else
+#ifdef X86_32
+    if (env->GetCPUFlags() & CPUF_MMX)
+    {  // Use MMX
+      convert_yv24_back_to_yuy2_mmx(srcY, srcU, srcV, dstp, pitchY, pitchUV, dpitch, vi.height, vi.width);
+    }
+    else
+#endif
+#endif
     {
       convert_yv24_back_to_yuy2_c(srcY, srcU, srcV, dstp, pitchY, pitchUV, dpitch, vi.height, vi.width);
     }
@@ -427,13 +629,40 @@ PVideoFrame __stdcall ConvertBackToYUY2::GetFrame(int n, IScriptEnvironment* env
   PVideoFrame dst = env->NewVideoFrameP(vi, &src);
   BYTE* yuv = dst->GetWritePtr();
 
+#ifdef INTEL_INTRINSICS
+  if (env->GetCPUFlags() & CPUF_SSE2)
+  {
+    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
+      convert_rgb_back_to_yuy2_sse2<4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    } else {
+      convert_rgb_back_to_yuy2_sse2<3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    }
+    return dst;
+  }
+
+#ifdef X86_32
+  if (env->GetCPUFlags() & CPUF_MMX)
+  {
+    if ((src_cs & VideoInfo::CS_BGR32) == VideoInfo::CS_BGR32) {
+      convert_rgb_back_to_yuy2_mmx<4>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    } else {
+      convert_rgb_back_to_yuy2_mmx<3>(src->GetReadPtr(), dst->GetWritePtr(), src->GetPitch(), dst->GetPitch(), vi.width, vi.height, matrix);
+    }
+    return dst;
+  }
+#endif
+#endif
+
   const BYTE* rgb = src->GetReadPtr() + (vi.height-1) * src->GetPitch(); // Last line
 
   const int yuv_offset = dst->GetPitch() - dst->GetRowSize();
   const int rgb_offset = -src->GetPitch() - src->GetRowSize(); // moving upwards
   const int rgb_inc = (src_cs&VideoInfo::CS_BGR32)==VideoInfo::CS_BGR32 ? 4 : 3;
 
-  convert_rgb_back_to_yuy2_c(yuv, rgb, rgb_offset, yuv_offset, vi.height, vi.width, rgb_inc, theMatrix);
+  if(0 != matrix.offset_y)
+    convert_rgb_back_to_yuy2_c<true>(yuv, rgb, rgb_offset, yuv_offset, vi.height, vi.width, rgb_inc, matrix);
+  else
+    convert_rgb_back_to_yuy2_c<false>(yuv, rgb, rgb_offset, yuv_offset, vi.height, vi.width, rgb_inc, matrix);
 
   return dst;
 }

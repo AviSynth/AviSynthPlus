@@ -758,6 +758,8 @@ public:
 
   PVideoFrame NewVideoFrame(const VideoInfo& vi, PVideoFrame* propSrc, int align = FRAME_ALIGN);
 
+  bool MakePropertyWritable(PVideoFrame* pvf); // V9
+
   /* IScriptEnvironment2 */
   bool LoadPlugin(const char* filePath, bool throwOnError, AVSValue *result);
   void AddAutoloadDir(const char* dirPath, bool toFront);
@@ -927,6 +929,40 @@ private:
   void ShrinkCache(Device* device);
   VideoFrame* AllocateFrame(size_t vfb_size, size_t margin, Device* device);
   std::recursive_mutex memory_mutex;
+  std::recursive_mutex invoke_mutex; // 3.7.2
+  // 3.7.2: 
+  // Distinct invoke mutex from memory_mutex because a background GetFrame and Invoke would deadlock
+  // when called specially by AvsPMod: Eval, then the resulting clip variable is ConvertToRGB32'd
+  // by using Invoke.
+  // 
+  // GetFrame can require accessing FrameRegistry (NewVideoFrame).
+  // When an Clip is obtained from Eval which script has e.g. Prefetch(2) at the end then it runs 
+  // worker threads in the background, doing GetFrame calls.
+  // When this AVS Clip is further ConvertToYUV444'd (using Invoke) it calles GetFrame(0) in its
+  // constructor for getting frame properties and prepare the filter upon them. (this is not a real
+  // frame property but rather a clip property which is the same for all frames, we are using frame#0 for
+  // frame property source.
+  // 
+  // Two things are running parallel: 
+  // - a GetFrame from Invoke which holds a memory_mutex, then locks a MT_SERIALIZED mutex.
+  // - a GetFrame from the prefetcher of the already Eval'd Clip which first holds a
+  //   MT_SERIALIZED mutex then may lock a memory_mutex.
+  // Finally they deadlock on the source filter's ChildFilter MT guard (MtGuard::GetFrame, MT_SERIALIZED).
+  // Serialized access from prefetch 
+  // - gets a ChildFilter mutex, calls GetFrame which would require memory_mutex (NewVideoFrame).
+  // Serialized access from Invoke 
+  // - _Invoke locks the memory_mutex, then would obtain ChildFilter mutex.
+  // 
+  // Under specific timing conditions which surely happens in tenth of seconds we get deadlock.
+  //
+  // Solution: a new invoke_mutex is introduced besides memory_mutex.
+  // Other sub-tasks are already guarded with other mutexes: e.g. plugin_mutex, string_mutex.
+  // Note: An earlier attempt to avoid this problem was introducing
+  //   int ScriptEnvironment::suppressThreadCount; (GetSuppressThreadCount)
+  //   "Concurrent GetFrame with Invoke causes deadlock.
+  //   Increment this variable when Invoke running
+  //   to prevent submitting job to threadpool"
+  // But this cannot handle the above mentioned case, because by that time threadpool is already working.
 
   int frame_align;
   int plane_align;
@@ -1129,7 +1165,7 @@ struct ScriptEnvironmentTLS
 // per thread data is bound to a thread (not ThreadScriptEnvironment)
 // since some filter (e.g. svpflow1) ignores env given for GetFrame, and always use main thread's env.
 // this is a work-around for that.
-#ifdef AVS_WINDOWS
+#if defined(AVS_WINDOWS) && !defined(__GNUC__)
 #  ifdef XP_TLS
 extern _TLS _tls;
 #  else
@@ -1442,6 +1478,11 @@ public:
     return core->SubframePlanarA(src, rel_offset, new_pitch, new_row_size, new_height, rel_offsetU, rel_offsetV, new_pitchUV, rel_offsetA);
   }
 
+  bool __stdcall MakePropertyWritable(PVideoFrame* pvf)
+  {
+    return core->MakePropertyWritable(pvf);
+  }
+
   void __stdcall copyFrameProps(const PVideoFrame& src, PVideoFrame& dst)
   {
     core->copyFrameProps(src, dst);
@@ -1602,9 +1643,6 @@ public:
   AVSValue __stdcall Invoke25(const char* name,
     const AVSValue args, const char* const* arg_names)
   {
-#ifndef NEW_AVSVALUE
-    return Invoke(name, args, arg_names);
-#else
     AVSValue result;
     // MarkArrayAsC: signing for destructor: don't free array elements.
     // Reason: CPP 2.5 plugins have "baked code" in their avisynth.h and do not know 
@@ -1621,7 +1659,6 @@ public:
       throw NotFound();
 
     return result;
-#endif
   }
 
 
@@ -1855,7 +1892,8 @@ public:
     core->SetLogParams(target, level);
   }
 
-  void __stdcall LogMsg(int level, const char* fmt, ...)
+  // stdcall calling convention is not supported on variadic function
+  void LogMsg(int level, const char* fmt, ...)
   {
     va_list val;
     va_start(val, fmt);
@@ -1868,7 +1906,8 @@ public:
     core->LogMsg_valist(level, fmt, va);
   }
 
-  void __stdcall LogMsgOnce(const OneTimeLogTicket& ticket, int level, const char* fmt, ...)
+  // stdcall calling convention is not supported on variadic function
+  void LogMsgOnce(const OneTimeLogTicket& ticket, int level, const char* fmt, ...)
   {
     va_list val;
     va_start(val, fmt);
@@ -2207,17 +2246,19 @@ IJobCompletion* ScriptEnvironment::NewCompletion(size_t capacity)
 
 ScriptEnvironment::ScriptEnvironment()
   : threadEnv(),
-  thread_pool(NULL),
   at_exit(),
+  thread_pool(NULL),
   plugin_manager(NULL),
+  EnvCount(0),
   PlanarChromaAlignmentState(true),   // Change to "true" for 2.5.7
   hrfromcoinit(E_FAIL), coinitThreadId(0),
-  EnvCount(0),
   Devices(),
   FrontCache(NULL),
-  graphAnalysisEnable(false),
   nTotalThreads(1),
-  nMaxFilterInstances(1)
+  nMaxFilterInstances(1),
+  graphAnalysisEnable(false),
+  LogLevel(LOGLEVEL_NONE),
+  cacheMode(CACHE_DEFAULT)
 {
 #ifdef XP_TLS
     if(_tls.dwTlsIndex == 0)
@@ -2251,8 +2292,6 @@ ScriptEnvironment::ScriptEnvironment()
       plane_align = max(plane_align, align);
     }
 #endif
-
-
 
     auto cpuDevice = Devices->GetCPUDevice();
     threadEnv->GetTLS()->currentDevice = cpuDevice;
@@ -2293,7 +2332,6 @@ ScriptEnvironment::ScriptEnvironment()
     plugin_manager->AddAutoloadDir("USER_CLASSIC_PLUGINS", false);
     plugin_manager->AddAutoloadDir("MACHINE_CLASSIC_PLUGINS", false);
 #else
-#if !defined(__OpenBSD__)
     // system_avs_plugindir relies on install path, it and user_avs_plugindir_configurable get
     // defined in avisynth_conf.h.in when configuring.
 
@@ -2304,7 +2342,6 @@ ScriptEnvironment::ScriptEnvironment()
     plugin_manager->AddAutoloadDir(user_avs_plugindir, false);
     plugin_manager->AddAutoloadDir(user_avs_plugindir_configurable, false);
     plugin_manager->AddAutoloadDir(system_avs_plugindir, false);
-#endif
 #endif
 
     top_frame.Set("LOG_ERROR", (int)LOGLEVEL_ERROR);
@@ -2910,6 +2947,12 @@ size_t  ScriptEnvironment::GetEnvProperty(AvsEnvProperty prop)
 #else
     return AVS_SEQREV;
 #endif
+  case AEP_HOST_SYSTEM_ENDIANNESS:
+    return (uintptr_t)AVS_ENDIANNESS;
+  case AEP_INTERFACE_VERSION:
+    return AVISYNTH_INTERFACE_VERSION;
+  case AEP_INTERFACE_BUGFIX:
+    return AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION;
   default:
     this->ThrowError("Invalid property request.");
     return std::numeric_limits<size_t>::max();
@@ -3038,10 +3081,8 @@ static void DebugOut(char* s)
 void ScriptEnvironment::ListFrameRegistry(size_t min_size, size_t max_size, bool someframes)
 {
   char buf[1024];
-  int linearsearchcount;
   //#define FULL_LIST_OF_VFBs
   //#define LIST_ALSO_SOME_FRAMES
-  linearsearchcount = 0;
   int size1 = 0;
   int size2 = 0;
   int size3 = 0;
@@ -3065,7 +3106,7 @@ void ScriptEnvironment::ListFrameRegistry(size_t min_size, size_t max_size, bool
       VideoFrameBuffer* vfb = it2.first;
       total_vfb_size += vfb->GetDataSize();
       size_t inner_frame_count_size = it2.second.size();
-      snprintf(buf, 1023, ">>>> IterateLevel #3 %5zu frames in [%3d,%5d] --> vfb=%p vfb_refcount=%3d seqNum=%d\n", inner_frame_count_size, size1, size2, vfb, vfb->refcount, vfb->GetSequenceNumber());
+      snprintf(buf, 1023, ">>>> IterateLevel #3 %5zu frames in [%3d,%5d] --> vfb=%p vfb_refcount=%3ld seqNum=%d\n", inner_frame_count_size, size1, size2, vfb, vfb->refcount, vfb->GetSequenceNumber());
       DebugOut(buf);
       // iterate the frame list of this vfb
       int inner_frame_count = 0;
@@ -3092,7 +3133,7 @@ void ScriptEnvironment::ListFrameRegistry(size_t min_size, size_t max_size, bool
             // if (elapsed_seconds.count() > 100.0f && frame->refcount > 0)
             if (frame->refcount > 0)
             {
-              snprintf(buf, 1023, "  >> Frame#%6d: vfb=%p frame=%p frame_refcount=%3d timestamp=%f ago\n", inner_frame_count, vfb, frame, frame->refcount, elapsed_seconds.count());
+              snprintf(buf, 1023, "  >> Frame#%6d: vfb=%p frame=%p frame_refcount=%3ld timestamp=%f ago\n", inner_frame_count, vfb, frame, frame->refcount, elapsed_seconds.count());
               DebugOut(buf);
             }
           }
@@ -3101,14 +3142,14 @@ void ScriptEnvironment::ListFrameRegistry(size_t min_size, size_t max_size, bool
             // log the last one
             if (frame->refcount > 0)
             {
-              snprintf(buf, 1023, "  ...Frame#%6d: vfb=%p frame=%p frame_refcount=%3d \n", inner_frame_count, vfb, frame, frame->refcount);
+              snprintf(buf, 1023, "  ...Frame#%6d: vfb=%p frame=%p frame_refcount=%3ld \n", inner_frame_count, vfb, frame, frame->refcount);
               DebugOut(buf);
             }
             _RPT2(0, "  == TOTAL of %d frames. Number of nonzero refcount=%d \n", inner_frame_count, inner_frame_count_for_frame_refcount_nonzero);
           }
           if (0 == vfb->refcount && 0 != frame->refcount)
           {
-            snprintf(buf, 1023, "  ########## VFB=0 FRAME!=0 ####### VFB: %p Frame:%p frame_refcount=%3d \n", vfb, frame, frame->refcount);
+            snprintf(buf, 1023, "  ########## VFB=0 FRAME!=0 ####### VFB: %p Frame:%p frame_refcount=%3ld \n", vfb, frame, frame->refcount);
             DebugOut(buf);
           }
         }
@@ -3320,7 +3361,6 @@ VideoFrame* ScriptEnvironment::GetNewFrame(size_t vfb_size, size_t margin, Devic
       {
         vfb->device->memory_used -= vfb->GetDataSize(); // frame->vfb->GetDataSize();
         delete vfb;
-        const VideoFrameArrayType::iterator end_it3 = it2->second.end(); // const
         for (auto &it3: it2->second)
         {
           VideoFrame *currentframe = it3.frame;
@@ -3941,10 +3981,14 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
     MTGuard* guard = reinterpret_cast<MTGuard*>(data);
 
     // If we already have a prefetcher, enable MT on the guard
+#ifdef OLD_PREFETCH
+    // FIXME: MTGuardRegistry is processed when creating thread pools for Prefetch() as well
+    // Why is it needed here?
     if (ThreadPoolRegistry.size() > 0)
     {
       guard->EnableMT(nMaxFilterInstances);
     }
+#endif
 
     MTGuardRegistry.push_back(guard);
 
@@ -3982,6 +4026,10 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
     }
     break;
   }
+  case MC_QueryAvs25:
+  {
+    break; // not cache related
+  }
   } // switch
   return 0;
 }
@@ -4017,9 +4065,7 @@ bool ScriptEnvironment::PlanarChromaAlignment(IScriptEnvironment::PlanarChromaAl
 static size_t Flatten(const AVSValue& src, AVSValue* dst, size_t index, int level, const char* const* arg_names = NULL) {
   // level is starting from zero
   if (src.IsArray()
-#ifdef NEW_AVSVALUE
     && level == 0
-#endif
     ) { // flatten for the first arg level
     const int array_size = src.ArraySize();
     for (int i=0; i<array_size; ++i) {
@@ -4108,7 +4154,8 @@ bool ScriptEnvironment::CheckArguments(const Function* func, const AVSValue* arg
   return false;
 }
 
-#if 0
+#ifdef LISTARGUMENTS
+// debug
 static void ListArguments(const char *name, const AVSValue& args, int &level, bool flattened) {
   if (!strcmp(name, "Import"))
     return;
@@ -4119,11 +4166,12 @@ static void ListArguments(const char *name, const AVSValue& args, int &level, bo
   level++;
   if (args.IsArray()) {
     const int as = args.ArraySize();
-    fprintf(stdout, "Array, size=%d\r\n", as);
+    fprintf(stdout, "Array, size=%d {\r\n", as);
     for (int i = 0; i < as; i++) {
       fprintf(stdout, "Element#%d\r\n", i);
       ListArguments(name, args[i], level, flattened);
     }
+    fprintf(stdout, "}\r\n");
   }
   else {
     if (!args.Defined())
@@ -4171,6 +4219,11 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
     name = "<anonymous function>";
   }
 
+  // Step #1: Flattening
+  // arrays received in the place of unnamed parameters are flattened back
+  // to have them as a list again, in order to be compatible with Avisynth's "array elements as comma
+  // delimited parameters" definition style.
+
   // get how many args we will need to store
   size_t args2_count = Flatten(args, NULL, 0, 0, arg_names);
   if (args2_count > ScriptParser::max_args)
@@ -4181,12 +4234,14 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
   args2[0] = implicit_last;
   Flatten(args, args2.data() + 1, 0, 0, arg_names);
 
-#if 0
+#ifdef LISTARGUMENTS
   // debug list of Invoke arguments before-after flattening
   int level = 0;
   ListArguments(name, args, level, false); // unflattened remark
   ListArguments2(name, args2.data()+1, level, true, args2_count); // flattened remark
 #endif
+
+  // Step #2: Arguments check and function detection by matching signature.
 
   bool strict = false;
   int argbase = 1;
@@ -4204,7 +4259,7 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
     // Because only one level is flattened, for 2+ Dimension arrays result are
     // at least two parameters which are still arrays)
     // [3,4,5] is flattened as 3,4,5
-    // [[2,3], [3,4,5]] is flattened as [2,3], [3,4,5]
+    // clip, [[2,3], [3,4,5]] is flattened as clip, [2,3], [3,4,5]
 
     // find matching function
     f = this->Lookup(name, args2.data() + 1, args2_count, strict, args_names_count, arg_names, env_thread);
@@ -4220,6 +4275,7 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
       args2_count += 1;
     }
   }
+
   // Problem: Animate has parameter signature both "iis.*" and "ciis.*"
   //   ColorBars()
   //   Animate(0, 100, "blur", 0.1, 1.5)
@@ -4228,46 +4284,14 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
   // (see comment Issue20200818 later).
   // Expression evaluator would catch NotFound and reissue _Invoke with a forced implicit_last in args.
 
+  // Step #3: Unnamed arguments
+
   // combine unnamed args into arrays
   size_t src_index = 0;
   const char* p = f->param_types;
 
   std::vector<AVSValue> args3;
   std::vector<bool> args3_really_filled;
-
-  // remarks for the generic array parameter concept.
-  /*
-  args2 has to be matched to f*[N]i[y]i*
-  ------- Summa (flattened)
-  Array, size=3 (unnamed)
-  Element#0        Int 3
-  Element#1        Int 4
-  Element#2        Int 5
-
-  Int 2 (named "N")
-
-  Array, size=3 (named "Y")
-  Element#0        Int 3
-  Element#1        Int 4
-  Element#2        Int 5
-  */
-
-  /*
-  args2 has to be matched to .*
-  ------- Array (flattened)
-  Array, size=2
-  Element#0
-  Int 1
-  Element#1
-  Int 2
-  Array, size=3
-  Element#0
-  Int 3
-  Element#1
-  Int 4
-  Element#2
-  Int 5
-  */
 
   bool last_was_named = false;
   while (*p) {
@@ -4281,10 +4305,20 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
     }
     else if (((p[1] == '*') || (p[1] == '+'))) {
       // Case of unnamed arrays or named arrays
-      // special named array: [] with no real name
+      // Special named array: [] with no real name
       // Pre 3.6: filling up named arrays with names from script level was not possible.
+      // Memo: array function signature types: * means "zero or more". + means "one or more"
       // Example fake-named array: the first clip array parameter of BlankClip "[]c*[length]i etc.
-      // Example named array (MPP_SharedMemoryServer): csi[aux_clips]c*[max_cache_frames]i etc.
+      // Some functions with array signatures:
+      //   Select i.+
+      //   SelectEvery: cii*
+      //   Format: s.*
+      //   MPP_SharedMemoryServer: csi[aux_clips]c*[max_cache_frames]i
+      //   BlankClip []c*[length]i (fake named array)
+      //   ArrayGet .i+
+      //   ArraySize .
+      //   Array/ArrayCreate .*: [[2,3,4], [1,2]] -> [2,3,4], [1,2]
+      //   user_script_function(clip, int_array) c[]i*
       // Pre v3.6 script-level array definition: autodetect comma separated list elements
       // The parser detects the end of array: the next argument type is different.
       // Since the end of free-typed (".+" or ".*") arrays cannot be recognized, they are allowed to appear
@@ -4293,32 +4327,127 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
       size_t start = src_index;
       const char arg_type = *p;
 
+
       if (src_index < args2_count &&
-        args2[argbase + src_index].IsArray() && // after flattening this only happens when 2D (or more D) array was passed
-        arg_type != '.' &&
-        AVSFunction::SingleTypeMatchArray(arg_type, args2[argbase + src_index], strict))
+        args2[argbase + src_index].IsArray() 
+        // After flattening this only happens when an explicite array was passed.
+        // typed array recognition is easy and unambigous
+        && arg_type != '.' // to avoid .+ case when one can pass array of arrays like [[1,2,3],[4,5]] flattened to [1,2,3],[4,5]
+        )
       {
+        if (arg_type != '.') {
+          if (!AVSFunction::SingleTypeMatchArray(arg_type, args2[argbase + src_index], strict))
+            ThrowError("Array elements do not match with the specified type in function %s", name);
+        }
+
+        if(p[1] == '+' && args2[argbase + src_index].ArraySize() == 0) // one or more
+          ThrowError("An array with zero element size was given to function %s which expects a 'one-or-more' style array argument", name);
         args3.push_back(args2[argbase + src_index]); // can't delete args2 early because of this
         args3_really_filled.push_back(true); // valid array content
         src_index++;
       }
-      else {
+      else
+      {
+        // Collect consecutive similary-typed parameters into an array by automatic detection of its end:
+        // The end of a simple-typed array:
+        // - when the comma separated parameter list is changing type
+        // - no more parameters (list ends)
+        // E.g. collect values into an integer array (i*) until values in the list are still integers.
+        // The array collection in parameter sequence 1, 2, 3, "hello1", "hello2" will stop before "hello1"
+        // because type is changed from i to s.
+        // This is why the end of an 'any-type' array (.*) cannot be detected from a comma delimited list:
+        // no stopping condition (no type), only the end of list can stop collecting.
         while ((src_index < args2_count)) {
           const bool match = AVSFunction::SingleTypeMatch(arg_type, args2[argbase + src_index], strict);
           if (!match)
             break;
           src_index++;
         }
-        size_t size = src_index - start;
+        size_t size = src_index - start; // so we have size number of items detected. Put them back into an array.
         assert(args2_count >= size);
 
         // Even if the AVSValue below is an array of zero size, we can't skip adding it to args3,
-        // because filters like BlankClip or MPP_SharedMemoryServer might still be expecting it.
-        args3.push_back(AVSValue(size > 0 ? args2.data() + argbase + start : NULL, (int)size)); // can't delete args2 early because of this
-        if (last_was_named && size > 0)
-          args3_really_filled.push_back(true); // valid array content
-        else
+        // because filters like BlankClip []c* or MPP_SharedMemoryServer might still be expecting it.
+        // 3.7.1.: This statement is no longer true. BlankClip was modified to handle Undefined AVSValue instead of array[] properly
+
+/*
+  Considerations on resolving parameter handling for "array of anything" parameter when array(s) would be passed directly.
+  Memo:
+  - Avisynth signature: .* or .+
+  - Script function specifier val_array or val_array_nz
+
+  When parameter signature is array of anything (.* or .+) and the
+  parameter is passed unnamed (even if it is a named parameter) then
+  there is an ambiguos situation which 
+
+  Giving a parameter list of 1,2,3 will be detected as [1,2,3] (compatibility: list is grouped together into an array internally).
+  E.g. 1 will be detected as [1]
+  Passing nothing from an Avisynth script in the place of the parameter will be detected as [] (array size is zero, value is defined)
+  initially, then later in the named parameter processing procedure it can be overridden directly by a named value.
+  
+  This rule means that a directly given script array e.g. [1,2,3] will be detected as [[1,2,3]], because unnamed and untyped parameters are
+  put together into an array, which has the size of the list. This is a list of 1 element which happens to be an array.
+  Avisynth cannot 'guess' whether we want to define a single array directly or this array is the only one part of the list.
+  So an unnamedly passed [1,2,3] will appear as [ [1,2,3] ] in the unnamed "array of anything" parameter value.
+
+  Syntax hint:
+  When someone would like to pass a directly specified array (e.g. [1,2,3] instead of 1,2,3) to a .+ or .* parameter
+  the parameter must be passed by name to avoid ambiguity!
+
+  Example script function definition:
+    function foo(val_array "n")
+
+  Value seen inside the function body:
+      Call                          Value of n
+      foo()                         Undefined
+      foo(1)                        [1] (*)
+      foo(1,2,3)                    [1,2,3] (*)
+      foo([1,2,3])            !     [[1,2,3]] (*)
+      foo([1,2,3],[4,5])      !     [[1,2,3],[4,5]] (*)
+      foo(n=[1,2,3])                [1,2,3]
+      foo(n=[[1,2,3],[4,5]])        [[1,2,3],[4,5]]
+      foo(n=[])                     []
+      foo(n=1)                      [1] (**)
+      foo(n="hello")                ["hello"]  (**)
+
+    *  compatible Avisynth way: comma delimited consecutive values form an array
+    ** simple-type value passed to a named array parameter will be created as a 1-element real array
+
+      // unnamed signature
+    function foo(val_array n)
+      Call                          n
+      foo()                         [] (defined and array size is zero) Avisynth compatible behaviour
+*/
+
+        if (size == 0 && p[1] == '+') // '+': one or more
+        {
+          if(!last_was_named)
+            ThrowError("A zero-sized array (or empty parameter list) appeared in the place of an unnamed parameter to function %s which expects a 'one-or-more' style array argument", name);
+          args3.push_back(AVSValue()); // push undefined
           args3_really_filled.push_back(false); // zero sized (not found) array can be specified later with argname
+        }
+        else {
+          if (size == 0) {
+            if (last_was_named)
+              args3.push_back(AVSValue());
+            // Named array is left Undefined here. In a later section it can be overridden with named argument
+            // This ensures that passing empty [] is different than not passing anything (Defined() vs. Undefined())
+            // because of this (undefined instead of zero-sized array) BlankClip was changed to handle to allow the parameter as undefined.
+            else {
+              args3.push_back(AVSValue(NULL, 0));
+              // Unnamed parameter: array of zero size.
+              // Fixme cosmetics: Maybe this one even cannot be reached, because an unnamed compulsory parameter cannot be 'zero or more' array
+            }
+          }
+          else
+            // create a proper array from the list of elements
+            args3.push_back(AVSValue(args2.data() + argbase + start, (int)size)); // can't delete args2 early because of this
+
+          if (last_was_named && size > 0)
+            args3_really_filled.push_back(true); // valid array content
+          else
+            args3_really_filled.push_back(false); // zero sized (not found) array can be specified later with argname
+        }
       }
 
       p += 2; // skip type-char and '*' or '+'
@@ -4326,7 +4455,20 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
     }
     else {
       if (src_index < args2_count) {
-        args3.push_back(args2[argbase + src_index]);
+        // At this point we could still have an array in AVSValue because a directly given (e.g. [1,2,3]) array is accepted at the place of a "." (any) type
+        // The signature checker recognizes and reports a signature match in AVSFunction::TypeMatch
+        // Example call: fn([1,2,3]) where fn has a signature of "c[n]."
+        // Allowing it does not do any harm
+        // FIXME, When removed, we'd better remove the limitation in (look for: QWERTZUIOP)
+#ifdef DISABLE_ARRAYS_WHEN_DOT_ALONE
+        if (args2[argbase + src_index].IsArray() && p[0] != 'a') {
+          ThrowError((std::string("An array is passed to a non-array parameter type in function ") + std::string(name)).c_str());
+        }
+        else 
+#endif
+        {
+          args3.push_back(args2[argbase + src_index]);
+        }
         args3_really_filled.push_back(true);
       }
       else {
@@ -4350,7 +4492,7 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
   if (src_index < args2_count)
     ThrowError("Too many arguments to function %s", name);
 
-  const int args3_count = (int)args3.size();
+  // Step #4: Named arguments
 
   // copy named args
   for (int i = 0; i<args_names_count; ++i) {
@@ -4369,17 +4511,11 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
             if (args3[named_arg_index].Defined() && args3_really_filled[named_arg_index]) {
               // when a parameter like named array was filled as an empty array
               // from the unnamed section we don't throw error for the first time
-              ThrowError("Script error: the named argument \"%s\" was passed more than once to %s", arg_names[i], name);
+              ThrowError("Script error: the named argument \"%s\" was passed more than once (twice as named or first unnamed then named) to %s", arg_names[i], name);
             }
-#ifndef NEW_AVSVALUE
-            //PF 161028 AVS+ arrays as named arguments
-            else if (args[i].IsArray()) {
-              ThrowError("Script error: can't pass an array as a named argument");
-            }
-#endif
             else if (args[i].Defined() && args[i].IsArray() && ((q[2] == '*' || q[2] == '+')) && !AVSFunction::SingleTypeMatchArray(q[1], args[i], false))
             {
-              // e.g. passing [235, 128, "Hello"] to [colors]f+
+              // e.g. passing colors=[235, 128, "Hello"] to [colors]f+
               ThrowError("Script error: the named array argument \"%s\" to %s had a wrong element type", arg_names[i], name);
             }
             else if (args[i].Defined() && !args[i].IsArray() && !AVSFunction::SingleTypeMatch(q[1], args[i], false))
@@ -4387,7 +4523,24 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
               ThrowError("Script error: the named argument \"%s\" to %s had the wrong type", arg_names[i], name);
             }
             else {
-              args3[named_arg_index] = args[i];
+              if (args[i].Defined() && args[i].IsArray()) {
+                // e.g. foo(sigma=[1.0, 1.1]) to [sigma]f is invalid 
+                if (!(q[2] == '*' || q[2] == '+') && q[1] != '.' && q[1] != 'a')
+                  ThrowError("Script error: the named argument \"%s\" to %s had the wrong type (passed an array to a non-array and not-any parameter)", arg_names[i], name);
+                if (q[2] == '+' && args[i].ArraySize() == 0)
+                  ThrowError("Script error: the named argument \"%s\" to %s is a 'one-or-more' element style array but had zero element count.", arg_names[i], name);
+              }
+              // Note (after having array type parameters in script functions)
+              // When passing a simple value to an array parameter, we should really make an array of it
+              // or else script function parameters of array types won't see this parameter as an array inside the function body.
+              // Note: Unlike AVS scripts a real plugin - through Avisynth interface - is 
+              // - allowed to index an AVSValue which is not even an array. Index 0 returns the simple-type value itself.
+              // - calling AVSValue ArraySize() returns 1
+              // But an AVS script syntax indexing and ArraySize() requires a real array, simple base type is not allowed there.
+              if(args[i].Defined() && !args[i].IsArray() && (q[2] == '*' || q[2] == '+' || q[1] == 'a'))
+                args3[named_arg_index] = AVSValue(&args[i],1); // really create an array with one element
+              else
+                args3[named_arg_index] = args[i];
               args3_really_filled[named_arg_index] = true;
               goto success;
             }
@@ -4406,6 +4559,8 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
 
   std::vector<AVSValue>(args3).shrink_to_fit();
 
+  // end of parameter matching and parsing
+
   if(is_runtime) {
     // Invoked by a thread or GetFrame
     AVSValue funcArgs(args3.data(), (int)args3.size());
@@ -4417,8 +4572,15 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
     return true;
   }
 
-  std::lock_guard<std::recursive_mutex> env_lock(memory_mutex);
+  // 3.7.2: changed memory_mutex to invoke_mutex
+  // Concurrent GetFrame with Invoke causes deadlock.
+  // Healing mode #2
+  std::lock_guard<std::recursive_mutex> env_lock(invoke_mutex);
 
+  // Concurrent GetFrame with Invoke causes deadlock.
+  // Increment this variable when Invoke running
+  // to prevent submitting job to threadpool
+  // Healing mode #1 from Neo
   ScopedCounter suppressThreadCount_(threadEnv->GetSuppressThreadCount());
 
   // chainedCtor is true if we are being constructed inside/by the
@@ -4435,9 +4597,6 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
   for (int i = argbase; i < (int)args2.size(); ++i)
   {
     auto& argx = args2[i];
-#ifndef NEW_AVSVALUE
-    assert(!argx.IsArray()); // todo: we can have arrays 161106
-#endif
     // todo PF 161112 new arrays: recursive look into arrays whether they contain clips
     if (argx.IsClip())
     {
@@ -4591,7 +4750,8 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
 
       // Nekopanda: moved here from above.
       // some filters invoke complex filters in its constructor, and they need cache.
-      *result = CacheGuard::Create(*result, NULL, threadEnv.get());
+      AVSValue args_cacheguard[2]{ *result, f->name };
+      *result = CacheGuard::Create(AVSValue(args_cacheguard, 2), NULL, threadEnv.get());
 
       // Check that the filter returns zero for unknown queries in SetCacheHints().
       // This is actually something we rely upon.
@@ -4726,6 +4886,35 @@ void ScriptEnvironment::VThrowError(const char* fmt, va_list va)
 PVideoFrame ScriptEnvironment::SubframePlanarA(PVideoFrame src, int rel_offset, int new_pitch, int new_row_size, int new_height, int rel_offsetU, int rel_offsetV, int new_pitchUV, int rel_offsetA)
 {
   return SubframePlanar(src, rel_offset, new_pitch, new_row_size, new_height, rel_offsetU, rel_offsetV, new_pitchUV, rel_offsetA);
+}
+
+bool ScriptEnvironment::MakePropertyWritable(PVideoFrame* pvf)
+{
+  const PVideoFrame& vf = *pvf;
+
+  // If the frame is already writable, do nothing.
+  if (vf->IsPropertyWritable())
+    return false;
+
+  // Otherwise, allocate a new frame (using Subframe)
+  // Thus we avoid the frame-content copy overhead and still get a new frame with its unique frameprop
+  PVideoFrame dst;
+  if (vf->GetPitch(PLANAR_A)) {
+    // planar + alpha
+    dst = vf->Subframe(0, vf->GetPitch(), vf->GetRowSize(), vf->GetHeight(), 0, 0, vf->GetPitch(PLANAR_U), 0);
+  }
+  else if (vf->GetPitch(PLANAR_U)) {
+    // planar
+    dst = vf->Subframe(0, vf->GetPitch(), vf->GetRowSize(), vf->GetHeight(), 0, 0, vf->GetPitch(PLANAR_U));
+  }
+  else {
+    // single plane
+    dst = vf->Subframe(0, vf->GetPitch(), vf->GetRowSize(), vf->GetHeight());
+  }
+
+  copyFrameProps(vf, dst);
+  *pvf = dst;
+  return true;
 }
 
 // since IF V8 frame property helpers are part of IScriptEnvironment
@@ -4991,24 +5180,97 @@ PVideoFrame ScriptEnvironment::GetOnDeviceFrame(const PVideoFrame& src, Device* 
 
 ThreadPool* ScriptEnvironment::NewThreadPool(size_t nThreads)
 {
+  // Creates threads with threadIDs (which envI->GetThreadId() is returning) starting from 
+  // (nTotalThreads+0) to (nTotalThreads+nThreads-1)
+#ifndef OLD_PREFETCH
+  auto nThreadsBase = nTotalThreads;
+#endif
   ThreadPool* pool = new ThreadPool(nThreads, nTotalThreads, threadEnv.get());
   ThreadPoolRegistry.emplace_back(pool);
 
   nTotalThreads += nThreads;
 
+  // TotalThreads: 1
+  //*Prefetch(3)
+  // added threads are 3, threadids: 1+0,1+1,1+2 (1,2,3)
+  // TotalThreads = 4 from now
+  // MaxFilterInstances -> 3->rounded up to 4 (next power of two). Number of instantiations
+  // ChildFilter[0..3] (size = MaxFilterInstances)
+  // GetThreadID & (4-1) = GetThreadID & 3
+  // ThreadID 1,2,3 will map to ChildFilter[x] where x is 1,2,3
+
+  // TotalThreads: 4
+  //*Prefetch(6)
+  // added threads are 6, threadids: 4+0,4+1,4+2,4+3,4+4,4+5 (4,5,6,7,8,9)
+  // TotalThreads = 10 from now
+  // MaxFilterInstances -> 6->rounded up to 8 (next power of two). Number of instantiations
+  // ChildFilter[0..7] (size = MaxFilterInstances)
+  // GetThreadID & (8-1) = GetThreadID & 7
+  // ThreadID 4,5,6,7,8,9 will map to ChildFilter[x] where x is 4,5,6,7,0,1
+
+  // TotalThreads: 10
+  //*Prefetch(3)
+  // added threads are 3, threadids: 10+0,10+1,10+2  (10,11,12)
+  // TotalThreads = 13 from now
+  // MaxFilterInstances -> 3->rounded up to 4 (next power of two). Number of instantiations
+  // ChildFilter[0..3] (size = MaxFilterInstances)
+  // GetThreadID & (4-1) = GetThreadID & 3
+  // ThreadID 10,11,12 will map to ChildFilter[x] where x is 2,3,0
+
+  // PF remark: this is not too memory friendly, because the excessive numbers of MT_MULTI_INSTANCE filters
+  // Prefetch(3) will create 4 instances
+  // Prefetch(4) will create 8 instances
+  // Prefetch(9) will still create 16 instances, of which 7 is not accessed at all
+
+#ifdef OLD_PREFETCH
   if (nMaxFilterInstances < nThreads + 1) {
     // make 2^n
     nMaxFilterInstances = 1;
     while (nThreads + 1 > (nMaxFilterInstances <<= 1));
+
+    // Why: 
+    // Check assert on Reason #1.
+    // void MTGuard::EnableMT(size_t nThreads)
+    //  assert((nThreads & (nThreads - 1)) == 0); // must be 2^n
+      // 2^N: needed because of directly accessing a masked array
+      // PVideoFrame __stdcall MTGuard::GetFrame
+      // envI->GetThreadId() & (nThreads - 1)
+
+    // Real reason #1.
+    // PVideoFrame __stdcall MTGuard::GetFrame(int n, IScriptEnvironment* env)
+    // auto& child = ChildFilters[envI->GetThreadId() & (nThreads - 1)];
+
   }
+#else
+  nMaxFilterInstances = nThreads; // really n/a
+  // FIXME: 
+  // AEP_FILTERCHAIN_THREADS environment property ID returns this value. Unlikely if someone used it
+  // for meaningful purposes.
+  // Avisynth does not use that internally.
+#endif
 
   // Since this method basically enables MT operation,
   // upgrade all MTGuards to MT-mode.
   for (MTGuard* guard : MTGuardRegistry)
   {
     if (guard != NULL)
-      guard->EnableMT(nMaxFilterInstances);
+      guard->EnableMT(
+#ifndef OLD_PREFETCH
+        nThreads
+#else
+        nMaxFilterInstances
+#endif
+);
   }
+
+#if 0
+  // For OLD_PREFETCH this assignment healed the Prefetch value kept issue
+  // but it finally was not needed in the solution.
+  nMaxFilterInstances = 1;
+  // After Prefetch reset to 1,
+  // or else a filter chain ended with a smaller thread count (on multiple Prefetch) or no Prefetch
+  // will remember the latest Prefetch number when it is bigger than the latest Prefetch's value
+#endif
 
   return pool;
 }
