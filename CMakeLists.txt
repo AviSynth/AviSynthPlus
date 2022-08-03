@@ -188,6 +188,14 @@ endif()
       endif()
     ENDIF()
 
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        set(CLANG_IN_VS "1")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "IntelLLVM" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        set(IntelLLVM_IN_VS "1")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Intel" AND CMAKE_CXX_COMPILER_FRONTEND_VARIANT STREQUAL "MSVC")
+        set(IntelClassic_IN_VS "1")
+    endif()
+
     IF(CLANG_IN_VS STREQUAL "1")
         #these are unknown
         #set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fexceptions")
