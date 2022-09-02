@@ -447,17 +447,17 @@ extern const AVS_Linkage* AVS_linkage;
 # endif
 
 # define AVS_BakedCode(arg) { arg ; }
-# define AVS_LinkCall(arg)  !AVS_linkage || offsetof(AVS_Linkage, arg) >= AVS_linkage->Size ?     0 : (this->*(AVS_linkage->arg))
-# define AVS_LinkCall_Void(arg)  !AVS_linkage || offsetof(AVS_Linkage, arg) >= AVS_linkage->Size ?     (void)0 : (this->*(AVS_linkage->arg))
-# define AVS_LinkCallV(arg) !AVS_linkage || offsetof(AVS_Linkage, arg) >= AVS_linkage->Size ? *this : (this->*(AVS_linkage->arg))
+# define AVS_LinkCall(arg)  !AVS_linkage || offsetof(AVS_Linkage, arg) >= (size_t)AVS_linkage->Size ?     0 : (this->*(AVS_linkage->arg))
+# define AVS_LinkCall_Void(arg)  !AVS_linkage || offsetof(AVS_Linkage, arg) >= (size_t)AVS_linkage->Size ?     (void)0 : (this->*(AVS_linkage->arg))
+# define AVS_LinkCallV(arg) !AVS_linkage || offsetof(AVS_Linkage, arg) >= (size_t)AVS_linkage->Size ? *this : (this->*(AVS_linkage->arg))
 // Helper macros for fallback option when a function does not exists
 #define CALL_MEMBER_FN(object,ptrToMember)  ((object)->*(ptrToMember))
 #define AVS_LinkCallOpt(arg, argOpt)  !AVS_linkage ? 0 : \
-                                      ( offsetof(AVS_Linkage, arg) >= AVS_linkage->Size ? \
-                                        (offsetof(AVS_Linkage, argOpt) >= AVS_linkage->Size ? 0 : CALL_MEMBER_FN(this, AVS_linkage->argOpt)() ) : \
+                                      ( offsetof(AVS_Linkage, arg) >= (size_t)AVS_linkage->Size ? \
+                                        (offsetof(AVS_Linkage, argOpt) >= (size_t)AVS_linkage->Size ? 0 : CALL_MEMBER_FN(this, AVS_linkage->argOpt)() ) : \
                                         CALL_MEMBER_FN(this, AVS_linkage->arg)() )
 // AVS_LinkCallOptDefault puts automatically () only after arg
-# define AVS_LinkCallOptDefault(arg, argDefaultValue)  !AVS_linkage || offsetof(AVS_Linkage, arg) >= AVS_linkage->Size ? (argDefaultValue) : ((this->*(AVS_linkage->arg))())
+# define AVS_LinkCallOptDefault(arg, argDefaultValue)  !AVS_linkage || offsetof(AVS_Linkage, arg) >= (size_t)AVS_linkage->Size ? (argDefaultValue) : ((this->*(AVS_linkage->arg))())
 
 #endif
 
@@ -1304,7 +1304,7 @@ public:
   void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) { child->GetAudio(buf, start, count, env); }
   const VideoInfo& __stdcall GetVideoInfo() { return vi; }
   bool __stdcall GetParity(int n) { return child->GetParity(n); }
-  int __stdcall SetCacheHints(int cachehints, int frame_range) { AVS_UNUSED(cachehints); AVS_UNUSED(frame_range); return 0; };  // We do not pass cache requests upwards, only to the next filter.
+  int __stdcall SetCacheHints(int cachehints, int frame_range) { AVS_UNUSED(cachehints); AVS_UNUSED(frame_range); return 0; }  // We do not pass cache requests upwards, only to the next filter.
 };
 
 
@@ -1878,7 +1878,7 @@ struct PNeoEnv {
 #if defined(BUILDING_AVSCORE) || defined(AVS_STATIC_LIB)
     ;
 #else
-  : p(!AVS_linkage || offsetof(AVS_Linkage, GetNeoEnv) >= AVS_linkage->Size ? 0 : AVS_linkage->GetNeoEnv(env)) { }
+  : p(!AVS_linkage || offsetof(AVS_Linkage, GetNeoEnv) >= (size_t)AVS_linkage->Size ? 0 : AVS_linkage->GetNeoEnv(env)) { }
 #endif
 
   int operator!() const { return !p; }
