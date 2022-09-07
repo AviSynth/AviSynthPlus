@@ -729,6 +729,8 @@ PVideoFrame C_VideoFilter::GetFrame(int n, IScriptEnvironment* env)
     AVS_VideoFrame* f = d.get_frame(&d, n);
     if (d.error)
       throw AvisynthError(d.error);
+    if (d.child->error)
+      throw AvisynthError(d.child->error);
     PVideoFrame fr((VideoFrame*)f);
     ((PVideoFrame*)&f)->~PVideoFrame();
     return fr;

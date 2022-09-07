@@ -89,7 +89,7 @@
 enum {
   AVISYNTH_INTERFACE_CLASSIC_VERSION = 6,
   AVISYNTH_INTERFACE_VERSION = 9,
-  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 // reset to zero whenever the normal interface version bumps
+  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 2 // reset to zero whenever the normal interface version bumps
 };
 #endif
 
