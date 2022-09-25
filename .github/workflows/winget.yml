@@ -6,8 +6,20 @@ jobs:
   publish:
     runs-on: windows-latest # action can only be run on windows
     steps:
+      - name: Get version
+        id: get-version
+        run: |
+          $select_regex = '^AviSynthPlus_.*_.*[^vcredist_xp].exe'
+          $tag_name = '${{ github.event.release.tag_name }}'
+          $apiRequest = invoke-restmethod "https://api.github.com/repos/AviSynth/AviSynthPlus/releases/tags/$tag_name"
+          $downloadUrl = $apiRequest.assets | ForEach-Object { if ($_.name -match $select_regex) { $_.browser_download_url } }
+          invoke-webrequest $downloadUrl -outfile setup.exe
+          $version = (get-item .\setup.exe).VersionInfo.ProductVersion
+          echo "::set-output name=version::$version"
+        shell: pwsh
       - uses: vedantmgoyal2009/winget-releaser@latest
         with:
-          identifier: Package.Identifier
+          identifier: AviSynth.AviSynthPlus
+          version: ${{ steps.get-version.outputs.version }}
           installers-regex: '^AviSynthPlus_.*_.*[^vcredist_xp].exe$'
           token: ${{ secrets.WINGET_TOKEN }}
