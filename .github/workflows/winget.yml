@@ -17,7 +17,7 @@ jobs:
           $version = (get-item .\setup.exe).VersionInfo.ProductVersion
           echo "::set-output name=version::$version"
         shell: pwsh
-      - uses: vedantmgoyal2009/winget-releaser@latest
+      - uses: vedantmgoyal2009/winget-releaser@v1
         with:
           identifier: AviSynth.AviSynthPlus
           version: ${{ steps.get-version.outputs.version }}
