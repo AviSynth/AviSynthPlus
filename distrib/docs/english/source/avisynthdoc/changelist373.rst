@@ -12,6 +12,7 @@ Additions, changes
 - New: add a sixth array element to PlaneMinMaxStats: average. Defines variable "PlaneStats_average" as well if setting variables is required.
 - "Text" ``halo_color`` allows to have both halo and shaded background
 - "Text" (#308) much nicer rendering of subsampled formats
+- "TimeStretch" (#278) add TimeStretch overload with rational pair arguments and update SoundTouch library to v2.3.1.
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -48,7 +49,7 @@ Documentation
 Please report bugs at `github AviSynthPlus page`_ - or - `Doom9's AviSynth+
 forum`_
 
-$Date: 2022/11/25 13:52:00 $
+$Date: 2023/01/19 13:52:00 $
 
 .. _github AviSynthPlus page:
     https://github.com/AviSynth/AviSynthPlus
