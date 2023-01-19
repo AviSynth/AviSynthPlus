@@ -61,19 +61,15 @@ private:
 
 public:
 static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
+static AVSValue __cdecl CreateRational(AVSValue args, void*, IScriptEnvironment* env);
 
 
 AVSsoundtouch(PClip _child, float _tempo, float _rate, float _pitch, const AVSValue* args, IScriptEnvironment* env)
 : GenericVideoFilter(_child)
 {
-  _tempo /= 100.0f;
-  _rate  /= 100.0f;
-  _pitch /= 100.0f;
-
   dstbuffer = new SFLOAT[BUFFERSIZE * vi.AudioChannels()];
 
-  sample_multiplier  = _tempo / _pitch;  // Do it the same way the library does it!
-  sample_multiplier *= _pitch * _rate;
+  sample_multiplier  = (long double)_tempo * (long double)_rate;
 
   sampler = new SoundTouch();
 
@@ -176,6 +172,7 @@ void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironm
 
 };
 
+// Percentage float arguments.
 AVSValue __cdecl Create_SoundTouch(AVSValue args, void*, IScriptEnvironment* env)
 {
 	try {	// HIDE DAMN SEH COMPILER BUG!!!
@@ -191,10 +188,42 @@ AVSValue __cdecl Create_SoundTouch(AVSValue args, void*, IScriptEnvironment* env
 
 		return new AVSsoundtouch(
 			args[0].AsClip(),
-			args[1].AsFloatf(100.0f),
-			args[2].AsFloatf(100.0f),
-			args[3].AsFloatf(100.0f),
+                        args[1].AsFloat(100.0) / 100.0,
+                        args[2].AsFloat(100.0) / 100.0,
+                        args[3].AsFloat(100.0) / 100.0,
 			&args[4],
+			env
+		);
+
+	}
+  catch (const std::runtime_error &error)
+  {
+    env->ThrowError("TimeStretch: %s ",error.what());
+  }
+	catch (...) { throw; }
+  return AVSValue(); // n/a
+}
+
+// Rational pair arguments
+AVSValue __cdecl CreateRational_SoundTouch(AVSValue args, void*, IScriptEnvironment* env)
+{
+	try {	// HIDE DAMN SEH COMPILER BUG!!!
+    // 2021?? Probably for VS2005 or so
+
+		PClip clip = args[0].AsClip();
+
+		if (!clip->GetVideoInfo().HasAudio())
+			env->ThrowError("Input clip does not have audio.");
+
+		if (!(clip->GetVideoInfo().SampleType()&SAMPLE_FLOAT))
+			env->ThrowError("Input audio sample format to TimeStretch must be float.");
+
+		return new AVSsoundtouch(
+                        args[0].AsClip(),
+                        (double)args[1].AsInt(1) / args[2].AsInt(1),
+                        (double)args[3].AsInt(1) / args[4].AsInt(1),
+                        (double)args[5].AsInt(1) / args[6].AsInt(1),
+                        &args[7],
 			env
 		);
 
@@ -213,6 +242,7 @@ extern "C" __declspec(dllexport) const char* __stdcall AvisynthPluginInit3(IScri
 
   // clip, base filename, start, end, image format/extension, info
   env->AddFunction("TimeStretch", "c[tempo]f[rate]f[pitch]f[sequence]i[seekwindow]i[overlap]i[quickseek]b[aa]i", Create_SoundTouch, 0);
+  env->AddFunction("TimeStretch", "c[tempo_n]i[tempo_d]i[rate_n]i[rate_d]i[pitch_n]i[pitch_d]i[sequence]i[seekwindow]i[overlap]i[quickseek]b[aa]i", CreateRational_SoundTouch, 0);
 
   return "`TimeStretch' Changes tempo, pitch, and/or playback rate of audio.";
 }
