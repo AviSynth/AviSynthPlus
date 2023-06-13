@@ -2173,9 +2173,9 @@ AVSValue __cdecl Create_Version(AVSValue args, void*, IScriptEnvironment* env) {
 
   return Create_MessageClip(
 #ifdef AVS_POSIX
-    AVS_FULLVERSION AVS_COPYRIGHT_UTF8
+    AVS_FULLVERSION AVS_DEVELOPMENT_BUILD AVS_DEVELOPMENT_BUILD_GIT AVS_COPYRIGHT_UTF8
 #else
-    AVS_FULLVERSION AVS_COPYRIGHT
+    AVS_FULLVERSION AVS_DEVELOPMENT_BUILD AVS_DEVELOPMENT_BUILD_GIT AVS_COPYRIGHT
 #endif
     , w, h, i_pixel_type, shrink, textcolor, halocolor, bgcolor, fps_numerator, fps_denominator, num_frames, env);
 }
