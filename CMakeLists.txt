@@ -141,7 +141,8 @@ endif()
 
       IF(cmake_gentoolset_lower STREQUAL "intel c++ compiler 2021" OR
       cmake_gentoolset_lower STREQUAL "intel c++ compiler 2022" OR
-      cmake_gentoolset_lower STREQUAL "intel c++ compiler 2023")
+      cmake_gentoolset_lower STREQUAL "intel c++ compiler 2023" OR
+      cmake_gentoolset_lower STREQUAL "intel c++ compiler 2024")
         # IntelLLVM
         set(IntelLLVM_IN_VS "1")
       ELSEIF(cmake_gentoolset_lower STREQUAL "intel c++ compiler 19.2")
@@ -223,6 +224,8 @@ endif()
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /EHa")
         # for some reason, this was not set
         set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /std:c++17")
+        # from 2021.2 default fp is fast
+        set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /fp:precise")
     ELSEIF(IntelClassic_IN_VS STREQUAL "1")
         # Intel C++ Compiler 19.2
         message("Intel Classic chosen, setting additional flags")
