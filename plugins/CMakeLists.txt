@@ -15,8 +15,17 @@ else()
   set(DEVIL_PLUGIN_STATE OFF)
 endif()
 
+find_package(PkgConfig)
+pkg_check_modules(SOUNDTOUCH soundtouch)
+if(SOUNDTOUCH_FOUND)
+  set(SOUNDTOUCH_PLUGIN_STATE ON)
+else()
+  MESSAGE(WARNING "SoundTouch library not found. TimeStretch plugin will not be built.")
+  set(SOUNDTOUCH_PLUGIN_STATE OFF)
+endif()
+
 option(BUILD_IMAGESEQ "Build ImageSeq plugin" ${DEVIL_PLUGIN_STATE})
-option(BUILD_TIMESTRETCH "Build TimeStretch plugin" ON)
+option(BUILD_TIMESTRETCH "Build TimeStretch plugin" ${SOUNDTOUCH_PLUGIN_STATE})
 option(BUILD_SHIBATCH "Build Shibatch plugin" ON)
 option(BUILD_CONVERTSTACKED "Build ConvertStacked plugin" ON)
 
