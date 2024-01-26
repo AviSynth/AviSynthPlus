@@ -179,11 +179,11 @@ Tests if the function, filter or property name is defined natively within AviSyn
 Unlike `FunctionExists`, returns false for external plugins and user-defined functions. 
 
 
-VarExists
+VarExist
 ---------
 ::
 
-    VarExists(string name)
+    VarExist(string name)
 
 Tests if the "name" variable exists or not.
 
