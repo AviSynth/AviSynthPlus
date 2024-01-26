@@ -198,7 +198,7 @@ Changelog
 | Avisynth+      | | Added "IsFunction"             |
 |                | | Added "FunctionExists"         |
 |                | | Added "InternalFunctionExists" |
-|                | | Added "VarExists"              |
+|                | | Added "VarExist"               |
 +----------------+----------------------------------+
 
 Back to :doc:`Internal functions <syntax_internal_functions>`.
