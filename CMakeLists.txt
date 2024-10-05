@@ -358,6 +358,7 @@ endif()
 
     if(WIN32)
       SET( CMAKE_SHARED_LINKER_FLAGS "-Wl,--enable-stdcall-fixup" )
+      SET( CMAKE_CXX_FLAGS  "${CMAKE_CXX_FLAGS} -D__CRT__NO_INLINE=1" )
     elseif(APPLE)
       # macOS uses Clang's linker, doesn't like --no-undefined
       SET( CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -Wl,-undefined,error" )
