@@ -856,7 +856,7 @@ HRESULT AVIReadStream::Info(AVISTREAMINFO *pasi, long lSize) {
 	asi.rcFrame.right		= psnData->hdr.rcFrame.right;
 	asi.rcFrame.bottom		= psnData->hdr.rcFrame.bottom;
 
-	if (lSize < sizeof asi)
+	if (lSize < (long)sizeof asi)
 		memcpy(pasi, &asi, lSize);
 	else {
 		memcpy(pasi, &asi, sizeof asi);
