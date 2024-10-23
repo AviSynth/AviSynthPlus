@@ -99,8 +99,8 @@ template<class T>
 class ListNode2 : public ListNode {
 friend List2<T>;
 public:
-	ListNode2<T>() {}
-	ListNode2<T>(void *pv) : ListNode(pv) {}
+	(ListNode2<T>)() {}
+	(ListNode2<T>)(void *pv) : ListNode(pv) {}
 
 	void InsertBefore(ListNode2<T> *node) { ListNode::InsertBefore(node); }
 	void InsertAfter(ListNode2<T> *node) { ListNode::InsertAfter(node); }
@@ -113,7 +113,7 @@ public:
 template<class T>
 class List2 : public List {
 public:
-	List2<T>() {}
+	(List2<T>)() {}
 
 	void AddHead(ListNode2<T> *node) { List::AddHead(node); }
 	void AddTail(ListNode2<T> *node) { List::AddTail(node); }
