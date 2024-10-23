@@ -1803,7 +1803,7 @@ nofix:
     v       += FilterUD(Xp + ch + q, (short)(( -pos) & Pmask),   ch);  /* Perform right-wing inner product */
     *dst++ = v;     /* deposit output */
     }
-    if ((dtberror += dtbe) >= (1 << 31)) { // Don't be a creep ;-)
+    if ((dtberror += dtbe) >= (1u << 31)) { // Don't be a creep ;-)
     dtberror -= (1u << 31);
     pos += dtb + 1;   /* Move to next sample by time increment + error adjustment */
     }
