@@ -1835,7 +1835,7 @@ void Subtitle::InitAntialiaser(IScriptEnvironment* env)
     case 9: al = TA_TOP      | TA_RIGHT; break;		// ----`
     default: al= TA_BASELINE | TA_LEFT; break;		// .____
   }
-  if (SetTextCharacterExtra(hdcAntialias, spc) == 0x80000000) goto GDIError;
+  if (SetTextCharacterExtra(hdcAntialias, spc) == (int)0x80000000) goto GDIError;
   if (SetTextAlign(hdcAntialias, al) == GDI_ERROR) goto GDIError;
 
   if (multiline) { // filter parameter, true when lsp is given
@@ -3356,7 +3356,7 @@ bool GetTextBoundingBoxFixed(const char* text, const char* fontname, int size, b
   std::stringstream ss(text);
   while (std::getline(ss, temp, '\n')) {
     // does not recognize combined unicode sequences, 
-    // e.g. U: is len=2 and not len=1 like Ü
+    // e.g. U: is len=2 and not len=1 like Ãœ
     const size_t real_len = utf8 ? str_utf8_size(temp) : temp.size();
     max_width = std::max(max_width, real_len * current_font->width);
     height += current_font->height;
