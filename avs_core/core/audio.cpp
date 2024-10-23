@@ -185,13 +185,13 @@ static unsigned int get_channel_layout_single(const char* name, size_t name_len)
   errno = 0;
   long i = std::strtol(name, &end, 10);
 
-  if (!errno && (end + 1 - name == name_len && *end == 'c'))
+  if (!errno && (name_len == (size_t)(end + 1 - name)) && *end == 'c'))
     return av_get_default_channel_layout(i);
 
   // return the directly given mask
   errno = 0;
   long long layout = std::strtoll(name, &end, 0);
-  if (!errno && end - name == name_len) {
+  if (!errno && (name_len == (size_t)(end - name)) {
     if (layout > std::numeric_limits<unsigned int>::max())
       return 0;
     return (unsigned int)std::max(layout, 0LL);
