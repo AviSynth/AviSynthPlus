@@ -136,10 +136,10 @@ static int CPUCheckForExtensions()
 
 #if defined(X86_32) || defined(X86_64)
   // 3DNow!, 3DNow!, ISSE, FMA4
-  __cpuid(cpuinfo, 0x80000000);
-  if (cpuinfo[0] >= 0x80000001)
+  __cpuid(cpuinfo, (int)0x80000000);
+  if (cpuinfo[0] >= (int)0x80000001)
   {
-    __cpuid(cpuinfo, 0x80000001);
+    __cpuid(cpuinfo, (int)0x80000001);
 
     if (IS_BIT_SET(cpuinfo[3], 31))
       result |= CPUF_3DNOW;
