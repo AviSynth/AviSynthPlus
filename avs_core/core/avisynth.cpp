@@ -957,10 +957,10 @@ private:
       if (data && device->device_type == DEV_TYPE_CPU) {
         // check buffer overrun
         int *pInt = (int *)(data + margin + data_size);
-        if (pInt[0] != 0xDEADBEEF ||
-          pInt[1] != 0xDEADBEEF ||
-          pInt[2] != 0xDEADBEEF ||
-          pInt[3] != 0xDEADBEEF)
+        if (pInt[0] != (int)0xDEADBEEF ||
+          pInt[1] != (int)0xDEADBEEF ||
+          pInt[2] != (int)0xDEADBEEF ||
+          pInt[3] != (int)0xDEADBEEF)
         {
           printf("Buffer overrun!!!\n");
         }
@@ -3182,7 +3182,7 @@ void ScriptEnvironment::ListFrameRegistry(size_t min_size, size_t max_size, bool
               DebugOut(buf);
             }
           }
-          else if (inner_frame_count == inner_frame_count_size - 1)
+          else if (inner_frame_count == (int)(inner_frame_count_size - 1))
           {
             // log the last one
             if (frame->refcount > 0)
@@ -4173,7 +4173,7 @@ const Function* ScriptEnvironment::Lookup(const char* search_name, const AVSValu
         return result;
 
       // then, look for a built-in function
-      for (int i = 0; i < sizeof(builtin_functions)/sizeof(builtin_functions[0]); ++i)
+      for (int i = 0; i < (int)(sizeof(builtin_functions)/sizeof(builtin_functions[0])); ++i)
         for (const AVSFunction* j = builtin_functions[i]; !j->empty(); ++j)
         {
           if (streqi(j->name, search_name)) {
@@ -4911,7 +4911,7 @@ bool ScriptEnvironment::FunctionExists(const char* name)
 
 bool ScriptEnvironment::InternalFunctionExists(const char* name)
 {
-  for (int i = 0; i < sizeof(builtin_functions)/sizeof(builtin_functions[0]); ++i)
+  for (int i = 0; i < (int)(sizeof(builtin_functions)/sizeof(builtin_functions[0])); ++i)
     for (const AVSFunction* j = builtin_functions[i]; !j->empty(); ++j)
       if (streqi(j->name, name))
         return true;
