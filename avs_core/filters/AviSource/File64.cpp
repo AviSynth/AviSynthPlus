@@ -77,7 +77,7 @@ void File64::_seekFile(__int64 i64NewPos) {
 	LONG lHi = (LONG)(i64NewPos>>32);
 	DWORD dwError;
 
-	if (0xFFFFFFFF == SetFilePointer(hFile, (LONG)i64NewPos, &lHi, FILE_BEGIN))
+	if (0xFFFFFFFFL == SetFilePointer(hFile, (LONG)i64NewPos, &lHi, FILE_BEGIN))
 		if ((dwError = GetLastError()) != NO_ERROR)
 			throw MyWin32Error("File64: %%s", dwError);
 
@@ -90,7 +90,7 @@ bool File64::_seekFile2(__int64 i64NewPos) {
 
 //	_RPT1(0,"Seeking to %" PRIu64 "\n", i64NewPos);
 
-	if (0xFFFFFFFF == SetFilePointer(hFile, (LONG)i64NewPos, &lHi, FILE_BEGIN))
+	if (0xFFFFFFFFL == SetFilePointer(hFile, (LONG)i64NewPos, &lHi, FILE_BEGIN))
 		if ((dwError = GetLastError()) != NO_ERROR)
 			return false;
 
@@ -104,7 +104,7 @@ void File64::_skipFile(__int64 bytes) {
 	DWORD dwError;
 	LONG lNewLow;
 
-	if (0xFFFFFFFF == (lNewLow = SetFilePointer(hFile, (LONG)bytes, &lHi, FILE_CURRENT)))
+	if (0xFFFFFFFFL == (lNewLow = SetFilePointer(hFile, (LONG)bytes, &lHi, FILE_CURRENT)))
 		if ((dwError = GetLastError()) != NO_ERROR)
 			throw MyWin32Error("File64: %%s", dwError);
 
@@ -116,7 +116,7 @@ bool File64::_skipFile2(__int64 bytes) {
 	DWORD dwError;
 	LONG lNewLow;
 
-	if (0xFFFFFFFF == (lNewLow = SetFilePointer(hFile, (LONG)bytes, &lHi, FILE_CURRENT)))
+	if (0xFFFFFFFFL == (lNewLow = SetFilePointer(hFile, (LONG)bytes, &lHi, FILE_CURRENT)))
 		if ((dwError = GetLastError()) != NO_ERROR)
 			return false;
 
