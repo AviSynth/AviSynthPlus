@@ -613,7 +613,7 @@ void GeneralConvolution::setMatrix(const char * _matrix, bool _isInteger, IScrip
   for (auto &s : out) {
     if (s.length() == 0) continue; // first string can be empty is matrix string is starting with separators
 
-    if (nSize == maxsize) {
+    if (nSize == (size_t)maxsize) {
       if (dim == MAX_DIMENSION) {
         env->ThrowError("GeneralConvolution: matrix too big, maximum %dx%d elements allowed", MAX_DIMENSION, MAX_DIMENSION);
       }
@@ -644,7 +644,7 @@ void GeneralConvolution::setMatrix(const char * _matrix, bool _isInteger, IScrip
 
   if (nSize < 9)
     env->ThrowError("GeneralConvolution: matrix too small, need at least 3x3 elements");
-  else if (nSize != maxsize)
+  else if (nSize != (size_t)maxsize)
     env->ThrowError("GeneralConvolution: matrix incomplete, possible size %dx%d but element count %d", dim, dim, nSize);
 }
 
