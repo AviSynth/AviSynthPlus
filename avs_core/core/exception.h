@@ -34,7 +34,7 @@
 
 #include <avs/config.h>
 
-#if defined(MSVC) || defined(GCC)
+#if defined(MSVC)
 
 // IMPORTANT: Project must be compiled with /EHa
 #include <eh.h>
