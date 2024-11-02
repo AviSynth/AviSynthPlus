@@ -59,6 +59,8 @@
 #   define PPC32
 #elif defined(__riscv)
 #   define RISCV
+#elif defined(__loongarch__)
+#   define LOONGARCH
 #elif defined(__sparc_v9__)
 #   define SPARC
 #elif defined(__mips__)
