@@ -45,6 +45,7 @@
 #include "FilterConstructor.h"
 #include "PluginManager.h"
 #include "MappedList.h"
+#include <chrono>
 #include <vector>
 #include <iostream>
 #include <fstream>

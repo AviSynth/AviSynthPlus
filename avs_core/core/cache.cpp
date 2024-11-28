@@ -38,6 +38,7 @@
 #include "InternalEnvironment.h"
 #include "DeviceManager.h"
 #include <cassert>
+#include <chrono>
 #include <cstdio>
 
 #ifdef X86_32
