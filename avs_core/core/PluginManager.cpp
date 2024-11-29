@@ -458,7 +458,7 @@ bool AVSFunction::ArgNameMatch(const char* param_types, size_t args_names_count,
           p += 1;
           const char* q = strchr(p, ']');
           if (!q) return false;
-          if (len == q-p && !_strnicmp(arg_names[i], p, q-p)) {
+          if (len == (size_t)(q-p) && !_strnicmp(arg_names[i], p, q-p)) {
             found = true;
             break;
           }
