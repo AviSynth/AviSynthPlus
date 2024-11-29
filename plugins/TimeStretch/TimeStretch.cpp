@@ -39,7 +39,7 @@
 #include <vector>
 #include <avisynth.h>
 #include <avs/minmax.h>
-#include "SoundTouch/SoundTouch.h"
+#include <SoundTouch.h>
 
 
 #define BUFFERSIZE 8192
