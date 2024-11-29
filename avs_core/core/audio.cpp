@@ -158,7 +158,7 @@ static const struct channel_layout_name channel_layout_map[] = {
 constexpr auto channel_layout_map_size = sizeof(channel_layout_map) / sizeof(channel_layout_name);
 
 static unsigned int av_get_default_channel_layout(int nb_channels) {
-  for (int i = 0; i < channel_layout_map_size; i++)
+  for (int i = 0; i < (int)channel_layout_map_size; i++)
     if (nb_channels == channel_layout_map[i].layout.nb_channels)
       return channel_layout_map[i].layout.mask;
   return 0;
@@ -168,13 +168,13 @@ static unsigned int av_get_default_channel_layout(int nb_channels) {
 static unsigned int get_channel_layout_single(const char* name, size_t name_len)
 {
   // combined layout name
-  for (int i = 0; i < channel_layout_map_size; i++) {
+  for (int i = 0; i < (int)channel_layout_map_size; i++) {
     if (strlen(channel_layout_map[i].name) == name_len &&
       !memcmp(channel_layout_map[i].name, name, name_len))
       return channel_layout_map[i].layout.mask;
   }
   // individual channel name
-  for (int i = 0; i < channel_names_size; i++)
+  for (int i = 0; i < (int)channel_names_size; i++)
     if (channel_names[i].name &&
       strlen(channel_names[i].name) == name_len &&
       !memcmp(channel_names[i].name, name, name_len))
@@ -286,7 +286,7 @@ std::string channel_layout_to_str(const unsigned int channel_layout_mask)
     return "speaker_all";
 
   // find direct match
-  for (int i = 0; i < channel_layout_map_size; i++) {
+  for (int i = 0; i < (int)channel_layout_map_size; i++) {
     if (channel_layout_mask == channel_layout_map[i].layout.mask) {
       return channel_layout_map[i].name;
     }

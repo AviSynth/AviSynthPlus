@@ -1014,7 +1014,7 @@ PVideoFrame __stdcall SetProperty::GetFrame(int n, IScriptEnvironment* env)
         if (val_to_set == nullptr) break;
         auto length_to_set = strlen(val_to_set);
         auto length = env->propGetDataSize(avsmap_r, name, 0, nullptr);
-        if (length != length_to_set) break; // different size
+        if (length != (int)length_to_set) break; // different size
         const char* val_storage = env->propGetData(avsmap_r, name, 0, nullptr);
         if(std::memcmp(val_to_set, val_storage, length) == 0) return frame; // value match -> return unaltered
       }
