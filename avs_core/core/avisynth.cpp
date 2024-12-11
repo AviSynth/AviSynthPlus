@@ -4197,11 +4197,12 @@ const Function* ScriptEnvironment::Lookup(const char* search_name, const AVSValu
             if (AVSFunction::TypeMatch(j->param_types, args, num_args, pstrict, ctx) &&
               AVSFunction::ArgNameMatch(j->param_types, args_names_count, arg_names))
               {
-                if (strcmp(j->name, "Eval"))
+                if (strcmp(j->name, "Eval") && strcmp(j->name, "Import"))
                 {
                   printf("  Avisynth function: %s [", j->name); // Short info for ffmpeg
                   for (int k = 0; k < (int)args_names_count + 1; ++k)
                   {
+
                     if (args[k].IsBool())
                       printf("%s", (args[k].AsBool()) ? "true" : "false");
                     else if (args[k].IsInt())
@@ -4212,16 +4213,17 @@ const Function* ScriptEnvironment::Lookup(const char* search_name, const AVSValu
                       printf("%f", args[k].AsFloatf());
                     else
                     {
-                      if (args_names_count == 0) {
+                      if (args_names_count == 0)
                         printf("none");
-                      }
+                      else
+                        if (k != 0 && !args[0].IsString())
+                          printf("???");
                     }
                     if (k < (int)args_names_count && k != 0)
                       printf(", ");
                   }
                   printf("]\n");
-                return j;
-              }
+                }
             }
       }
     // Try again without arg name matching
