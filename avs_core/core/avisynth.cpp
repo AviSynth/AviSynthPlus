@@ -4196,10 +4196,36 @@ const Function* ScriptEnvironment::Lookup(const char* search_name, const AVSValu
           if (streqi(j->name, search_name)) {
             if (AVSFunction::TypeMatch(j->param_types, args, num_args, pstrict, ctx) &&
               AVSFunction::ArgNameMatch(j->param_types, args_names_count, arg_names))
-              return j;
-          }
-        }
-    }
+              {
+                if (strcmp(j->name, "Eval") && strcmp(j->name, "Import"))
+                {
+                  fprintf(stdout, "  Avisynth function: %s [", j->name); // Short info for ffmpeg
+                  for (int k = 0; k < (int)args_names_count + 1; ++k)
+                  {
+
+                    if (args[k].IsBool())
+                      fprintf(stdout, "%s", (args[k].AsBool()) ? "true" : "false");
+                    else if (args[k].IsInt())
+                      fprintf(stdout, "%d", args[k].AsInt());
+                    else if (args[k].IsString())
+                      fprintf(stdout, "%s", args[k].AsString());
+                    else if (args[k].IsFloat())
+                      fprintf(stdout, "%f", args[k].AsFloatf());
+                    else
+                    {
+                      if (args_names_count == 0)
+                        fprintf(stdout, "none");
+                      else
+                        if (k != 0 && !args[0].IsString())
+                          fprintf(stdout, "???");
+                    }
+                    if (k < (int)args_names_count && k != 0)
+                      fprintf(stdout, ", ");
+                  }
+                  fprintf(stdout, "]\n");
+                }
+            }
+      }
     // Try again without arg name matching
     oanc = args_names_count;
     args_names_count = 0;
