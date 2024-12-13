@@ -37,28 +37,9 @@ if (CMAKE_COMPILER_IS_GNUCXX AND CMAKE_CXX_COMPILER_VERSION VERSION_LESS 9)
     set(FSLIB "stdc++fs")
 endif()
 
-if(WIN32)
-
-  if( CMAKE_SIZEOF_VOID_P EQUAL 4 ) # 32-bit
-    # Specify include directories
-    target_include_directories(${ProjectName} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/DevIL_x86 ${AvsCore_SOURCE_DIR})
-    # Windows DLL dependencies
-    target_link_libraries(${ProjectName} "${CMAKE_CURRENT_SOURCE_DIR}/lib/DevIL_x86/DevIL.lib")
-    # Copy binary dependencies to a common folder for easy deployment
-    configure_file("${PROJECT_SOURCE_DIR}/lib/DevIL_x86/DevIL.dll" "${CMAKE_BINARY_DIR}/Output/system/DevIL.dll" COPYONLY)
-  else()   # 64-bit
-    # Specify include directories
-    target_include_directories(${ProjectName} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/lib/DevIL_x64 ${AvsCore_SOURCE_DIR})
-    # Windows DLL dependencies
-    target_link_libraries(${ProjectName} "${CMAKE_CURRENT_SOURCE_DIR}/lib/DevIL_x64/DevIL.lib")
-    # Copy binary dependencies to a common folder for easy deployment
-    configure_file("${PROJECT_SOURCE_DIR}/lib/DevIL_x64/DevIL.dll" "${CMAKE_BINARY_DIR}/Output/system/DevIL.dll" COPYONLY)
-  endif()
-else()
-  # not Windows
   # linux: sudo apt-get install libdevil-dev
   # fixme: put it to dependancy?
-  include(FindDevIL) # official CMake module
+include(FindDevIL) # official CMake module
 
   # This module locates the developer's image library. http://openil.sourceforge.net/
   # IL_LIBRARIES -   the name of the IL library. These include the full path to
@@ -70,13 +51,12 @@ else()
   #                  even if they are not needed. In most systems, if one
   #                  library is found all the others are as well. That's the
   #                  way the DevIL developers release it.
-  if(DevIL_FOUND)
+if(DevIL_FOUND)
     message("Found DevIL library: ${IL_LIBRARIES}") 
     target_link_libraries(${ProjectName} "${IL_LIBRARIES}" "${FSLIB}")
     target_include_directories(${ProjectName} PRIVATE "${IL_INCLUDE_DIR}" ${AvsCore_SOURCE_DIR})
-  else()
+else()
     target_link_libraries(${ProjectName} "${FSLIB}")
-  endif()
 endif()
 
 if (MSVC_IDE)

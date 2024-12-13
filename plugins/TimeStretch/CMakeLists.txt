@@ -20,11 +20,10 @@ if (MINGW)
 endif()
 
 # Library dependencies
-add_subdirectory("SoundTouch")
-target_link_libraries(${ProjectName} "SoundTouch")
+target_link_libraries(${ProjectName} ${SOUNDTOUCH_LINK_LIBRARIES})
 
 # Include directories
-target_include_directories(${ProjectName} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${AvsCore_SOURCE_DIR})
+target_include_directories(${ProjectName} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${AvsCore_SOURCE_DIR} ${SOUNDTOUCH_INCLUDE_DIRS})
 
 if (MSVC_IDE)
   # Copy output to a common folder for easy deployment
