@@ -4311,62 +4311,45 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
       for (int i = 0; i < (int)(sizeof(builtin_functions)/sizeof(builtin_functions[0])); ++i)
         for (const AVSFunction* j = builtin_functions[i]; !j->empty(); ++j)
         {
-          if (strcmp(j->name, "Eval") && strcmp(j->name, "Import") && strcmp(j->name, "Default") && streqi(j->name, name))
+          if (strcmp(j->name, "Eval") &&
+              strcmp(j->name, "Import") &&
+              strcmp(j->name, "Default") &&
+              strcmp(j->name, "Dissolve") &&
+              strcmp(j->name, "OnCPU") &&
+              strcmp(j->name, "UnalignedSplice") &&
+              streqi(j->name, name))
           {
-            printf("  Avisynth function: \033[37;1m%s\033[0m [", j->name); // Short info for ffmpeg
+            int info = 0;
             for (int k = 0; k < args_names_count; k++)
             {
+              if ((args[k].IsBool() || args[k].IsInt() || args[k].IsString() || args[k].IsFloat()) && ((k <= 1) && (info == 0)))
+              {
+                printf("  Avisynth function: \033[37;1m%s\033[0m [", j->name); // Short info for ffmpeg
+                if (k == 1) {
+                  k = k - 1;
+                }
+                ++info;
+              }
+
               if (args[k].IsBool())
                 printf("%s", (args[k].AsBool()) ? "true" : "false");
               else if (args[k].IsInt())
                 printf("%d", args[k].AsInt());
               else if (args[k].IsString())
                 printf("%s", args[k].AsString());
-                    /*{
-                      if (args_names_count != 1)
-                      {
-                        const char* ss = j->param_types;
-                        int w1 = 0;
-                        for (int w = 0; ss[w] != 's'; w++)
-                        {
-                          if (ss[w] == '[')
-                          {
-                            for (int w1 = 1; (ss[w+w1] != ']' && ss[w+2] != 's'); w1++)
-                            {
-                              printf("%c", ss[w+w1]);
-                            }
-                          }
-                          if (ss[w+1] == ']' && ss[w+2] == 's')
-                          {
-                            printf("=%s", args[k].AsString());
-                            w = w + 2;
-                              printf("%c", ss[w]);
-                            w1++;
-                            if (w1 < 3)
-                            {
-                              printf(", ");
-                            }
-                            else
-                              goto w2;
-                          }
-                          if (ss[w+1] == ']' && (ss[w+2] == 'i' || ss[w+2] == 'f'))
-                          {
-                            printf("=default, ");
-                          }
-                        }
-                        //z = false;
-                      }
-                      else
-                        printf("%s", args[k].AsString());
-                    }*/
               else if (args[k].IsFloat())
                 printf("%f", args[k].AsFloatf());
+              else if (info != 0)
+                printf("\033[33;1;116mfunction\033[0m");
 
-              if (k < args_names_count - 1)
+              if ((info != 0) && (k < args_names_count - 1))
                 printf(", ");
+              else if (k == args_names_count - 1)
+                goto info;
             }
-//w2:
-            printf("]\n");
+info:
+            if (info != 0)
+              printf("]\n");
           }
         }
 #ifdef LISTARGUMENTS
