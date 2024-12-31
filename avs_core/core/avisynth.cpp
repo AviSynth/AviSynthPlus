@@ -4208,11 +4208,10 @@ const Function* ScriptEnvironment::Lookup(const char* search_name, const AVSValu
       for (int i = 0; i < sizeof(builtin_functions)/sizeof(builtin_functions[0]); ++i)
         for (const AVSFunction* j = builtin_functions[i]; !j->empty(); ++j)
         {
-          if (streqi(j->name, search_name)) {
+          if (streqi(j->name, search_name))
             if (AVSFunction::TypeMatch(j->param_types, args, num_args, pstrict, ctx) &&
               AVSFunction::ArgNameMatch(j->param_types, args_names_count, arg_names))
-              return j;
-          }
+                return j;
         }
     }
     // Try again without arg name matching
@@ -4324,6 +4323,50 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
   args2[0] = implicit_last;
   Flatten(args, args2.data() + 1, 0, 0, arg_names);
 
+      for (int i = 0; i < (int)(sizeof(builtin_functions)/sizeof(builtin_functions[0])); ++i)
+        for (const AVSFunction* j = builtin_functions[i]; !j->empty(); ++j)
+        {
+          if (strcmp(j->name, "Eval") &&
+              strcmp(j->name, "Import") &&
+              strcmp(j->name, "Default") &&
+              strcmp(j->name, "Dissolve") &&
+              strcmp(j->name, "OnCPU") &&
+              strcmp(j->name, "UnalignedSplice") &&
+              streqi(j->name, name))
+          {
+            int info = 0;
+            for (int k = 0; k < args_names_count; k++)
+            {
+              if ((args[k].IsBool() || args[k].IsInt() || args[k].IsString() || args[k].IsFloat()) && ((k <= 1) && (info == 0)))
+              {
+                printf("  Avisynth function: \033[37;1m%s\033[0m [", j->name); // Short info for ffmpeg
+                if (k == 1) {
+                  k = k - 1;
+                }
+                ++info;
+              }
+
+              if (args[k].IsBool())
+                printf("%s", (args[k].AsBool()) ? "true" : "false");
+              else if (args[k].IsInt())
+                printf("%d", args[k].AsInt());
+              else if (args[k].IsString())
+                printf("%s", args[k].AsString());
+              else if (args[k].IsFloat())
+                printf("%f", args[k].AsFloatf());
+              else if (info != 0)
+                printf("\033[33;1;116mfunction\033[0m");
+
+              if ((info != 0) && (k < args_names_count - 1))
+                printf(", ");
+              else if (k == args_names_count - 1)
+                goto info;
+            }
+info:
+            if (info != 0)
+              printf("]\n");
+          }
+        }
 #ifdef LISTARGUMENTS
   // debug list of Invoke arguments before-after flattening
   int level = 0;
