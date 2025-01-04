@@ -4596,7 +4596,7 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
           p += 1;
           const char* q = strchr(p, ']');
           if (!q) break;
-          if (strlen(arg_names[i]) == size_t(q - p) && !_strnicmp(arg_names[i], p, q - p)) {
+          if ((strlen(arg_names[i]) == strlen((const char*)(q-p))) && !_strnicmp(arg_names[i], p, strlen((const char*)(q-p))) {
             // we have a match
             if (args3[named_arg_index].Defined() && args3_really_filled[named_arg_index]) {
               // when a parameter like named array was filled as an empty array
