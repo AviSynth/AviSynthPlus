@@ -4325,16 +4325,9 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
               if ((args[k].IsBool() || args[k].IsInt() || args[k].IsString() || args[k].IsFloat()) && ((k < args_names_count) && (info == 0)))
               {
                 printf("  Avisynth function: \033[37;1m%s\033[0m [", j->name); // Short info for ffmpeg
-                if (k == 1)
-                  k = k - 1;
-                if (k == 2)
-                  k = k - 2;
-                if (k == 3)
-                  k = k - 3;
-                if (k == 4)
-                  k = k - 4;
-                if (k == 5)
-                  k = k - 5;
+                for (int k1 = 1; k1 < args_names_count; k1++)
+                  if (k == k1)
+                    k = k - k1;
                 }
                 ++info;
               }
