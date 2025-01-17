@@ -34,6 +34,7 @@
 
 #include <string>
 #include <memory>
+#include <cstdint>
 
 bool streqi(const char* s1, const char* s2);
 std::string concat(const std::string &s1, const std::string &s2);
