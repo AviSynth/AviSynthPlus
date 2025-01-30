@@ -20,7 +20,7 @@ if (MINGW)
 endif()
 
 # Library dependencies
-target_link_libraries(${ProjectName} ${SOUNDTOUCH_LINK_LIBRARIES})
+target_link_libraries(${ProjectName} ${SOUNDTOUCH})
 
 # Include directories
 target_include_directories(${ProjectName} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR} ${AvsCore_SOURCE_DIR} ${SOUNDTOUCH_INCLUDE_DIRS})
