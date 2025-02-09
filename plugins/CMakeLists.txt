@@ -40,9 +40,14 @@ if (WIN32)
     add_subdirectory("DirectShowSource")
   endif()
 
+if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "AMD64" OR
+    "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "X86")
+# obviously depends on VirtualDub being available natively,
+# which is only true for X86 and AMD64
   if (BUILD_VDUBFILTER)
     add_subdirectory("VDubFilter")
   endif()
+endif()
 
   #if (BUILD_VFAPIFILTER)
     #add_subdirectory("VFAPIFilter")
