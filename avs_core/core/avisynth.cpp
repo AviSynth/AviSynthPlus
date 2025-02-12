@@ -1247,7 +1247,7 @@ struct ScriptEnvironmentTLS
 // this is a work-around for that.
 #if defined(AVS_WINDOWS) && !defined(__GNUC__)
 #  ifdef XP_TLS
-extern DWORD dwTlsIndex;
+extern _TLS _tls;
 #  else
 // does not work on XP when DLL is dynamic loaded. see dwTlsIndex instead
 __declspec(thread) ScriptEnvironmentTLS* g_TLS = nullptr;
@@ -1275,14 +1275,14 @@ public:
     if (thread_id != 0) {
       // thread pool thread
 #ifdef XP_TLS
-      ScriptEnvironmentTLS* g_TLS = (ScriptEnvironmentTLS*)(TlsGetValue(dwTlsIndex));
+      ScriptEnvironmentTLS* g_TLS = (ScriptEnvironmentTLS*)(TlsGetValue(_tls.dwTlsIndex));
 #endif
       if (g_TLS != nullptr) {
         ThrowError("Detected multiple ScriptEnvironmentTLSs for a single thread");
       }
       g_TLS = &myTLS;
 #ifdef XP_TLS
-      if (!TlsSetValue(dwTlsIndex, g_TLS)) {
+      if (!TlsSetValue(_tls.dwTlsIndex, g_TLS)) {
         ThrowError("Could not store thread local value for ScriptEnvironmentTLS");
       }
 #endif
@@ -1299,7 +1299,7 @@ public:
 #ifdef XP_TLS
   // a ? : b, evaluate 'a' only once
 #define IFNULL(a, b) ([&](){ auto val = (a); return ((val) == nullptr ? (b) : (val)); }())
-#define DISPATCH(name) IFNULL((ScriptEnvironmentTLS*)(TlsGetValue(dwTlsIndex)), coreTLS)->name
+#define DISPATCH(name) IFNULL((ScriptEnvironmentTLS*)(TlsGetValue(_tls.dwTlsIndex)), coreTLS)->name
 #else
 #define DISPATCH(name) (g_TLS ? g_TLS : coreTLS)->name
 #endif
@@ -1717,7 +1717,7 @@ public:
     bool is_runtime = true;
 
 #ifdef XP_TLS
-    ScriptEnvironmentTLS* g_TLS = (ScriptEnvironmentTLS*)(TlsGetValue(dwTlsIndex));
+    ScriptEnvironmentTLS* g_TLS = (ScriptEnvironmentTLS*)(TlsGetValue(_tls.dwTlsIndex));
 #endif
     if (g_TLS == nullptr) { // not called by thread
       if (GetFrameRecursiveCount() == 0) { // not called by GetFrame
@@ -1923,7 +1923,7 @@ public:
   void __stdcall DeleteScriptEnvironment()
   {
 #ifdef XP_TLS
-    ScriptEnvironmentTLS* g_TLS = (ScriptEnvironmentTLS*)(TlsGetValue(dwTlsIndex));
+    ScriptEnvironmentTLS* g_TLS = (ScriptEnvironmentTLS*)(TlsGetValue(_tls.dwTlsIndex));
 #endif
     if (g_TLS != nullptr) {
       ThrowError("Cannot delete environment from a TLS proxy.");
@@ -2411,7 +2411,7 @@ ScriptEnvironment::ScriptEnvironment()
   cacheMode(CACHE_DEFAULT)
 {
 #ifdef XP_TLS
-    if(dwTlsIndex == 0)
+    if(_tls.dwTlsIndex == 0)
       throw("ScriptEnvironment: TlsAlloc failed on DLL load");
 #endif
 
