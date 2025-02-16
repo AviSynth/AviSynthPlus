@@ -17,6 +17,7 @@ Contents:
    avisynthdoc/contributing/compiling_avsplus
    avisynthdoc/contributing/posix
    avisynthdoc/contributing/avsplus_external_deps_guide_manual
+   avisynthdoc/contributing/avsplus_external_deps_guide_manual_arm
    avisynthdoc/contributing/contributing_with_git
    avisynthdoc/index
 
