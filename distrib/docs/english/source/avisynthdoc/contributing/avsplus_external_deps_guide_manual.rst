@@ -83,7 +83,6 @@ invoking one of the vcvarsall scripts in
 | The ones we're interested in on a 64-bit install of Windows 10 are
 | **vcvars64.bat**
 | **vcvars32.bat**
-| **vcvarsamd64_arm64.bat**
 
 I have a directory at ``E:\Programs\ScriptTools`` on my **%PATH%**, so I create
 chained launchers to these launchers there, as they aren't otherwise available
@@ -97,14 +96,79 @@ on the **%PATH%**.
     echo @ECHO OFF > E:\Programs\ScriptTools\msvc32.bat
     echo "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvars32.bat" >> E:\Programs\ScriptTools\msvc32.bat
 
-    echo @ECHO OFF > E:\Programs\ScriptTools\msvcarm.bat
-    echo "C:\Program Files (x86)\Microsoft Visual Studio\2019\Community\VC\Auxiliary\Build\vcvarsamd64_arm64.bat" >> E:\Programs\ScriptTools\msvcarm.bat
-
 .. Note::
-    Creating symlinks on Windows 10 requires Administrator privileges (Open
+    Creating symlinks on Windows 10 and 11 requires Administrator privileges (Open
     Elevated Command Prompt).
 
-    Apparently Windows 11 doesn't require this.
+    On Windows 11, this can be done from a non-Admin prompt by using sudo as one
+    would on Linux or OS X.  sudo on Windows 11 needs to be enabled by the user
+    through Developer Settings.
+
+
+pkgconf
+-------
+
+pkg-config is a tool used to detect and add headers and libraries from the filesystem.
+pkgconf is compatible with pkg-config while both being slimmer on dependencies and adding
+a couple of useful features.
+
+On Windows, MSVC can be used to build pkgconf, but meson is required.  The quickest way
+to do this is through pip.
+
+Anyone wanting to build the AviSynth+ docs already has Python, hence they also already
+have pip, and can install meson through there.  Or you have Python installed for other
+reasons anyway.  During Python installation it should have been added to the PATH.
+
+Open the Visual Studio Command Prompt and install meson:
+
+    ::
+
+        pip install meson
+
+Clone the source using Git:
+
+    ::
+
+        git clone https://github.com/pkgconf/pkgconf
+
+Create the proper build directory and move into it:
+
+    ::
+
+        mkdir pkgconf\build && ^
+        cd pkgconf\build
+
+Configure the pkgconf build:
+
+    ::
+
+        meson setup ../ -Dtests=disabled -Dprefix=C:\pkgconf_for_windows
+
+Build the source:
+
+    ::
+
+        meson compile
+
+Install pkgconf:
+
+    ::
+
+        meson install
+
+Create a symbolic link so pkg-config can be used as an alias for pkgconf (Windows 11 instructions shown):
+
+    ::
+
+        sudo mklink C:\pkgconf_for_windows\bin\pkg-config.exe C:\pkgconf_for_windows\bin\pkgconf.exe
+
+Add the folder containing pkgconf to the PATH:
+
+    ::
+
+        setx PATH "%PATH%;C:\pkgconf_for_windows\bin"
+
+Close and re-open the Command Prompt.
 
 
 SoundTouch
@@ -132,12 +196,12 @@ Enter the directory and create the proper build directories:
         cd soundtouch && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 .. Note::
     As demonstrated above, multiple commands can be chained by using &&:
 
-        cd soundtouch && mkdir build && cd build && mkdir x64 x86 arm64
+        cd soundtouch && mkdir build && cd build && mkdir x64 x86
 
     The caret (^) is used to break to a new line in cmd.exe, the same way that
     bash uses \\:
@@ -164,29 +228,6 @@ Configure the build:
 
         cmake ../../ -G "Visual Studio 16 2019" -A "x64" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64
-
-Compile and install in one step:
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-^^^^^
-
-Enter the build directory for ARM64:
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\soundtouch\build\arm64
-
-Configure the build:
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64
 
 Compile and install in one step:
 
@@ -259,7 +300,7 @@ Building DevIL's dependencies manually
     identical text.  Every one of these are broken up into a group of steps to
     jump into the source download area, download the source, and create the
     build subdirectories.  And then it breaks down the actual build steps under
-    headers for x64, x86, and ARM64.
+    headers for x64 and x86.
 
     Unless there's something important to note about the options or something
     weird to account for, the description for those steps are exactly the same.
@@ -278,7 +319,7 @@ zlib-ng
         cd zlib-ng && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -298,30 +339,6 @@ x86-64
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
         -DBUILD_SHARED_LIBS:bool=off -DZLIB_COMPAT:bool=on -DZLIB_ENABLE_TESTS:bool=off ^
         -DPKGCONFIG_INSTALL_DIR=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64\lib\pkgconfig
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-.. Note::
-    -DPKGCONFIG_INSTALL_DIR is necessary because otherwise the .pc file will install to root.
-..
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\zlib-ng\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DBUILD_SHARED_LIBS:bool=off -DZLIB_COMPAT:bool=on -DZLIB_ENABLE_TESTS:bool=off ^
-        -DPKGCONFIG_INSTALL_DIR=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\pkgconfig ^
-        -DCMAKE_SYSTEM_PROCESSOR=aarch64
 
     ::
 
@@ -364,11 +381,11 @@ xz-tools
 
         %AVS_DEPS_BUILD_HOME% && ^
         cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps && ^
-        wget http://tukaani.org/xz/xz-5.4.2.tar.gz -O - | tar -xzvf - && ^
-        cd xz-5.4.2 && ^
+        wget http://tukaani.org/xz/xz-5.6.3.tar.gz -O - | tar -xzvf - && ^
+        cd xz-5.6.3 && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -376,7 +393,7 @@ x86-64
 
     ::
 
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\xz-5.4.2\build\x64
+        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\xz-5.6.3\build\x64
 
     ::
 
@@ -389,30 +406,12 @@ x86-64
         cmake --build . --config Release -j 6 --target install
 
 
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\xz-5.4.2\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DBUILD_SHARED_LIBS:bool=off
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
 x86-32
 ++++++
 
     ::
 
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\xz-5.4.2\build\x86
+        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\xz-5.6.3\build\x86
 
     ::
 
@@ -438,7 +437,7 @@ Using meson with MSVC requires launching the VS Command Prompt.
         cd Little-CMS && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -465,72 +464,6 @@ x86-64
     ::
 
         meson install --strip
-
-
-ARM64
-+++++
-
-Unfortunately, there are issues trying to use the MSVC cross environment for ARM
-with meson, because it attempts to test the binary during the configure phase.
-In the event this gets fixed, these would be the approximate steps required.
-
-    ::
-
-        msvcarm
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\Little-CMS\build\arm64
-
-    ::
-
-        meson setup ../../ --prefix=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        --libdir=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib ^
-        --default-library static --backend vs
-
-    ::
-
-        meson compile -C .
-
-    ::
-
-        meson install --strip
-
-    ::
-
-        exit
-
-Instead, we can use the autotools chain through bash to get around cross-compiling
-error. You can instantiate the full MSys2 environment if you prefer, but since
-everything else here is trying to stick to running in the native Windows terminal,
-we'll also do that here.
-
-
-    ::
-
-        msvcarm
-
-    ::
-
-        bash ../../configure --prefix=E:/avsplus_build_deps/arm64 --disable-shared ^
-        --without-jpeg --without-tiff --enable-silent-rules --host aarch64-w64-mingw32 ^
-        CC=cl CXX=cl
-
-    ::
-
-        make -j6
-
-    ::
-
-        make install
-
-    ::
-
-        exit
-
-.. Note::
-    *make* and *make install* will fail on compiling the tools, but the library
-    and headers will still be built and installed.
 
 
 x86-32
@@ -577,7 +510,7 @@ libjpeg-turbo
         cd libjpeg-turbo && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -592,29 +525,6 @@ x86-64
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
         -DENABLE_SHARED:bool=off -DCMAKE_SYSTEM_PROCESSOR="x86_64"
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-.. Note::
-    Turning off the simd is necessary to avoid linkage error
-..
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\libjpeg-turbo\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DENABLE_SHARED:bool=off -DCMAKE_SYSTEM_PROCESSOR="aarch64" ^
-        -DWITH_SIMD:bool=off
 
     ::
 
@@ -651,7 +561,7 @@ libpng
         git checkout libpng16 && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -668,35 +578,6 @@ x86-64
         -DPNG_SHARED:bool=off -DPNG_TESTS:bool=off ^
         -DZLIB_INCLUDE_DIR=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64\include ^
         -DZLIB_LIBRARY=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64\lib\zlibstatic.lib
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-.. Note::
-    -DPNG_ARM_NEON_OPT=0 disables neon, because the functions aren't public
-    and cause configure check errors in FFmpeg for libbluray, libfontconfig,
-    and libfreetype due to undefined symbols in libpng16.a
-
-    Is this necessary for our purposes with MSVC on Windows? Maybe not.
-..
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\libpng\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DPNG_SHARED:bool=off -DPNG_TESTS:bool=off ^
-        -DZLIB_INCLUDE_DIR=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\include ^
-        -DZLIB_LIBRARY=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\zlibstatic.lib ^
-        -DCMAKE_C_FLAGS="-DPNG_ARM_NEON_OPT=0"
 
     ::
 
@@ -735,7 +616,7 @@ jbigkit
         git checkout mingw-w64 && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -749,23 +630,6 @@ x86-64
 
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\jbigkit\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64
 
     ::
 
@@ -800,7 +664,7 @@ deflate
         cd libdeflate && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -814,28 +678,6 @@ x86-64
 
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
-        -DLIBDEFLATE_BUILD_SHARED_LIB:bool=off
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-.. Note::
-    Builds with ClangCL but not standard MSVC 2019, maybe 2022 can, or maybe not.
-..
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\libdeflate\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 -T ClangCL ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
         -DLIBDEFLATE_BUILD_SHARED_LIB:bool=off
 
     ::
@@ -870,7 +712,7 @@ lerc
         cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps && ^
         git clone https://github.com/esri/lerc/ && ^
         cd lerc\build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -884,24 +726,6 @@ x86-64
 
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
-        -DBUILD_SHARED_LIBS:bool=off
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\lerc\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
         -DBUILD_SHARED_LIBS:bool=off
 
     ::
@@ -938,7 +762,7 @@ zstd
         cd zstd && ^
         mkdir zstd-build && ^
         cd zstd-build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -952,24 +776,6 @@ x86-64
 
         cmake ../../build/cmake -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
-        -DZSTD_BUILD_SHARED:bool=off
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\zstd\zstd-build\arm64
-
-    ::
-
-        cmake ../../build/cmake -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
         -DZSTD_BUILD_SHARED:bool=off
 
     ::
@@ -1006,7 +812,7 @@ libwebp
         cd libwebp && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -1021,25 +827,6 @@ x86-64
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
         -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
-        -DBUILD_SHARED_LIBS:bool=off -DWEBP_ENABLE_SWAP_16BIT_CSP:bool=on
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\libwebp\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
         -DBUILD_SHARED_LIBS:bool=off -DWEBP_ENABLE_SWAP_16BIT_CSP:bool=on
 
     ::
@@ -1077,7 +864,7 @@ libtiff
         cd libtiff && ^
         mkdir libtiff-build && ^
         cd libtiff-build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 .. Note::
     Seemingly won't link to the static webp we just built.
@@ -1094,26 +881,6 @@ x86-64
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
         -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
-        -DBUILD_SHARED_LIBS:bool=off -Dtiff-docs:bool=off -Dtiff-tools:bool=off ^
-        -Dtiff-tests:bool=off -DCMAKE_C_FLAGS="-DLZMA_API_STATIC"
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\libtiff\libtiff-build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
         -DBUILD_SHARED_LIBS:bool=off -Dtiff-docs:bool=off -Dtiff-tools:bool=off ^
         -Dtiff-tests:bool=off -DCMAKE_C_FLAGS="-DLZMA_API_STATIC"
 
@@ -1152,7 +919,7 @@ libmng
         curl -Lo libmng-2.0.3.tar.xz https://sourceforge.net/projects/libmng/files/libmng-devel/2.0.3/libmng-2.0.3.tar.xz/download && ^
         tar -xJvf libmng-2.0.3.tar.xz && ^
         cd libmng-2.0.3/build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -1170,26 +937,6 @@ x86-64
         -DCMAKE_STAGING_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
         -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
         -DLCMS2_LIBRARY=%AVS_DEPS_BUILD_HOME%\x86-64\lib\liblcms2.a
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\libmng-2.0.3\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DBUILD_SHARED_LIBS:bool=off ^
-        -DCMAKE_STAGING_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64
 
     ::
 
@@ -1235,7 +982,7 @@ libsquish
         tar -xzvf libsquish-1.15.tar.gz && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -1249,24 +996,6 @@ x86-64
 
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
-        -DBUILD_SHARED_LIBS:bool=off
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\libsquish\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
         -DBUILD_SHARED_LIBS:bool=off
 
     ::
@@ -1303,34 +1032,12 @@ JasPer
         cd jasper && ^
         mkdir jasper-build && ^
         cd jasper-build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\jasper\jasper-build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DJAS_ENABLE_SHARED:bool=off -DJAS_ENABLE_OPENGL:bool=off ^
-        -DJAS_ENABLE_DOC:bool=off -DJAS_ENABLE_PROGRAMS:bool=off ^
-        -DALLOW_IN_SOURCE_BUILD:bool=on -DJAS_CROSSCOMPILING:bool=on ^
-        -DJAS_STDC_VERSION=0
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
 
 .. Note::
     JasPer HEAD not compatible with v141_xp due to missing sysinfoapi.h header
-    and threading library.  Doesn't affect ARM64, and because it requires
-    changing the source, that's why the ARM64 instructions came first here.
+    and threading library, but this can be kludged.
 ..
 
     ::
@@ -1396,7 +1103,7 @@ OpenEXR
         cd openexr && ^
         mkdir build && ^
         cd build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 
 x86-64
@@ -1410,24 +1117,6 @@ x86-64
 
         cmake ../../ -G "Visual Studio 16 2019" -T "v141_xp" ^
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
-        -DBUILD_SHARED_LIBS:bool=off
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\openexr\build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
         -DBUILD_SHARED_LIBS:bool=off
 
     ::
@@ -1499,7 +1188,7 @@ build errors:
         cd DevIL/DevIL && ^
         mkdir devil-build && ^
         cd devil-build && ^
-        mkdir x64 x86 arm64
+        mkdir x64 x86
 
 .. Note::
     DevIL looks for LCMS2 as lcms2.lib; use a symlink to fix that.
@@ -1518,25 +1207,6 @@ x86-64
         -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64 ^
         -DBUILD_SHARED_LIBS:bool=off ^
         -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\x86-64
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
-ARM64
-^^^^^
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\DevIL\DevIL\devil-build\arm64
-
-    ::
-
-        cmake ../../ -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DBUILD_SHARED_LIBS:bool=off ^
-        -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64
 
     ::
 
@@ -1574,7 +1244,7 @@ AviSynth+
     git clone https://github.com/AviSynth/AviSynthPlus.git
     cd AviSynthPlus
     mkdir build && cd build
-    mkdir x64 x86 arm64
+    mkdir x64 x86
 
 
 Using prebuilt DevIL SDK
@@ -1608,14 +1278,6 @@ tools on the **%PATH%**, *cp* would be usable as well):
 
         copy "%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\DevIL Windows SDK\lib\x64\Release\DevIL.dll" ^
         %AVS_DEPS_BUILD_HOME%\avisynth_build\x86-64\bin
-
-
-ARM64
-+++++
-
-.. Note::
-    Cannot use prebuilt DevIL SDK because it only provides x86(-64) binaries.
-    It was published in 2017, after all.
 
 
 x86-32
@@ -1673,28 +1335,6 @@ x86-64
         cmake --build . --config Release -j 6 --target install
 
 
-ARM64
-+++++
-
-    ::
-
-        cd %AVS_DEPS_BUILD_HOME%\avsplus-build-deps\AviSynthPlus\build\arm64
-
-    ::
-
-        cmake ../../  -G "Visual Studio 16 2019" -A ARM64 ^
-        -DCMAKE_INSTALL_PREFIX=%AVS_DEPS_BUILD_HOME%\avisynth_build\arm64 ^
-        -DIL_LIBRARIES="%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\DevIL.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\jpeg-static.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\libpng16_static.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\tiff.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\squish.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\jasper.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\zlibstatic.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\liblzma.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\jbig.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\deflatestatic.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\Lerc.lib;%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\zstd_static.lib" ^
-        -DILU_LIBRARIES=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64\lib\ILU.lib ^
-        -DCMAKE_PREFIX_PATH=%AVS_DEPS_BUILD_HOME%\avsplus_build_deps\arm64 ^
-        -DCMAKE_CXX_FLAGS="-DIL_STATIC_LIB" -DENABLE_INTEL_SIMD:bool=off ^
-        -DBUILD_VDUBFILTER:bool=off
-
-    ::
-
-        cmake --build . --config Release -j 6 --target install
-
-
 x86-32
 ++++++
 
@@ -1718,4 +1358,4 @@ x86-32
 
 Back to the :doc:`main page <../../index>`
 
-$ Date: 2024-02-25 16:52:26-05:00 $
+$ Date: 2025-02-08 13:02:29-05:00 $

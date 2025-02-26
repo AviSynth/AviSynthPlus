@@ -124,6 +124,19 @@ endif()
     #1920-1929 = VS 16.0 (v142 toolset) Visual Studio 2019
     #1930-1939 = VS 17.0 (v143 toolset) Visual Studio 2022
 
+    # detect if the target is for x86
+    string(TOLOWER "${CMAKE_VS_PLATFORM_NAME}" PLATFORMID)
+    if(("${PLATFORMID}" STREQUAL "win32") OR
+       ("${PLATFORMID}" STREQUAL "x64"  ))
+        set(NON_X86_PLATFORM "OFF")
+    else()
+        set(NON_X86_PLATFORM "ON")
+    endif()
+
+    if(NON_X86_PLATFORM)
+        message(FATAL_ERROR "MSVC/ClangCL only supported on x86(-64). Use MinGW (llvm-mingw or gcc).")
+    endif()
+
     IF( MSVC_VERSION VERSION_LESS 1910 )
       MESSAGE(FATAL_ERROR "Visual C++ 2017 or newer required.")
     ENDIF()

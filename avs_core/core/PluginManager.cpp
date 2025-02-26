@@ -25,16 +25,17 @@ typedef const char* (__stdcall *AvisynthPluginInit2Func)(IScriptEnvironment_Avs2
 typedef const char* (AVSC_CC *AvisynthCPluginInitFunc)(AVS_ScriptEnvironment* env);
 
 #ifdef AVS_WINDOWS // only Windows has a registry we care about
-const char RegAvisynthKey[] = "Software\\Avisynth";
-#if defined (__GNUC__)
-const char RegPluginDirPlus_GCC[] = "PluginDir+GCC";
-#if defined(X86_32)
-  #define GCC_WIN32
-#endif
-#else
-const char RegPluginDirClassic[] = "PluginDir2_5";
-const char RegPluginDirPlus[] = "PluginDir+";
-#endif
+  const char RegAvisynthKey[] = "Software\\Avisynth";
+  #if defined (AVS_WINDOWS_X86)
+    #if defined (__GNUC__)
+      const char RegPluginDirPlus_GCC[] = "PluginDir+GCC";
+      #if defined(X86_32)
+        #define GCC_WIN32
+      #endif // X86_32
+    #endif // __GNUC__
+  #endif // AVS_WINDOWS_X86
+  const char RegPluginDirClassic[] = "PluginDir2_5";
+  const char RegPluginDirPlus[] = "PluginDir+";
 #endif // AVS_WINDOWS
 
 #ifdef AVS_POSIX
@@ -612,23 +613,30 @@ void PluginManager::AddAutoloadDir(const std::string &dirPath, bool toFront)
 
   std::string plugin_dir;
 #ifdef AVS_WINDOWS
-#if defined (__GNUC__)
-  if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirPlus_GCC, &plugin_dir))
-    replace_beginning(dir, "USER_PLUS_PLUGINS", plugin_dir);
-  if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirPlus_GCC, &plugin_dir))
-    replace_beginning(dir, "MACHINE_PLUS_PLUGINS", plugin_dir);
-#else
-  // note: if e.g HKCU/PluginDir+ does not exist, USER_PLUS_PLUGINS as a string remain in search path
-  if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
-    replace_beginning(dir, "USER_PLUS_PLUGINS", plugin_dir);
-  if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
-    replace_beginning(dir, "MACHINE_PLUS_PLUGINS", plugin_dir);
-  if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirClassic, &plugin_dir))
-    replace_beginning(dir, "USER_CLASSIC_PLUGINS", plugin_dir);
-  if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirClassic, &plugin_dir))
-    replace_beginning(dir, "MACHINE_CLASSIC_PLUGINS", plugin_dir);
-#endif
-#endif
+  #if defined (AVS_WINDOWS_X86)
+    #if defined (__GNUC__)
+      if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirPlus_GCC, &plugin_dir))
+        replace_beginning(dir, "USER_PLUS_PLUGINS", plugin_dir);
+      if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirPlus_GCC, &plugin_dir))
+        replace_beginning(dir, "MACHINE_PLUS_PLUGINS", plugin_dir);
+    #else
+      // note: if e.g HKCU/PluginDir+ does not exist, USER_PLUS_PLUGINS as a string remain in search path
+      if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
+        replace_beginning(dir, "USER_PLUS_PLUGINS", plugin_dir);
+      if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
+        replace_beginning(dir, "MACHINE_PLUS_PLUGINS", plugin_dir);
+      if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirClassic, &plugin_dir))
+        replace_beginning(dir, "USER_CLASSIC_PLUGINS", plugin_dir);
+      if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirClassic, &plugin_dir))
+        replace_beginning(dir, "MACHINE_CLASSIC_PLUGINS", plugin_dir);
+    #endif // _GNUC_
+  #else
+    if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
+      replace_beginning(dir, "USER_PLUS_PLUGINS", plugin_dir);
+    if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
+      replace_beginning(dir, "MACHINE_PLUS_PLUGINS", plugin_dir);
+  #endif // AVS_WINDOWS_X86
+#endif // AVS_WINDOWS
 
   // replace backslashes with forward slashes
   replace(dir, '\\', '/');
