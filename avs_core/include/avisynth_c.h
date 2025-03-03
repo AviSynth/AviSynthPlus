@@ -1622,7 +1622,7 @@ struct AVS_Library {
   AVSC_DECLARE_FUNC(avs_set_to_array);
   AVSC_DECLARE_FUNC(avs_set_to_void);
   // getters for all basic types. note: avs_get_as_float returns double
-  AVSC_DECLARE_FUNC(avs_get_as_error)
+  AVSC_DECLARE_FUNC(avs_get_as_error);
   AVSC_DECLARE_FUNC(avs_get_as_array);
   AVSC_DECLARE_FUNC(avs_get_as_bool);
   AVSC_DECLARE_FUNC(avs_get_as_clip);
