@@ -186,7 +186,7 @@ void Resampler_i_base<REAL>::make_outbuf(int nsmplwrt2, REAL* outbuf, int& delay
 
 
 #ifdef _WIN32
-#ifdef GCC
+#if defined(GCC) || (defined(CLANG) && !defined(MSVC))
 #ifndef MulDiv
   #define MulDiv(x,y,z) ((x)*(y)/(z))
 #endif
