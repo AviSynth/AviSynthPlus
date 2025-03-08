@@ -64,7 +64,7 @@
 #endif
 
 // !! precision problems 2.60f < 2.60. Extra care for scripts where the version checking occurs like "IsAvs26 = VersionNumber()>=2.60"
-#define AVS_CLASSIC_VERSION 2.60  // Note: Used by VersionNumber() script function
+#define AVS_VERSION 3.73  // Note: Used by VersionNumber() script function
 #define AVS_COPYRIGHT "\n\xA9 2000-2015 Ben Rudiak-Gould, et al.\nhttp://avisynth.nl\n\xA9 2013-2025 AviSynth+ Project"
 #define AVS_COPYRIGHT_UTF8 u8"\n\u00A9 2000-2015 Ben Rudiak-Gould, et al.\nhttp://avisynth.nl\n\u00A9 2013-2025 AviSynth+ Project"
 #define BUILTIN_FUNC_PREFIX "AviSynth"

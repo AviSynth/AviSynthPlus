@@ -16,12 +16,26 @@ else()
 endif()
 
 find_package(PkgConfig)
-pkg_check_modules(SOUNDTOUCH soundtouch)
+if(PkgConfig_FOUND)
+  pkg_check_modules(SOUNDTOUCH soundtouch)
+endif()
+
 if(SOUNDTOUCH_FOUND)
   set(SOUNDTOUCH_PLUGIN_STATE ON)
 else()
-  MESSAGE(WARNING "SoundTouch library not found. TimeStretch plugin will not be built.")
-  set(SOUNDTOUCH_PLUGIN_STATE OFF)
+  # check to see if SoundTouch's CMake files were installed and whether the library itself exists
+  find_package(SoundTouch)
+  find_library(SOUNDTOUCH SoundTouch PATH ${SoundTouch_LIBRARY_DIRS})
+  if(SoundTouch_FOUND)
+    # override the SOUNDTOUCH_LINK_LIBRARIES and SOUNDTOUCH_INCLUDE_DIRS variables
+    # that pkg-config would have set, and allow these to be overridden at configure time as well
+    set(SOUNDTOUCH_LINK_LIBRARIES ${SOUNDTOUCH} CACHE PATH "Path to SoundTouch library")
+    set(SOUNDTOUCH_INCLUDE_DIRS ${CMAKE_PREFIX_PATH}/include/soundtouch CACHE PATH "Path to SoundTouch headers")
+    set(SOUNDTOUCH_PLUGIN_STATE ON)
+  else()
+    MESSAGE(WARNING "SoundTouch library not found. TimeStretch plugin will not be built.")
+    set(SOUNDTOUCH_PLUGIN_STATE OFF)
+  endif()
 endif()
 
 option(BUILD_IMAGESEQ "Build ImageSeq plugin" ${DEVIL_PLUGIN_STATE})
@@ -40,9 +54,14 @@ if (WIN32)
     add_subdirectory("DirectShowSource")
   endif()
 
+if ("${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "AMD64" OR
+    "${CMAKE_SYSTEM_PROCESSOR}" STREQUAL "X86")
+# obviously depends on VirtualDub being available natively,
+# which is only true for X86 and AMD64
   if (BUILD_VDUBFILTER)
     add_subdirectory("VDubFilter")
   endif()
+endif()
 
   #if (BUILD_VFAPIFILTER)
     #add_subdirectory("VFAPIFilter")

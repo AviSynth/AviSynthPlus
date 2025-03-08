@@ -1955,7 +1955,7 @@ static float find_next_valid_float(const double version) {
 }
 
 AVSValue VersionNumber(AVSValue args, void*, IScriptEnvironment*) {
-  const double VersionToReturn = AVS_CLASSIC_VERSION; // consider upgrading
+  const double VersionToReturn = AVS_VERSION; // consider upgrading
   float VersionToReturnf = find_next_valid_float(VersionToReturn);
   return VersionToReturnf;
   // A typical transition, when - even in Avisynth+ - we return 2.6f here.
