@@ -152,6 +152,7 @@ void resize_v_mmx_planar(BYTE* dst, const BYTE* src, int dst_pitch, int src_pitc
 }
 #endif
 
+
 void resize_v_sse2_planar(BYTE* dst, const BYTE* src, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel)
 {
   AVS_UNUSED(bits_per_pixel);
@@ -224,6 +225,129 @@ void resize_v_sse2_planar(BYTE* dst, const BYTE* src, int dst_pitch, int src_pit
   }
 }
 
+
+/*
+void resize_v_sse2_planar(BYTE* dst, const BYTE* src, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel) // double proc per pass version
+{
+    AVS_UNUSED(bits_per_pixel);
+
+    int filter_size = program->filter_size;
+    short* current_coeff = program->pixel_coefficient;
+
+    __m128i zero = _mm_setzero_si128();
+    const __m128i rounder = _mm_set1_epi32(1 << (FPScale8bits - 1));
+
+    const int kernel_size = program->filter_size_real; // not the aligned
+    const int kernel_size_mod2 = (kernel_size / 2) * 2;
+    const bool notMod2 = kernel_size_mod2 < kernel_size;
+
+    for (int y = 0; y < target_height; y++) {
+        int offset = program->pixel_offset[y];
+        const BYTE* src_ptr = src + offset * src_pitch;
+
+        // no need wmod8, alignment is safe at least 32
+//        for (int x = 0; x < width; x += 8) {
+        for (int x = 0; x < width; x += 16) {
+            __m128i result_single_lo = rounder;
+            __m128i result_single_hi = rounder;
+
+            __m128i result_single_lo_2 = rounder;
+            __m128i result_single_hi_2 = rounder;
+
+            const uint8_t* src2_ptr = src_ptr + x;
+
+            // Process pairs of rows for better efficiency (2 coeffs/cycle)
+            for (int i = 0; i < kernel_size_mod2; i += 2) {
+                // Load two coefficients as a single packed value and broadcast
+                __m128i coeff = _mm_set1_epi32(*reinterpret_cast<const int*>(current_coeff + i)); // CO|co|CO|co|CO|co|CO|co
+
+                __m128i src_even = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src2_ptr + i * src_pitch)); // 8x 8bit pixels
+                __m128i src_odd = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src2_ptr + (i + 1) * src_pitch));  // 8x 8bit pixels
+
+                __m128i src_even_2 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src2_ptr + 8 + i * src_pitch)); // 8x 8bit pixels
+                __m128i src_odd_2 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src2_ptr + 8 + (i + 1) * src_pitch));  // 8x 8bit pixels
+
+                src_even = _mm_unpacklo_epi8(src_even, zero);
+                src_odd = _mm_unpacklo_epi8(src_odd, zero);
+
+                src_even_2 = _mm_unpacklo_epi8(src_even_2, zero);
+                src_odd_2 = _mm_unpacklo_epi8(src_odd_2, zero);
+
+                __m128i src_lo = _mm_unpacklo_epi16(src_even, src_odd);
+                __m128i src_hi = _mm_unpackhi_epi16(src_even, src_odd);
+
+                __m128i src_lo_2 = _mm_unpacklo_epi16(src_even_2, src_odd);
+                __m128i src_hi_2 = _mm_unpackhi_epi16(src_even_2, src_odd);
+
+                result_single_lo = _mm_add_epi32(result_single_lo, _mm_madd_epi16(src_lo, coeff)); // a*b + c
+                result_single_hi = _mm_add_epi32(result_single_hi, _mm_madd_epi16(src_hi, coeff)); // a*b + c
+
+                result_single_lo_2 = _mm_add_epi32(result_single_lo_2, _mm_madd_epi16(src_lo_2, coeff)); // a*b + c
+                result_single_hi_2 = _mm_add_epi32(result_single_hi_2, _mm_madd_epi16(src_hi_2, coeff)); // a*b + c
+
+            }
+
+            // Process the last odd row if needed
+            if (notMod2) {
+                const int i = kernel_size_mod2;
+                // Load a single coefficients as a single packed value and broadcast
+                __m128i coeff = _mm_set1_epi16(*reinterpret_cast<const short*>(current_coeff + i)); // 0|co|0|co|0|co|0|co
+
+                __m128i src_even = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src2_ptr + i * src_pitch)); // 8x 8bit pixels
+
+                __m128i src_even_2 = _mm_loadl_epi64(reinterpret_cast<const __m128i*>(src2_ptr + 8 + i * src_pitch)); // 8x 8bit pixels
+
+                src_even = _mm_unpacklo_epi8(src_even, zero);
+
+                src_even_2 = _mm_unpacklo_epi8(src_even_2, zero);
+
+                __m128i src_lo = _mm_unpacklo_epi16(src_even, zero);
+                __m128i src_hi = _mm_unpackhi_epi16(src_even, zero);
+
+                __m128i src_lo_2 = _mm_unpacklo_epi16(src_even_2, zero);
+                __m128i src_hi_2 = _mm_unpackhi_epi16(src_even_2, zero);
+
+                result_single_lo = _mm_add_epi32(result_single_lo, _mm_madd_epi16(src_lo, coeff)); // a*b + c
+                result_single_hi = _mm_add_epi32(result_single_hi, _mm_madd_epi16(src_hi, coeff)); // a*b + c
+
+                result_single_lo_2 = _mm_add_epi32(result_single_lo_2, _mm_madd_epi16(src_lo_2, coeff)); // a*b + c
+                result_single_hi_2 = _mm_add_epi32(result_single_hi_2, _mm_madd_epi16(src_hi_2, coeff)); // a*b + c
+
+            }
+
+            // scale back, store
+            __m128i result_lo = result_single_lo;
+            __m128i result_hi = result_single_hi;
+
+            __m128i result_lo_2 = result_single_lo_2;
+            __m128i result_hi_2 = result_single_hi_2;
+
+            // shift back integer arithmetic 14 bits precision
+            result_lo = _mm_srai_epi32(result_lo, FPScale8bits);
+            result_hi = _mm_srai_epi32(result_hi, FPScale8bits);
+
+            result_lo_2 = _mm_srai_epi32(result_lo_2, FPScale8bits);
+            result_hi_2 = _mm_srai_epi32(result_hi_2, FPScale8bits);
+
+
+            // Note: SSE4.1 simulations for SSE2: _mm_packus_epi32
+            __m128i result_8x_uint16 = _MM_PACKUS_EPI32(result_lo, result_hi); // 8*32 => 8*16
+            __m128i result_8x_uint8 = _mm_packus_epi16(result_8x_uint16, result_8x_uint16); // 8*16 => 8*8
+
+            __m128i result_8x_uint16_2 = _MM_PACKUS_EPI32(result_lo_2, result_hi_2); // 8*32 => 8*16
+            __m128i result_8x_uint8_2 = _mm_packus_epi16(result_8x_uint16_2, result_8x_uint16_2); // 8*16 => 8*8
+
+            _mm_storel_epi64(reinterpret_cast<__m128i*>(dst + x), result_8x_uint8);
+
+            _mm_storel_epi64(reinterpret_cast<__m128i*>(dst + x + 8), result_8x_uint8_2);
+
+        }
+
+        dst += dst_pitch;
+        current_coeff += filter_size;
+    }
+}
+*/
 
 // like the AVX2 version, but only 8 pixels at a time
 template<bool lessthan16bit>
