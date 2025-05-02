@@ -1589,6 +1589,7 @@ ResamplerH FilteredResizeH::GetResampler(int CPU, int pixelsize, int bits_per_pi
     }
     if (CPU & CPUF_SSSE3) {
       return resizer_h_ssse3_generic_float;
+//		return resize_h_planar_float_sse_transpose;
     }
 #endif
     return resize_h_c_planar<float, 0>;
