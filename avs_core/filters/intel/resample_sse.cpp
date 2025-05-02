@@ -1018,3 +1018,62 @@ template void resizer_h_ssse3_generic_uint8_16<uint16_t, true>(BYTE* dst8, const
 template void resize_v_sse2_planar_uint16_t<false>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel);
 template void resize_v_sse2_planar_uint16_t<true>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel);
 
+// Transpose-based SIMD
+void resize_h_planar_float_sse_transpose(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel) {
+	int filter_size = program->filter_size;
+
+	const float* AVS_RESTRICT current_coeff;
+
+	src_pitch = src_pitch / sizeof(float);
+	dst_pitch = dst_pitch / sizeof(float);
+
+	float* src = (float*)src8;
+	float* dst = (float*)dst8;
+
+	const int kernel_size = program->filter_size_real;
+	const int ksmod4 = kernel_size / 4 * 4;
+	//	const int ksmod8 = kernel_size / 8 * 8;
+
+	for (int y = 0; y < height; y++) {
+		current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
+
+		float* AVS_RESTRICT dst2_ptr = dst + y * dst_pitch;
+		const float* src_ptr = src + y * src_pitch;
+
+		for (int x = 0; x < width; x+=4) {
+
+			__m128 result = _mm_setzero_ps();
+
+			for (int i = 0; i < ksmod4; i += 4) {
+				__m128 data_1 = _mm_loadu_ps(src_ptr + program->pixel_offset[x + i + 0]);
+				__m128 data_2 = _mm_loadu_ps(src_ptr + program->pixel_offset[x + i + 1]);
+				__m128 data_3 = _mm_loadu_ps(src_ptr + program->pixel_offset[x + i + 2]);
+				__m128 data_4 = _mm_loadu_ps(src_ptr + program->pixel_offset[x + i + 3]);
+
+				__m128 coeff_1 = _mm_load_ps(current_coeff + i + filter_size * 0); // is it correct for i > 0 ? may be filter_size * (0 + i) ?
+				__m128 coeff_2 = _mm_load_ps(current_coeff + i + filter_size * 1);
+				__m128 coeff_3 = _mm_load_ps(current_coeff + i + filter_size * 2);
+				__m128 coeff_4 = _mm_load_ps(current_coeff + i + filter_size * 3);
+
+				_MM_TRANSPOSE4_PS(data_1, data_2, data_3, data_4);
+				_MM_TRANSPOSE4_PS(coeff_1, coeff_2, coeff_3, coeff_4);
+
+				__m128 temp_result = _mm_mul_ps(data_1, coeff_1);
+				result = _mm_add_ps(temp_result, result);
+
+				temp_result = _mm_mul_ps(data_2, coeff_2);
+				result = _mm_add_ps(temp_result, result);
+
+				temp_result = _mm_mul_ps(data_3, coeff_3);
+				result = _mm_add_ps(temp_result, result);
+
+				temp_result = _mm_mul_ps(data_4, coeff_4);
+				result = _mm_add_ps(temp_result, result);
+			}
+
+			_mm_store_ps(dst2_ptr + x, result);
+			current_coeff += filter_size * 4;
+		}
+	}
+}
+
