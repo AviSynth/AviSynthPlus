@@ -1585,11 +1585,20 @@ ResamplerH FilteredResizeH::GetResampler(int CPU, int pixelsize, int bits_per_pi
   else { //if (pixelsize == 4)
 #ifdef INTEL_INTRINSICS
     if (CPU & CPUF_AVX2) {
-      return resizer_h_avx2_generic_float;
+//      return resizer_h_avx2_generic_float;
+        if(program->filter_size_real <=4)
+        { 
+            return resize_h_planar_float_avx_transpose_vstripe_ks4;
+        }
+        return resizer_h_avx2_generic_float;
     }
     if (CPU & CPUF_SSSE3) {
-      return resizer_h_ssse3_generic_float;
-//		return resize_h_planar_float_sse_transpose;
+//      return resizer_h_ssse3_generic_float;
+        if (program->filter_size_real <= 4)
+        {
+            return resize_h_planar_float_sse_transpose_vstripe_ks4;
+        }
+		return resizer_h_ssse3_generic_float;
     }
 #endif
     return resize_h_c_planar<float, 0>;
