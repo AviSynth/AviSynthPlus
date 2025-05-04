@@ -1015,8 +1015,8 @@ void resize_h_planar_float_avx_transpose(BYTE* dst8, const BYTE* src8, int dst_p
     const int kernel_size = program->filter_size_real;
     const int ksmod4 = kernel_size / 4 * 4;
 //    const int ksmod8 = kernel_size / 8 * 8;
-
 #if 0
+
     for (int y = 0; y < height; y ++) {
         current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
 
@@ -1039,7 +1039,6 @@ void resize_h_planar_float_avx_transpose(BYTE* dst8, const BYTE* src8, int dst_p
                 __m256 coef_3_coef_7 = _mm256_load_2_m128(current_coeff + i + filter_size * 2, current_coeff + i + filter_size * 6);
                 __m256 coef_4_coef_8 = _mm256_load_2_m128(current_coeff + i + filter_size * 3, current_coeff + i + filter_size * 7);
 
-
                 _MM_TRANSPOSE8_LANE4_PS(data_1_data_5, data_2_data_6, data_3_data_7, data_4_data_8);
                 _MM_TRANSPOSE8_LANE4_PS(coef_1_coef_5, coef_2_coef_6, coef_3_coef_7, coef_4_coef_8);
 
@@ -1054,7 +1053,6 @@ void resize_h_planar_float_avx_transpose(BYTE* dst8, const BYTE* src8, int dst_p
             current_coeff += filter_size * 8;
         }
     }
-
 #endif
 
     for (int y = 0; y < height; y+=2) {
@@ -1110,93 +1108,54 @@ void resize_h_planar_float_avx_transpose(BYTE* dst8, const BYTE* src8, int dst_p
         }
     }
 
-#if 0
-    for (int y = 0; y < height; y += 4) {
-        current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
+}
 
-        float* AVS_RESTRICT dst2_ptr = dst + y * dst_pitch;
-        float* AVS_RESTRICT dst2_ptr2 = dst + (y + 1) * dst_pitch;
-        float* AVS_RESTRICT dst2_ptr3 = dst + (y + 2) * dst_pitch;
-        float* AVS_RESTRICT dst2_ptr4 = dst + (y + 3) * dst_pitch;
-        const float* src_ptr = src + y * src_pitch;
-        const float* src_ptr2 = src + (y + 1) * src_pitch;
-        const float* src_ptr3 = src + (y + 2) * src_pitch;
-        const float* src_ptr4 = src + (y + 3) * src_pitch;
+// process kernel size from up to 4 - BilinearResize, BicubicResize or sinc up to taps=2
+void resize_h_planar_float_avx_transpose_vstripe_ks4(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel) {
+    int filter_size = program->filter_size;
 
-        for (int x = 0; x < width - 8; x += 8) {
+    const float* AVS_RESTRICT current_coeff;
 
-            __m256 result = _mm256_setzero_ps();
-            __m256 result2 = _mm256_setzero_ps();
-            __m256 result3 = _mm256_setzero_ps();
-            __m256 result4 = _mm256_setzero_ps();
+    src_pitch = src_pitch / sizeof(float);
+    dst_pitch = dst_pitch / sizeof(float);
 
-            for (int i = 0; i < ksmod4; i += 4) {
-                // to do with 2x 4x4 loads into 4x256 bit registers and using  _MM_TRANSPOSE8_LANE4_PS
+    float* src = (float*)src8;
+    float* dst = (float*)dst8;
 
-                __m256 data_1_data_5 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 0] + i, src_ptr + program->pixel_offset[x + 4] + i);
-                __m256 data_2_data_6 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 1] + i, src_ptr + program->pixel_offset[x + 5] + i);
-                __m256 data_3_data_7 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 2] + i, src_ptr + program->pixel_offset[x + 6] + i);
-                __m256 data_4_data_8 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 3] + i, src_ptr + program->pixel_offset[x + 7] + i);
+    current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
 
-                __m256 data_1_data_5_2 = _mm256_loadu_2_m128(src_ptr2 + program->pixel_offset[x + 0] + i, src_ptr2 + program->pixel_offset[x + 4] + i);
-                __m256 data_2_data_6_2 = _mm256_loadu_2_m128(src_ptr2 + program->pixel_offset[x + 1] + i, src_ptr2 + program->pixel_offset[x + 5] + i);
-                __m256 data_3_data_7_2 = _mm256_loadu_2_m128(src_ptr2 + program->pixel_offset[x + 2] + i, src_ptr2 + program->pixel_offset[x + 6] + i);
-                __m256 data_4_data_8_2 = _mm256_loadu_2_m128(src_ptr2 + program->pixel_offset[x + 3] + i, src_ptr2 + program->pixel_offset[x + 7] + i);
+    for (int x = 0; x < width; x += 8) 
+    {
+        __m256 coef_1_coef_5 = _mm256_load_2_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4);
+        __m256 coef_2_coef_6 = _mm256_load_2_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5);
+        __m256 coef_3_coef_7 = _mm256_load_2_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6);
+        __m256 coef_4_coef_8 = _mm256_load_2_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7);
+        
+        _MM_TRANSPOSE8_LANE4_PS(coef_1_coef_5, coef_2_coef_6, coef_3_coef_7, coef_4_coef_8);
 
-                __m256 data_1_data_5_3 = _mm256_loadu_2_m128(src_ptr3 + program->pixel_offset[x + 0] + i, src_ptr3 + program->pixel_offset[x + 4] + i);
-                __m256 data_2_data_6_3 = _mm256_loadu_2_m128(src_ptr3 + program->pixel_offset[x + 1] + i, src_ptr3 + program->pixel_offset[x + 5] + i);
-                __m256 data_3_data_7_3 = _mm256_loadu_2_m128(src_ptr3 + program->pixel_offset[x + 2] + i, src_ptr3 + program->pixel_offset[x + 6] + i);
-                __m256 data_4_data_8_3 = _mm256_loadu_2_m128(src_ptr3 + program->pixel_offset[x + 3] + i, src_ptr3 + program->pixel_offset[x + 7] + i);
+        float* AVS_RESTRICT dst_ptr = dst + x;
+        const float* src_ptr = src;
 
-                __m256 data_1_data_5_4 = _mm256_loadu_2_m128(src_ptr4 + program->pixel_offset[x + 0] + i, src_ptr4 + program->pixel_offset[x + 4] + i);
-                __m256 data_2_data_6_4 = _mm256_loadu_2_m128(src_ptr4 + program->pixel_offset[x + 1] + i, src_ptr4 + program->pixel_offset[x + 5] + i);
-                __m256 data_3_data_7_4 = _mm256_loadu_2_m128(src_ptr4 + program->pixel_offset[x + 2] + i, src_ptr4 + program->pixel_offset[x + 6] + i);
-                __m256 data_4_data_8_4 = _mm256_loadu_2_m128(src_ptr4 + program->pixel_offset[x + 3] + i, src_ptr4 + program->pixel_offset[x + 7] + i);
+        for (int y = 0; y < height; y++) 
+        {
+            __m256 data_1_data_5 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 0], src_ptr + program->pixel_offset[x + 4]);
+            __m256 data_2_data_6 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 1], src_ptr + program->pixel_offset[x + 5]);
+            __m256 data_3_data_7 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 2], src_ptr + program->pixel_offset[x + 6]);
+            __m256 data_4_data_8 = _mm256_loadu_2_m128(src_ptr + program->pixel_offset[x + 3], src_ptr + program->pixel_offset[x + 7]);
 
-                __m256 coef_1_coef_5 = _mm256_load_2_m128(current_coeff + i + filter_size * 0, current_coeff + i + filter_size * 4);
-                __m256 coef_2_coef_6 = _mm256_load_2_m128(current_coeff + i + filter_size * 1, current_coeff + i + filter_size * 5);
-                __m256 coef_3_coef_7 = _mm256_load_2_m128(current_coeff + i + filter_size * 2, current_coeff + i + filter_size * 6);
-                __m256 coef_4_coef_8 = _mm256_load_2_m128(current_coeff + i + filter_size * 3, current_coeff + i + filter_size * 7);
+            _MM_TRANSPOSE8_LANE4_PS(data_1_data_5, data_2_data_6, data_3_data_7, data_4_data_8);
 
+            __m256 result = _mm256_mul_ps(data_1_data_5, coef_1_coef_5);
+            result = _mm256_fmadd_ps(data_2_data_6, coef_2_coef_6, result);
+            result = _mm256_fmadd_ps(data_3_data_7, coef_3_coef_7, result);
+            result = _mm256_fmadd_ps(data_4_data_8, coef_4_coef_8, result);
 
-                _MM_TRANSPOSE8_LANE4_PS(data_1_data_5, data_2_data_6, data_3_data_7, data_4_data_8);
-                _MM_TRANSPOSE8_LANE4_PS(data_1_data_5_2, data_2_data_6_2, data_3_data_7_2, data_4_data_8_2);
-                _MM_TRANSPOSE8_LANE4_PS(data_1_data_5_3, data_2_data_6_3, data_3_data_7_3, data_4_data_8_3);
-                _MM_TRANSPOSE8_LANE4_PS(data_1_data_5_4, data_2_data_6_4, data_3_data_7_4, data_4_data_8_4);
+            _mm256_store_ps(dst_ptr, result);
 
-                _MM_TRANSPOSE8_LANE4_PS(coef_1_coef_5, coef_2_coef_6, coef_3_coef_7, coef_4_coef_8);
-
-                result = _mm256_fmadd_ps(data_1_data_5, coef_1_coef_5, result);
-                result = _mm256_fmadd_ps(data_2_data_6, coef_2_coef_6, result);
-                result = _mm256_fmadd_ps(data_3_data_7, coef_3_coef_7, result);
-                result = _mm256_fmadd_ps(data_4_data_8, coef_4_coef_8, result);
-
-                result2 = _mm256_fmadd_ps(data_1_data_5_2, coef_1_coef_5, result2);
-                result2 = _mm256_fmadd_ps(data_2_data_6_2, coef_2_coef_6, result2);
-                result2 = _mm256_fmadd_ps(data_3_data_7_2, coef_3_coef_7, result2);
-                result2 = _mm256_fmadd_ps(data_4_data_8_2, coef_4_coef_8, result2);
-
-                result3 = _mm256_fmadd_ps(data_1_data_5_3, coef_1_coef_5, result3);
-                result3 = _mm256_fmadd_ps(data_2_data_6_3, coef_2_coef_6, result3);
-                result3 = _mm256_fmadd_ps(data_3_data_7_3, coef_3_coef_7, result3);
-                result3 = _mm256_fmadd_ps(data_4_data_8_3, coef_4_coef_8, result3);
-
-                result4 = _mm256_fmadd_ps(data_1_data_5_4, coef_1_coef_5, result4);
-                result4 = _mm256_fmadd_ps(data_2_data_6_4, coef_2_coef_6, result4);
-                result4 = _mm256_fmadd_ps(data_3_data_7_4, coef_3_coef_7, result4);
-                result4 = _mm256_fmadd_ps(data_4_data_8_4, coef_4_coef_8, result4);
-
-            }
-
-            // need to process last non-mod4 kernel samples in scalar way. or can we do over-read up to 3 kernel and source samples safely with main 4-kernel_samples loop ?
-
-            _mm256_store_ps(dst2_ptr + x, result);
-            _mm256_store_ps(dst2_ptr2 + x, result2);
-            _mm256_store_ps(dst2_ptr3 + x, result3);
-            _mm256_store_ps(dst2_ptr4 + x, result4);
-
-            current_coeff += filter_size * 8;
+            dst_ptr += dst_pitch;
+            src_ptr += src_pitch;
         }
+        current_coeff += filter_size * 8;
     }
-#endif
+
 }
