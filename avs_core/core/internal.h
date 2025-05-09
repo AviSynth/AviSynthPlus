@@ -310,4 +310,22 @@ public:
    }
 };
 
+#ifdef XP_TLS
+#include <avs/win.h>
+struct _TLS {
+  DWORD dwTlsIndex;
+  _TLS() : dwTlsIndex(0) {
+    if ((dwTlsIndex = TlsAlloc()) == TLS_OUT_OF_INDEXES)
+      throw("TlsAlloc failed");
+    _RPT1(0, "TlsAlloc: dwTlsIndex=0x%x\n", dwTlsIndex);
+
+  }
+  ~_TLS() {
+    _RPT1(0, "TlsFree: dwTlsIndex=0x%x\n", dwTlsIndex);
+    TlsFree(dwTlsIndex);
+    dwTlsIndex = 0;
+  }
+};
+#endif
+
 #endif  // __Internal_H__
