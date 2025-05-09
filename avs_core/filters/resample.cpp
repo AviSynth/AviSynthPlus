@@ -36,6 +36,7 @@
 #ifdef INTEL_INTRINSICS
 #include "intel/resample_sse.h"
 #include "intel/resample_avx2.h"
+#include "intel/resample_avx512.h"
 #include "intel/turn_sse.h"
 #endif
 #include <avs/config.h>
@@ -1584,6 +1585,13 @@ ResamplerH FilteredResizeH::GetResampler(int CPU, int pixelsize, int bits_per_pi
   }
   else { //if (pixelsize == 4)
 #ifdef INTEL_INTRINSICS
+    if (CPU & CPUF_AVX512F) {
+      if (program->filter_size_real <= 4)
+      {
+        return resize_h_planar_float_avx512_transpose_vstripe_ks4;
+      }
+    }
+
     if (CPU & CPUF_AVX2) {
 //      return resizer_h_avx2_generic_float;
         if(program->filter_size_real <=4)
@@ -1798,6 +1806,9 @@ ResamplerV FilteredResizeV::GetResampler(int CPU, int pixelsize, int bits_per_pi
     else // pixelsize== 4
     {
 #ifdef INTEL_INTRINSICS
+      if (CPU & CPUF_AVX512F) {
+        return resize_v_avx512_planar_float;
+      }
       if (CPU & CPUF_AVX2) {
         return resize_v_avx2_planar_float;
       }
