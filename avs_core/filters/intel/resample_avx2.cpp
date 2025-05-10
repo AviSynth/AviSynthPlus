@@ -1244,7 +1244,6 @@ void resize_h_planar_float_avx2_permutex_vstripe_ks4(BYTE* dst8, const BYTE* src
 {
 
   // assert - check if max pixel_offset is not above single load of 8 src floats (or need several loads and more complex permute program)
-
 #ifdef _DEBUG
   for (int x = 0; x < width; x += 8)
   {
@@ -1315,7 +1314,6 @@ void resize_h_planar_float_avx2_permutex_vstripe_ks8(BYTE* dst8, const BYTE* src
 {
 
   // assert - check if max pixel_offset is not above single load of 8 src floats (or need several loads and more complex permute program)
-
 #ifdef _DEBUG
   for (int x = 0; x < width; x += 8)
   {
@@ -1368,12 +1366,6 @@ void resize_h_planar_float_avx2_permutex_vstripe_ks8(BYTE* dst8, const BYTE* src
     for (int y = 0; y < height; y++)
     {
       __m256 result;
-
-/*      __m256i perm_0 = perm_start;
-      __m256i perm_1 = _mm256_add_epi32(perm_0, one_epi32);
-      __m256i perm_2 = _mm256_add_epi32(perm_1, one_epi32);
-      __m256i perm_3 = _mm256_add_epi32(perm_2, one_epi32);
-      */
       __m256 data_src = _mm256_loadu_ps(src_ptr);
 
       __m256 data_0 = _mm256_permutevar8x32_ps(data_src, perm_0);
@@ -1392,11 +1384,6 @@ void resize_h_planar_float_avx2_permutex_vstripe_ks8(BYTE* dst8, const BYTE* src
       // next next 4 samples + 4 coefs
       data_src = _mm256_loadu_ps(src_ptr + 4);
 
-/*      perm_0 = _mm256_add_epi32(perm_0, one_epi32); // are we need to reload next +4 src ?
-      perm_1 = _mm256_add_epi32(perm_1, one_epi32);
-      perm_2 = _mm256_add_epi32(perm_2, one_epi32);
-      perm_3 = _mm256_add_epi32(perm_3, one_epi32);
-      */
       data_0 = _mm256_permutevar8x32_ps(data_src, perm_0);
       data_1 = _mm256_permutevar8x32_ps(data_src, perm_1);
       data_2 = _mm256_permutevar8x32_ps(data_src, perm_2);
