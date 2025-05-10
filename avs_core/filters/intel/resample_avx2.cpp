@@ -1159,3 +1159,263 @@ void resize_h_planar_float_avx_transpose_vstripe_ks4(BYTE* dst8, const BYTE* src
     }
 
 }
+
+void resize_h_planar_float_avx_gather_vstripe_ks8(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel)
+{
+    int filter_size = program->filter_size;
+
+    const float* AVS_RESTRICT current_coeff;
+
+    src_pitch = src_pitch / sizeof(float);
+    dst_pitch = dst_pitch / sizeof(float);
+
+    float* src = (float*)src8;
+    float* dst = (float*)dst8;
+
+    current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
+    __m256i one_epi32 = _mm256_set1_epi32(1);
+
+    for (int x = 0; x < width; x += 8)
+    {
+        __m256 coef_0 = _mm256_load_ps(current_coeff + filter_size * 0);
+        __m256 coef_1 = _mm256_load_ps(current_coeff + filter_size * 1);
+        __m256 coef_2 = _mm256_load_ps(current_coeff + filter_size * 2);
+        __m256 coef_3 = _mm256_load_ps(current_coeff + filter_size * 3);
+        __m256 coef_4 = _mm256_load_ps(current_coeff + filter_size * 4);
+        __m256 coef_5 = _mm256_load_ps(current_coeff + filter_size * 5);
+        __m256 coef_6 = _mm256_load_ps(current_coeff + filter_size * 6);
+        __m256 coef_7 = _mm256_load_ps(current_coeff + filter_size * 7);
+
+        _MM_TRANSPOSE8_PS(coef_0, coef_1, coef_2, coef_3, coef_4, coef_5, coef_6, coef_7);
+
+        float* AVS_RESTRICT dst_ptr = dst + x;
+        const float* src_ptr = src;
+
+        for (int y = 0; y < height; y++)
+        {
+//            __m256i offsets = _mm256_load_si256(program->pixel_offset + x); // hope it is always aligned ?
+            __m256i offsets = _mm256_set_epi32(program->pixel_offset[x + 7], program->pixel_offset[x + 6], program->pixel_offset[x + 5], program->pixel_offset[x + 4], program->pixel_offset[x + 3], program->pixel_offset[x + 2], program->pixel_offset[x + 1], program->pixel_offset[x + 0]);
+//            __m256i offsets = _mm256_set1_epi32(program->pixel_offset[x]); // test
+            __m256 data_0 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            offsets = _mm256_add_epi32(offsets, one_epi32);
+            __m256 data_1 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            offsets = _mm256_add_epi32(offsets, one_epi32);
+            __m256 data_2 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            offsets = _mm256_add_epi32(offsets, one_epi32);
+            __m256 data_3 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            offsets = _mm256_add_epi32(offsets, one_epi32);
+            __m256 data_4 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            offsets = _mm256_add_epi32(offsets, one_epi32);
+            __m256 data_5 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            offsets = _mm256_add_epi32(offsets, one_epi32);
+            __m256 data_6 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            offsets = _mm256_add_epi32(offsets, one_epi32);
+            __m256 data_7 = _mm256_i32gather_ps(src_ptr, offsets, 4);
+
+            __m256 result0 = _mm256_mul_ps(data_0, coef_0);
+            __m256 result1 = _mm256_mul_ps(data_4, coef_4);
+            
+            result0 = _mm256_fmadd_ps(data_1, coef_1, result0);
+            result1 = _mm256_fmadd_ps(data_5, coef_5, result1);
+
+            result0 = _mm256_fmadd_ps(data_2, coef_2, result0);
+            result1 = _mm256_fmadd_ps(data_6, coef_6, result1);
+
+            result0 = _mm256_fmadd_ps(data_3, coef_3, result0);
+            result1 = _mm256_fmadd_ps(data_7, coef_7, result1);
+
+            _mm256_store_ps(dst_ptr, _mm256_add_ps(result0, result1));
+
+            dst_ptr += dst_pitch;
+            src_ptr += src_pitch;
+        }
+        current_coeff += filter_size * 8;
+    }
+}
+
+void resize_h_planar_float_avx2_permutex_vstripe_ks4(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel)
+{
+
+  // assert - check if max pixel_offset is not above single load of 8 src floats (or need several loads and more complex permute program)
+
+#ifdef _DEBUG
+  for (int x = 0; x < width; x += 8)
+  {
+    int start_off = program->pixel_offset[x + 0];
+    int end_off = program->pixel_offset[x + 7];
+    assert((end_off - start_off) > 7);
+  }
+#endif
+
+  int filter_size = program->filter_size;
+
+  const float* AVS_RESTRICT current_coeff;
+  __m256i one_epi32 = _mm256_set1_epi32(1);
+
+  src_pitch = src_pitch / sizeof(float);
+  dst_pitch = dst_pitch / sizeof(float);
+
+  float* src = (float*)src8;
+  float* dst = (float*)dst8;
+
+  current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
+
+  for (int x = 0; x < width; x += 8)
+  {
+    // prepare coefs in transposed V-form
+    __m256 coef_0 = _mm256_load_2_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4);
+    __m256 coef_1 = _mm256_load_2_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5);
+    __m256 coef_2 = _mm256_load_2_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6);
+    __m256 coef_3 = _mm256_load_2_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7);
+
+    _MM_TRANSPOSE8_LANE4_PS(coef_0, coef_1, coef_2, coef_3);
+
+    // convert resampling program in H-form into permuting indexes for src transposition in V-form
+    int iStart = program->pixel_offset[x + 0];
+    __m256i perm_0 = _mm256_set_epi32(program->pixel_offset[x + 7] - iStart, program->pixel_offset[x + 6] - iStart, program->pixel_offset[x + 5] - iStart, program->pixel_offset[x + 4] - iStart, program->pixel_offset[x + 3] - iStart, program->pixel_offset[x + 2] - iStart, program->pixel_offset[x + 1] - iStart,  0);
+    __m256i perm_1 = _mm256_add_epi32(perm_0, one_epi32);
+    __m256i perm_2 = _mm256_add_epi32(perm_1, one_epi32);
+    __m256i perm_3 = _mm256_add_epi32(perm_2, one_epi32);
+
+    float* AVS_RESTRICT dst_ptr = dst + x;
+    const float* src_ptr = src + program->pixel_offset[x + 0]; // all permute offsets relative to this start offset
+
+    for (int y = 0; y < height; y++)
+    {
+      __m256 data_src = _mm256_loadu_ps(src_ptr);
+
+      __m256 data_0 = _mm256_permutevar8x32_ps(data_src, perm_0);
+      __m256 data_1 = _mm256_permutevar8x32_ps(data_src, perm_1);
+      __m256 data_2 = _mm256_permutevar8x32_ps(data_src, perm_2);
+      __m256 data_3 = _mm256_permutevar8x32_ps(data_src, perm_3);
+
+      __m256 result0 = _mm256_mul_ps(data_0, coef_0);
+      __m256 result1 = _mm256_mul_ps(data_2, coef_2);
+
+      result0 = _mm256_fmadd_ps(data_1, coef_1, result0);
+      result1 = _mm256_fmadd_ps(data_3, coef_3, result1);
+
+      _mm256_store_ps(dst_ptr, _mm256_add_ps(result0, result1));
+
+      dst_ptr += dst_pitch;
+      src_ptr += src_pitch;
+    }
+    current_coeff += filter_size * 8;
+  }
+}
+
+void resize_h_planar_float_avx2_permutex_vstripe_ks8(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel)
+{
+
+  // assert - check if max pixel_offset is not above single load of 8 src floats (or need several loads and more complex permute program)
+
+#ifdef _DEBUG
+  for (int x = 0; x < width; x += 8)
+  {
+    int start_off = program->pixel_offset[x + 0];
+    int end_off = program->pixel_offset[x + 7];
+    assert((end_off - start_off) > 7);
+  }
+#endif
+
+  int filter_size = program->filter_size; // must be 8
+  assert(filter_size != 8);
+
+  const float* AVS_RESTRICT current_coeff;
+  __m256i one_epi32 = _mm256_set1_epi32(1);
+
+  src_pitch = src_pitch / sizeof(float);
+  dst_pitch = dst_pitch / sizeof(float);
+
+  float* src = (float*)src8;
+  float* dst = (float*)dst8;
+
+  current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
+
+  for (int x = 0; x < width; x += 8)
+  {
+    // prepare coefs in transposed V-form
+    __m256 coef_0 = _mm256_load_2_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4);
+    __m256 coef_1 = _mm256_load_2_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5);
+    __m256 coef_2 = _mm256_load_2_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6);
+    __m256 coef_3 = _mm256_load_2_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7);
+
+    __m256 coef_4 = _mm256_load_2_m128(current_coeff + filter_size * 0 + 4, current_coeff + filter_size * 4 + 4);
+    __m256 coef_5 = _mm256_load_2_m128(current_coeff + filter_size * 1 + 4, current_coeff + filter_size * 5 + 4);
+    __m256 coef_6 = _mm256_load_2_m128(current_coeff + filter_size * 2 + 4, current_coeff + filter_size * 6 + 4);
+    __m256 coef_7 = _mm256_load_2_m128(current_coeff + filter_size * 3 + 4, current_coeff + filter_size * 7 + 4);
+
+    _MM_TRANSPOSE8_LANE4_PS(coef_0, coef_1, coef_2, coef_3);
+    _MM_TRANSPOSE8_LANE4_PS(coef_4, coef_5, coef_6, coef_7);
+
+    // convert resampling program in H-form into permuting indexes for src transposition in V-form
+    int iStart = program->pixel_offset[x + 0];
+    __m256i perm_0 = _mm256_set_epi32(program->pixel_offset[x + 7] - iStart, program->pixel_offset[x + 6] - iStart, program->pixel_offset[x + 5] - iStart, program->pixel_offset[x + 4] - iStart, program->pixel_offset[x + 3] - iStart, program->pixel_offset[x + 2] - iStart, program->pixel_offset[x + 1] - iStart, 0);
+    __m256i perm_1 = _mm256_add_epi32(perm_0, one_epi32);
+    __m256i perm_2 = _mm256_add_epi32(perm_1, one_epi32);
+    __m256i perm_3 = _mm256_add_epi32(perm_2, one_epi32);
+
+    float* AVS_RESTRICT dst_ptr = dst + x;
+    const float* src_ptr = src + program->pixel_offset[x + 0]; // all permute offsets relative to this start offset
+
+    for (int y = 0; y < height; y++)
+    {
+      __m256 result;
+
+/*      __m256i perm_0 = perm_start;
+      __m256i perm_1 = _mm256_add_epi32(perm_0, one_epi32);
+      __m256i perm_2 = _mm256_add_epi32(perm_1, one_epi32);
+      __m256i perm_3 = _mm256_add_epi32(perm_2, one_epi32);
+      */
+      __m256 data_src = _mm256_loadu_ps(src_ptr);
+
+      __m256 data_0 = _mm256_permutevar8x32_ps(data_src, perm_0);
+      __m256 data_1 = _mm256_permutevar8x32_ps(data_src, perm_1);
+      __m256 data_2 = _mm256_permutevar8x32_ps(data_src, perm_2);
+      __m256 data_3 = _mm256_permutevar8x32_ps(data_src, perm_3);
+
+      __m256 result0 = _mm256_mul_ps(data_0, coef_0);
+      __m256 result1 = _mm256_mul_ps(data_2, coef_2);
+
+      result0 = _mm256_fmadd_ps(data_1, coef_1, result0);
+      result1 = _mm256_fmadd_ps(data_3, coef_3, result1);
+
+      result = _mm256_add_ps(result0, result1);
+
+      // next next 4 samples + 4 coefs
+      data_src = _mm256_loadu_ps(src_ptr + 4);
+
+/*      perm_0 = _mm256_add_epi32(perm_0, one_epi32); // are we need to reload next +4 src ?
+      perm_1 = _mm256_add_epi32(perm_1, one_epi32);
+      perm_2 = _mm256_add_epi32(perm_2, one_epi32);
+      perm_3 = _mm256_add_epi32(perm_3, one_epi32);
+      */
+      data_0 = _mm256_permutevar8x32_ps(data_src, perm_0);
+      data_1 = _mm256_permutevar8x32_ps(data_src, perm_1);
+      data_2 = _mm256_permutevar8x32_ps(data_src, perm_2);
+      data_3 = _mm256_permutevar8x32_ps(data_src, perm_3);
+
+      result0 = _mm256_mul_ps(data_0, coef_4);
+      result1 = _mm256_mul_ps(data_2, coef_6);
+
+      result0 = _mm256_fmadd_ps(data_1, coef_5, result0);
+      result1 = _mm256_fmadd_ps(data_3, coef_7, result1);
+
+      result = _mm256_add_ps(result, result0);
+      result = _mm256_add_ps(result, result1);
+
+      _mm256_store_ps(dst_ptr, result);
+
+      dst_ptr += dst_pitch;
+      src_ptr += src_pitch;
+    }
+    current_coeff += filter_size * 8;
+  }
+}
