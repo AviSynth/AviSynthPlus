@@ -1586,26 +1586,38 @@ ResamplerH FilteredResizeH::GetResampler(int CPU, int pixelsize, int bits_per_pi
   else { //if (pixelsize == 4)
 #ifdef INTEL_INTRINSICS
     if (CPU & CPUF_AVX512F) {
+      if ((program->filter_size_real <= 16) && (program->filter_size_real > 8))
+      {
+        return resize_h_planar_float_avx512_permutex_vstripe_ks16;
+      }
+      if ((program->filter_size_real <= 8) && (program->filter_size_real > 4))
+      {
+        return resize_h_planar_float_avx512_permutex_vstripe_ks8;
+      }
       if (program->filter_size_real <= 4)
       {
-        return resize_h_planar_float_avx512_transpose_vstripe_ks4;
+
+        return resize_h_planar_float_avx512_permutex_vstripe_ks4;
       }
     }
 
     if (CPU & CPUF_AVX2) {
-//      return resizer_h_avx2_generic_float;
-        if(program->filter_size_real <=4)
-        { 
-            return resize_h_planar_float_avx_transpose_vstripe_ks4;
-        }
-        return resizer_h_avx2_generic_float;
+      if ((program->filter_size_real <= 8) && (program->filter_size_real > 4))
+      {
+        return resize_h_planar_float_avx2_permutex_vstripe_ks8;
+      }
+
+      if(program->filter_size_real <=4)
+      { 
+        return resize_h_planar_float_avx2_permutex_vstripe_ks4;
+      }
+      return resizer_h_avx2_generic_float;
     }
     if (CPU & CPUF_SSSE3) {
-//      return resizer_h_ssse3_generic_float;
-        if (program->filter_size_real <= 4)
-        {
-            return resize_h_planar_float_sse_transpose_vstripe_ks4;
-        }
+      if (program->filter_size_real <= 4)
+      {
+          return resize_h_planar_float_sse_transpose_vstripe_ks4;
+      }
 		return resizer_h_ssse3_generic_float;
     }
 #endif
