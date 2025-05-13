@@ -125,18 +125,18 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
   // assert - check if max pixel_offset is not above single load of 16 src floats (or need several loads and more complex permute program)
 
 #ifdef _DEBUG
-  for (int x = 0; x < width; x += 16)
+  for (int x = 0; x < width; x++) // check each pair ?
   {
     int start_off = program->pixel_offset[x + 0];
     int end_off = program->pixel_offset[x + 15];
-    assert((end_off - start_off) > 15);
+    assert((end_off - start_off) < 15);
   }
 #endif
 
   int filter_size = program->filter_size;
 
   const float* AVS_RESTRICT current_coeff;
-  __m512i one_epi32 = _mm512_set1_epi32(1);
+  __m512i one_epi32 = _mm512_set1_epi32(1); 
 
   src_pitch = src_pitch / sizeof(float);
   dst_pitch = dst_pitch / sizeof(float);
@@ -146,6 +146,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
 
   current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
 
+/* // 16 output samples in H-direction per vstripe
   for (int x = 0; x < width; x += 16)
   {
     // prepare coefs in transposed V-form
@@ -246,6 +247,369 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
 
     current_coeff += filter_size * 16;
   }
+*/ // 16 output samples per vstripe
+
+/*
+  // 32 output samples per vstripe
+  for (int x = 0; x < width; x += 32) // processing by 32 sample - it is safe at the end of row ?
+  {
+    // prepare coefs in transposed V-form
+    __m512 coef_r0 = _mm512_load_4_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4, current_coeff + filter_size * 8, current_coeff + filter_size * 12);
+    __m512 coef_r1 = _mm512_load_4_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5, current_coeff + filter_size * 9, current_coeff + filter_size * 13);
+    __m512 coef_r2 = _mm512_load_4_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6, current_coeff + filter_size * 10, current_coeff + filter_size * 14);
+    __m512 coef_r3 = _mm512_load_4_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7, current_coeff + filter_size * 11, current_coeff + filter_size * 15);
+
+    // prepare coefs in transposed V-form
+    __m512 coef_r0_2 = _mm512_load_4_m128(current_coeff + filter_size * 16, current_coeff + filter_size * 20, current_coeff + filter_size * 24, current_coeff + filter_size * 28);
+    __m512 coef_r1_2 = _mm512_load_4_m128(current_coeff + filter_size * 17, current_coeff + filter_size * 21, current_coeff + filter_size * 25, current_coeff + filter_size * 29);
+    __m512 coef_r2_2 = _mm512_load_4_m128(current_coeff + filter_size * 18, current_coeff + filter_size * 22, current_coeff + filter_size * 26, current_coeff + filter_size * 30);
+    __m512 coef_r3_2 = _mm512_load_4_m128(current_coeff + filter_size * 19, current_coeff + filter_size * 23, current_coeff + filter_size * 27, current_coeff + filter_size * 31);
+
+    _MM_TRANSPOSE16_LANE4_PS(coef_r0, coef_r1, coef_r2, coef_r3);
+    _MM_TRANSPOSE16_LANE4_PS(coef_r0_2, coef_r1_2, coef_r2_2, coef_r3_2);
+
+    // convert resampling program in H-form into permuting indexes for src transposition in V-form
+    int iStart = program->pixel_offset[x + 0];
+    __m512i perm_0 = _mm512_set_epi32(program->pixel_offset[x + 15] - iStart, program->pixel_offset[x + 14] - iStart, program->pixel_offset[x + 13] - iStart, program->pixel_offset[x + 12] - iStart, program->pixel_offset[x + 11] - iStart, program->pixel_offset[x + 10] - iStart, program->pixel_offset[x + 9] - iStart, program->pixel_offset[x + 8] - iStart, \
+      program->pixel_offset[x + 7] - iStart, program->pixel_offset[x + 6] - iStart, program->pixel_offset[x + 5] - iStart, program->pixel_offset[x + 4] - iStart, program->pixel_offset[x + 3] - iStart, program->pixel_offset[x + 2] - iStart, program->pixel_offset[x + 1] - iStart, 0);
+    __m512i perm_1 = _mm512_add_epi32(perm_0, one_epi32);
+    __m512i perm_2 = _mm512_add_epi32(perm_1, one_epi32);
+    __m512i perm_3 = _mm512_add_epi32(perm_2, one_epi32);
+
+    int iStart_2 = program->pixel_offset[x + 16];
+    __m512i perm_0_2 = _mm512_set_epi32(program->pixel_offset[x + 31] - iStart_2, program->pixel_offset[x + 30] - iStart_2, program->pixel_offset[x + 29] - iStart_2, program->pixel_offset[x + 28] - iStart_2, program->pixel_offset[x + 27] - iStart_2, program->pixel_offset[x + 26] - iStart_2, program->pixel_offset[x + 25] - iStart_2, program->pixel_offset[x + 24] - iStart_2, \
+      program->pixel_offset[x + 23] - iStart_2, program->pixel_offset[x + 22] - iStart_2, program->pixel_offset[x + 21] - iStart_2, program->pixel_offset[x + 20] - iStart_2, program->pixel_offset[x + 19] - iStart_2, program->pixel_offset[x + 18] - iStart_2, program->pixel_offset[x + 17] - iStart_2, program->pixel_offset[x + 16] - iStart_2);
+    __m512i perm_1_2 = _mm512_add_epi32(perm_0, one_epi32);
+    __m512i perm_2_2 = _mm512_add_epi32(perm_1, one_epi32);
+    __m512i perm_3_2 = _mm512_add_epi32(perm_2, one_epi32);
+
+    float* AVS_RESTRICT dst_ptr = dst + x;
+    float* AVS_RESTRICT dst_ptr_2 = dst + x + 16;
+    const float* src_ptr = src + program->pixel_offset[x + 0]; // all permute offsets relative to this start offset
+    const float* src_ptr_2 = src + program->pixel_offset[x + 16]; // all permute offsets relative to this start offset
+#if 0
+    for (int y = 0; y < height; y++) // single row proc, 32 output samples
+    {
+      __m512 data_src = _mm512_loadu_ps(src_ptr);
+      __m512 data_src_2 = _mm512_loadu_ps(src_ptr_2);
+
+      __m512 data_0 = _mm512_permutexvar_ps(perm_0, data_src);
+      __m512 data_1 = _mm512_permutexvar_ps(perm_1, data_src);
+      __m512 data_2 = _mm512_permutexvar_ps(perm_2, data_src);
+      __m512 data_3 = _mm512_permutexvar_ps(perm_3, data_src);
+
+      __m512 data_0_2 = _mm512_permutexvar_ps(perm_0_2, data_src_2);
+      __m512 data_1_2 = _mm512_permutexvar_ps(perm_1_2, data_src_2);
+      __m512 data_2_2 = _mm512_permutexvar_ps(perm_2_2, data_src_2);
+      __m512 data_3_2 = _mm512_permutexvar_ps(perm_3_2, data_src_2);
+
+      __m512 result0 = _mm512_mul_ps(data_0, coef_r0);
+      __m512 result1 = _mm512_mul_ps(data_2, coef_r2);
+
+      __m512 result0_2 = _mm512_mul_ps(data_0_2, coef_r0_2);
+      __m512 result1_2 = _mm512_mul_ps(data_2_2, coef_r2_2);
+
+      result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
+      result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
+
+      result0_2 = _mm512_fmadd_ps(data_1_2, coef_r1_2, result0_2);
+      result1_2 = _mm512_fmadd_ps(data_3_2, coef_r3_2, result1_2);
+
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_store_ps(dst_ptr_2, _mm512_add_ps(result0_2, result1_2));
+
+      dst_ptr += dst_pitch;
+      src_ptr += src_pitch;
+
+      dst_ptr_2 += dst_pitch;
+      src_ptr_2 += src_pitch;
+
+    }
+#endif // single row
+    //dual rows and 32 per vstripe
+    const int height_mod2 = (height / 2) * 2; // Process pairs of rows for better efficiency
+    // dual-rows not worst in performance - may be left for the future better memory performance and compute performance hosts
+    for (int y = 0; y < height_mod2; y += 2)
+    {
+      __m512 data_src = _mm512_loadu_ps(src_ptr);
+      __m512 data_src_2 = _mm512_loadu_ps(src_ptr_2);
+
+      __m512 data_src_2r = _mm512_loadu_ps(src_ptr + src_pitch);
+      __m512 data_src_2_2r = _mm512_loadu_ps(src_ptr_2 + src_pitch);
+
+      __m512 data_0 = _mm512_permutexvar_ps(perm_0, data_src);
+      __m512 data_1 = _mm512_permutexvar_ps(perm_1, data_src);
+      __m512 data_2 = _mm512_permutexvar_ps(perm_2, data_src);
+      __m512 data_3 = _mm512_permutexvar_ps(perm_3, data_src);
+
+      __m512 data_0_2 = _mm512_permutexvar_ps(perm_0_2, data_src_2);
+      __m512 data_1_2 = _mm512_permutexvar_ps(perm_1_2, data_src_2);
+      __m512 data_2_2 = _mm512_permutexvar_ps(perm_2_2, data_src_2);
+      __m512 data_3_2 = _mm512_permutexvar_ps(perm_3_2, data_src_2);
+
+      __m512 data_0_2r = _mm512_permutexvar_ps(perm_0, data_src_2r);
+      __m512 data_1_2r = _mm512_permutexvar_ps(perm_1, data_src_2r);
+      __m512 data_2_2r = _mm512_permutexvar_ps(perm_2, data_src_2r);
+      __m512 data_3_2r = _mm512_permutexvar_ps(perm_3, data_src_2r);
+
+      __m512 data_0_2_2r = _mm512_permutexvar_ps(perm_0_2, data_src_2_2r);
+      __m512 data_1_2_2r = _mm512_permutexvar_ps(perm_1_2, data_src_2_2r);
+      __m512 data_2_2_2r = _mm512_permutexvar_ps(perm_2_2, data_src_2_2r);
+      __m512 data_3_2_2r = _mm512_permutexvar_ps(perm_3_2, data_src_2_2r);
+
+      // 1r
+      __m512 result0 = _mm512_mul_ps(data_0, coef_r0);
+      __m512 result1 = _mm512_mul_ps(data_2, coef_r2);
+
+      __m512 result0_2 = _mm512_mul_ps(data_0_2, coef_r0_2);
+      __m512 result1_2 = _mm512_mul_ps(data_2_2, coef_r2_2);
+
+      result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
+      result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
+
+      result0_2 = _mm512_fmadd_ps(data_1_2, coef_r1_2, result0_2);
+      result1_2 = _mm512_fmadd_ps(data_3_2, coef_r3_2, result1_2);
+
+      // 2r
+      __m512 result0_2r = _mm512_mul_ps(data_0_2r, coef_r0);
+      __m512 result1_2r = _mm512_mul_ps(data_2_2r, coef_r2);
+
+      __m512 result0_2_2r = _mm512_mul_ps(data_0_2_2r, coef_r0_2);
+      __m512 result1_2_2r = _mm512_mul_ps(data_2_2_2r, coef_r2_2);
+
+      result0_2r = _mm512_fmadd_ps(data_1_2r, coef_r1, result0_2r);
+      result1_2r = _mm512_fmadd_ps(data_3_2r, coef_r3, result1_2r);
+
+      result0_2_2r = _mm512_fmadd_ps(data_1_2_2r, coef_r1_2, result0_2_2r);
+      result1_2_2r = _mm512_fmadd_ps(data_3_2_2r, coef_r3_2, result1_2_2r);
+
+
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_store_ps(dst_ptr_2, _mm512_add_ps(result0_2, result1_2));
+
+      _mm512_store_ps(dst_ptr + dst_pitch, _mm512_add_ps(result0_2r, result1_2r));
+      _mm512_store_ps(dst_ptr_2 + dst_pitch, _mm512_add_ps(result0_2_2r, result1_2_2r));
+
+
+      dst_ptr += dst_pitch * 2;
+      src_ptr += src_pitch * 2;
+
+      dst_ptr_2 += dst_pitch * 2;
+      src_ptr_2 += src_pitch * 2;
+
+    }
+*/
+
+
+// some slower than 32 per vstripe with small cacheabe frame sizes and best performance with large frame size and many threads (most SDRAM controller friendly ?)
+
+  for (int x = 0; x < width; x += 64) // processing by 64 output sample - it is safe at the end of row ?
+  {
+    // prepare coefs in transposed V-form
+    __m512 coef_r0 = _mm512_load_4_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4, current_coeff + filter_size * 8, current_coeff + filter_size * 12);
+    __m512 coef_r1 = _mm512_load_4_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5, current_coeff + filter_size * 9, current_coeff + filter_size * 13);
+    __m512 coef_r2 = _mm512_load_4_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6, current_coeff + filter_size * 10, current_coeff + filter_size * 14);
+    __m512 coef_r3 = _mm512_load_4_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7, current_coeff + filter_size * 11, current_coeff + filter_size * 15);
+
+    // prepare coefs in transposed V-form
+    __m512 coef_r0_2 = _mm512_load_4_m128(current_coeff + filter_size * 16, current_coeff + filter_size * 20, current_coeff + filter_size * 24, current_coeff + filter_size * 28);
+    __m512 coef_r1_2 = _mm512_load_4_m128(current_coeff + filter_size * 17, current_coeff + filter_size * 21, current_coeff + filter_size * 25, current_coeff + filter_size * 29);
+    __m512 coef_r2_2 = _mm512_load_4_m128(current_coeff + filter_size * 18, current_coeff + filter_size * 22, current_coeff + filter_size * 26, current_coeff + filter_size * 30);
+    __m512 coef_r3_2 = _mm512_load_4_m128(current_coeff + filter_size * 19, current_coeff + filter_size * 23, current_coeff + filter_size * 27, current_coeff + filter_size * 31);
+
+    // prepare coefs in transposed V-form
+    __m512 coef_r0_3 = _mm512_load_4_m128(current_coeff + filter_size * 32, current_coeff + filter_size * 36, current_coeff + filter_size * 40, current_coeff + filter_size * 44);
+    __m512 coef_r1_3 = _mm512_load_4_m128(current_coeff + filter_size * 33, current_coeff + filter_size * 37, current_coeff + filter_size * 41, current_coeff + filter_size * 45);
+    __m512 coef_r2_3 = _mm512_load_4_m128(current_coeff + filter_size * 34, current_coeff + filter_size * 38, current_coeff + filter_size * 42, current_coeff + filter_size * 46);
+    __m512 coef_r3_3 = _mm512_load_4_m128(current_coeff + filter_size * 35, current_coeff + filter_size * 39, current_coeff + filter_size * 43, current_coeff + filter_size * 47);
+
+    // prepare coefs in transposed V-form
+    __m512 coef_r0_4 = _mm512_load_4_m128(current_coeff + filter_size * 48, current_coeff + filter_size * 52, current_coeff + filter_size * 56, current_coeff + filter_size * 60);
+    __m512 coef_r1_4 = _mm512_load_4_m128(current_coeff + filter_size * 49, current_coeff + filter_size * 53, current_coeff + filter_size * 57, current_coeff + filter_size * 61);
+    __m512 coef_r2_4 = _mm512_load_4_m128(current_coeff + filter_size * 50, current_coeff + filter_size * 54, current_coeff + filter_size * 58, current_coeff + filter_size * 62);
+    __m512 coef_r3_4 = _mm512_load_4_m128(current_coeff + filter_size * 51, current_coeff + filter_size * 55, current_coeff + filter_size * 59, current_coeff + filter_size * 63);
+
+    _MM_TRANSPOSE16_LANE4_PS(coef_r0, coef_r1, coef_r2, coef_r3);
+    _MM_TRANSPOSE16_LANE4_PS(coef_r0_2, coef_r1_2, coef_r2_2, coef_r3_2);
+    _MM_TRANSPOSE16_LANE4_PS(coef_r0_3, coef_r1_3, coef_r2_3, coef_r3_3);
+    _MM_TRANSPOSE16_LANE4_PS(coef_r0_4, coef_r1_4, coef_r2_4, coef_r3_4);
+
+    // convert resampling program in H-form into permuting indexes for src transposition in V-form
+    int iStart = program->pixel_offset[x + 0];
+    __m512i perm_0 = _mm512_set_epi32(program->pixel_offset[x + 15] - iStart, program->pixel_offset[x + 14] - iStart, program->pixel_offset[x + 13] - iStart, program->pixel_offset[x + 12] - iStart, program->pixel_offset[x + 11] - iStart, program->pixel_offset[x + 10] - iStart, program->pixel_offset[x + 9] - iStart, program->pixel_offset[x + 8] - iStart, \
+      program->pixel_offset[x + 7] - iStart, program->pixel_offset[x + 6] - iStart, program->pixel_offset[x + 5] - iStart, program->pixel_offset[x + 4] - iStart, program->pixel_offset[x + 3] - iStart, program->pixel_offset[x + 2] - iStart, program->pixel_offset[x + 1] - iStart, 0);
+
+    int iStart_2 = program->pixel_offset[x + 16];
+    __m512i perm_0_2 = _mm512_set_epi32(program->pixel_offset[x + 31] - iStart_2, program->pixel_offset[x + 30] - iStart_2, program->pixel_offset[x + 29] - iStart_2, program->pixel_offset[x + 28] - iStart_2, program->pixel_offset[x + 27] - iStart_2, program->pixel_offset[x + 26] - iStart_2, program->pixel_offset[x + 25] - iStart_2, program->pixel_offset[x + 24] - iStart_2, \
+      program->pixel_offset[x + 23] - iStart_2, program->pixel_offset[x + 22] - iStart_2, program->pixel_offset[x + 21] - iStart_2, program->pixel_offset[x + 20] - iStart_2, program->pixel_offset[x + 19] - iStart_2, program->pixel_offset[x + 18] - iStart_2, program->pixel_offset[x + 17] - iStart_2, program->pixel_offset[x + 16] - iStart_2);
+
+    int iStart_3 = program->pixel_offset[x + 32];
+    __m512i perm_0_3 = _mm512_set_epi32(program->pixel_offset[x + 47] - iStart_3, program->pixel_offset[x + 46] - iStart_3, program->pixel_offset[x + 45] - iStart_3, program->pixel_offset[x + 44] - iStart_3, program->pixel_offset[x + 43] - iStart_3, program->pixel_offset[x + 42] - iStart_3, program->pixel_offset[x + 41] - iStart_3, program->pixel_offset[x + 40] - iStart_3, \
+      program->pixel_offset[x + 39] - iStart_3, program->pixel_offset[x + 38] - iStart_3, program->pixel_offset[x + 37] - iStart_3, program->pixel_offset[x + 36] - iStart_3, program->pixel_offset[x + 35] - iStart_3, program->pixel_offset[x + 34] - iStart_3, program->pixel_offset[x + 33] - iStart_3, program->pixel_offset[x + 32] - iStart_3);
+
+    int iStart_4 = program->pixel_offset[x + 48];
+    __m512i perm_0_4 = _mm512_set_epi32(program->pixel_offset[x + 63] - iStart_4, program->pixel_offset[x + 62] - iStart_4, program->pixel_offset[x + 61] - iStart_4, program->pixel_offset[x + 60] - iStart_4, program->pixel_offset[x + 59] - iStart_4, program->pixel_offset[x + 58] - iStart_4, program->pixel_offset[x + 57] - iStart_4, program->pixel_offset[x + 56] - iStart_4, \
+      program->pixel_offset[x + 55] - iStart_4, program->pixel_offset[x + 54] - iStart_4, program->pixel_offset[x + 53] - iStart_4, program->pixel_offset[x + 52] - iStart_4, program->pixel_offset[x + 51] - iStart_4, program->pixel_offset[x + 50] - iStart_4, program->pixel_offset[x + 49] - iStart_4, program->pixel_offset[x + 48] - iStart_4);
+
+
+    float* AVS_RESTRICT dst_ptr = dst + x;
+    const float* src_ptr = src + program->pixel_offset[x + 0]; // all permute offsets relative to this start offset
+    const float* src_ptr_2 = src + program->pixel_offset[x + 16]; // all permute offsets relative to this start offset
+    const float* src_ptr_3 = src + program->pixel_offset[x + 32]; // all permute offsets relative to this start offset
+    const float* src_ptr_4 = src + program->pixel_offset[x + 48]; // all permute offsets relative to this start offset
+
+    for (int y = 0; y < height; y++) // single row proc, 32 output samples
+    {
+      __m512 data_src = _mm512_loadu_ps(src_ptr);
+      __m512 data_src_2 = _mm512_loadu_ps(src_ptr_2);
+      __m512 data_src_3 = _mm512_loadu_ps(src_ptr_3);
+      __m512 data_src_4 = _mm512_loadu_ps(src_ptr_4);
+
+      // 1st
+      __m512 data_0 = _mm512_permutexvar_ps(perm_0, data_src);
+
+      __m512i perm_next = _mm512_add_epi32(perm_0, one_epi32);
+      __m512 data_1 = _mm512_permutexvar_ps(perm_next, data_src);
+
+      perm_next = _mm512_add_epi32(perm_next, one_epi32);
+      __m512 data_2 = _mm512_permutexvar_ps(perm_next, data_src);
+
+      perm_next = _mm512_add_epi32(perm_next, one_epi32);
+      __m512 data_3 = _mm512_permutexvar_ps(perm_next, data_src);
+
+      // 2nd
+      __m512 data_0_2 = _mm512_permutexvar_ps(perm_0_2, data_src_2);
+
+      __m512i perm_next_2 = _mm512_add_epi32(perm_0_2, one_epi32);
+      __m512 data_1_2 = _mm512_permutexvar_ps(perm_next_2, data_src_2);
+
+      perm_next_2 = _mm512_add_epi32(perm_0_2, one_epi32);
+      __m512 data_2_2 = _mm512_permutexvar_ps(perm_next_2, data_src_2);
+
+      perm_next_2 = _mm512_add_epi32(perm_next_2, one_epi32);
+      __m512 data_3_2 = _mm512_permutexvar_ps(perm_next_2, data_src_2);
+
+      // 3rd
+      __m512 data_0_3 = _mm512_permutexvar_ps(perm_0_3, data_src_3);
+
+      __m512i perm_next_3 = _mm512_add_epi32(perm_0_3, one_epi32);
+      __m512 data_1_3 = _mm512_permutexvar_ps(perm_next_3, data_src_3);
+
+      perm_next_3 = _mm512_add_epi32(perm_0_3, one_epi32);
+      __m512 data_2_3 = _mm512_permutexvar_ps(perm_next_3, data_src_3);
+
+      perm_next_3 = _mm512_add_epi32(perm_next_3, one_epi32);
+      __m512 data_3_3 = _mm512_permutexvar_ps(perm_next_3, data_src_3);
+
+      // 4th
+      __m512 data_0_4 = _mm512_permutexvar_ps(perm_0_4, data_src_4);
+
+      __m512i perm_next_4 = _mm512_add_epi32(perm_0_4, one_epi32);
+      __m512 data_1_4 = _mm512_permutexvar_ps(perm_next_4, data_src_4);
+
+      perm_next_4 = _mm512_add_epi32(perm_0_4, one_epi32);
+      __m512 data_2_4 = _mm512_permutexvar_ps(perm_next_4, data_src_4);
+
+      perm_next_4 = _mm512_add_epi32(perm_next_4, one_epi32);
+      __m512 data_3_4 = _mm512_permutexvar_ps(perm_next_4, data_src_3);
+
+
+      __m512 result0 = _mm512_mul_ps(data_0, coef_r0);
+      __m512 result1 = _mm512_mul_ps(data_2, coef_r2);
+
+      __m512 result0_2 = _mm512_mul_ps(data_0_2, coef_r0_2);
+      __m512 result1_2 = _mm512_mul_ps(data_2_2, coef_r2_2);
+
+      __m512 result0_3 = _mm512_mul_ps(data_0_3, coef_r0_3);
+      __m512 result1_3 = _mm512_mul_ps(data_2_3, coef_r2_3);
+
+      __m512 result0_4 = _mm512_mul_ps(data_0_4, coef_r0_4);
+      __m512 result1_4 = _mm512_mul_ps(data_2_4, coef_r2_4);
+
+      result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
+      result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
+
+      result0_2 = _mm512_fmadd_ps(data_1_2, coef_r1_2, result0_2);
+      result1_2 = _mm512_fmadd_ps(data_3_2, coef_r3_2, result1_2);
+
+      result0_3 = _mm512_fmadd_ps(data_1_3, coef_r1_3, result0_3);
+      result1_3 = _mm512_fmadd_ps(data_3_3, coef_r3_3, result1_3);
+
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_store_ps(dst_ptr + 16, _mm512_add_ps(result0_2, result1_2));
+      _mm512_store_ps(dst_ptr + 32, _mm512_add_ps(result0_3, result1_3));
+      _mm512_store_ps(dst_ptr + 48, _mm512_add_ps(result0_4, result1_4));
+
+      dst_ptr += dst_pitch;
+
+      src_ptr += src_pitch;
+      src_ptr_2 += src_pitch;
+      src_ptr_3 += src_pitch;
+      src_ptr_4 += src_pitch;
+
+    }
+
+
+/*
+    const int height_mod2 = (height / 2) * 2; // Process pairs of rows for better efficiency
+    // dual-rows not worst in performance - may be left for the future better memory performance and compute performance hosts
+    for (int y = 0; y < height_mod2; y += 2)
+    {
+      __m512 data_src = _mm512_loadu_ps(src_ptr);
+      __m512 data_src_2 = _mm512_loadu_ps(src_ptr + src_pitch);
+
+      __m512 data_0 = _mm512_permutexvar_ps(perm_0, data_src);
+      __m512 data_1 = _mm512_permutexvar_ps(perm_1, data_src);
+      __m512 data_2 = _mm512_permutexvar_ps(perm_2, data_src);
+      __m512 data_3 = _mm512_permutexvar_ps(perm_3, data_src);
+
+      __m512 data_0_2 = _mm512_permutexvar_ps(perm_0, data_src_2);
+      __m512 data_1_2 = _mm512_permutexvar_ps(perm_1, data_src_2);
+      __m512 data_2_2 = _mm512_permutexvar_ps(perm_2, data_src_2);
+      __m512 data_3_2 = _mm512_permutexvar_ps(perm_3, data_src_2);
+
+      __m512 result0 = _mm512_mul_ps(data_0, coef_r0);
+      __m512 result1 = _mm512_mul_ps(data_0_2, coef_r0);
+
+      result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
+      result1 = _mm512_fmadd_ps(data_1_2, coef_r1, result1);
+
+      result0 = _mm512_fmadd_ps(data_2, coef_r2, result0);
+      result1 = _mm512_fmadd_ps(data_2_2, coef_r2, result1);
+
+      result0 = _mm512_fmadd_ps(data_3, coef_r3, result0);
+      result1 = _mm512_fmadd_ps(data_3_2, coef_r3, result1);
+
+      _mm512_store_ps(dst_ptr, result0);
+      _mm512_store_ps(dst_ptr + dst_pitch, result1);
+
+      dst_ptr += dst_pitch * 2;
+      src_ptr += src_pitch * 2;
+    }
+
+    if (height > height_mod2) // last row
+    {
+      __m512 data_src = _mm512_loadu_ps(src_ptr);
+
+      __m512 data_0 = _mm512_permutexvar_ps(perm_0, data_src);
+      __m512 data_1 = _mm512_permutexvar_ps(perm_1, data_src);
+      __m512 data_2 = _mm512_permutexvar_ps(perm_2, data_src);
+      __m512 data_3 = _mm512_permutexvar_ps(perm_3, data_src);
+
+      __m512 result0 = _mm512_mul_ps(data_0, coef_r0);
+      __m512 result1 = _mm512_mul_ps(data_2, coef_r2);
+
+      result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
+      result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
+
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+    }
+*/ // dual rows
+
+    current_coeff += filter_size * 64;
+  }
+
+
 }
 
 void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel)
@@ -264,7 +628,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
   int filter_size = program->filter_size;
 
   const float* AVS_RESTRICT current_coeff;
-  __m512i one_epi32 = _mm512_set1_epi32(1);
+  __m512i one_epi32 = _mm512_set1_epi32(1); 
 
   src_pitch = src_pitch / sizeof(float);
   dst_pitch = dst_pitch / sizeof(float);
@@ -455,7 +819,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks16(BYTE* dst8, const BYTE* 
   int filter_size = program->filter_size;
 
   const float* AVS_RESTRICT current_coeff;
-  __m512i one_epi32 = _mm512_set1_epi32(1);
+  __m512i one_epi32 = _mm512_set1_epi32(1); 
 
   src_pitch = src_pitch / sizeof(float);
   dst_pitch = dst_pitch / sizeof(float);
