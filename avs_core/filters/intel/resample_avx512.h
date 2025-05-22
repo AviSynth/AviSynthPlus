@@ -38,26 +38,70 @@
 #include <avisynth.h>
 #include "../resample_functions.h"
 
-void resize_h_planar_float_avx512_transpose_vstripe_ks4(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
-void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
-void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
-void resize_h_planar_float_avx512_permutex_vstripe_ks16(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+#include <immintrin.h> // includes AVX, AVX2, FMA3, AVX512F, AVX512BW, etc. for MSVC, Clang, and GCC
 
-void resize_v_avx512_planar_float(BYTE* dst0, const BYTE* src0, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel);
+// compiler feature checks and error handling
+#if defined(__clang__) && !defined(_MSC_VER)
+#if !defined(__AVX512F__) || !defined(__AVX512BW__)
+#error "This code requires a compiler that supports AVX-512F and AVX-512BW.  Use compiler flags -mavx512f -mavx512bw."
+#endif
+#elif defined(__GNUC__)
+#if !defined(__AVX512F__) || !defined(__AVX512BW__)
+#error "This code requires a compiler that supports AVX-512F and AVX-512BW.  Use compiler flags -mavx512f -mavx512bw."
+#endif
+#elif defined(_MSC_VER)
+  #if !defined(_M_X64) && !defined(_M_AMD64) && !defined(_M_ARM64)
+  #error "AVX-512 is only supported on x64 and ARM64 architectures."
+  #endif
+  // MSVC's <immintrin.h> provides AVX-512 support when /arch:AVX512 is used.
+  // However, MSVC may not define __AVX512F__ or __AVX512BW__ consistently.
+  // We rely on /arch:AVX512 having been set, and assume that if the user is
+  // including this header, they intend to use AVX-512.
+#else
+  #error "Unsupported compiler. This code requires a compiler that supports AVX-512F and AVX-512BW (GCC, Clang, or MSVC)."
+#endif
 
+#if !defined(__FMA__)
+// Assume that all processors that have AVX2/AVX512 also have FMA3
+#if defined (__GNUC__) && ! defined (__INTEL_COMPILER) && ! defined (__clang__)
+// Prevent error message in g++ when using FMA intrinsics with avx2:
+#pragma message "It is recommended to specify also option -mfma when using -mavx2 or higher"
+#else
+#define __FMA__  1
+#endif
+#endif
+// FMA3 instruction set
+#if defined (__FMA__) && (defined(__GNUC__) || defined(__clang__))  && ! defined (__INTEL_COMPILER)
+#include <fmaintrin.h>
+#endif // __FMA__
+
+// MSVC Missing Intrinsics (Workaround for older MSVC versions)
+#if defined(_MSC_VER) && !defined(__clang__)
+#if _MSC_VER < 1922 // Check for MSVC version less than 16.2 (VS 2019 16.2)
+  // Define missing AVX-512BW mask intrinsics for older MSVC.
+  // inline functions that perform the mask operations directly.
+  // Since this is MSVC only, using specific __forceinline.
+__forceinline __mmask64 _kand_mask64(__mmask64 a, __mmask64 b) { return a & b; }
+__forceinline __mmask64 _kor_mask64(__mmask64 a, __mmask64 b) { return a | b; }
+__forceinline __mmask32 _kand_mask32(__mmask32 a, __mmask32 b) { return a & b; }
+__forceinline __mmask32 _kor_mask32(__mmask32 a, __mmask32 b) { return a | b; }
+#endif
+#endif
+
+// useful macros
 
 #define _MM_TRANSPOSE16_LANE4_PS(row0, row1, row2, row3) \
-	do { \
-		__m512 __t0, __t1, __t2, __t3; \
-		__t0 = _mm512_unpacklo_ps(row0, row1); \
-		__t1 = _mm512_unpackhi_ps(row0, row1); \
-		__t2 = _mm512_unpacklo_ps(row2, row3); \
-		__t3 = _mm512_unpackhi_ps(row2, row3); \
-		row0 = _mm512_shuffle_ps(__t0, __t2, _MM_SHUFFLE(1, 0, 1, 0)); \
-		row1 = _mm512_shuffle_ps(__t0, __t2, _MM_SHUFFLE(3, 2, 3, 2)); \
-		row2 = _mm512_shuffle_ps(__t1, __t3, _MM_SHUFFLE(1, 0, 1, 0)); \
-		row3 = _mm512_shuffle_ps(__t1, __t3, _MM_SHUFFLE(3, 2, 3, 2)); \
-	} while (0)
+  do { \
+    __m512 __t0, __t1, __t2, __t3; \
+    __t0 = _mm512_unpacklo_ps(row0, row1); \
+    __t1 = _mm512_unpackhi_ps(row0, row1); \
+    __t2 = _mm512_unpacklo_ps(row2, row3); \
+    __t3 = _mm512_unpackhi_ps(row2, row3); \
+    row0 = _mm512_shuffle_ps(__t0, __t2, _MM_SHUFFLE(1, 0, 1, 0)); \
+    row1 = _mm512_shuffle_ps(__t0, __t2, _MM_SHUFFLE(3, 2, 3, 2)); \
+    row2 = _mm512_shuffle_ps(__t1, __t3, _MM_SHUFFLE(1, 0, 1, 0)); \
+    row3 = _mm512_shuffle_ps(__t1, __t3, _MM_SHUFFLE(3, 2, 3, 2)); \
+  } while (0)
 
 #ifndef _mm512_loadu_4_m128
 #define _mm512_loadu_4_m128(/* __m128 const* */ addr1, \
@@ -74,5 +118,15 @@ _mm512_insertf32x4(_mm512_insertf32x4(_mm512_insertf32x4(_mm512_castps128_ps512(
                             /* __m128 const* */ addr4) \
 _mm512_insertf32x4(_mm512_insertf32x4(_mm512_insertf32x4(_mm512_castps128_ps512(_mm_load_ps(addr1)), _mm_load_ps(addr2), 1), _mm_load_ps(addr3), 2), _mm_load_ps(addr4), 3)
 #endif
+
+
+template<int filtersizemod4>
+void resize_h_planar_float_avx512_transpose_vstripe_ks4(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+
+void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+void resize_h_planar_float_avx512_permutex_vstripe_ks16(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+
+void resize_v_avx512_planar_float(BYTE* dst0, const BYTE* src0, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel);
 
 #endif // __Resample_AVX512_H__
