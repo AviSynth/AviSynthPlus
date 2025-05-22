@@ -1611,10 +1611,14 @@ ResamplerH FilteredResizeH::GetResampler(int CPU, int pixelsize, int bits_per_pi
     if ((CPU & CPUF_AVX512F) && program->filter_size_real <= 4) {
       //return resize_h_planar_float_avx2_permutex_vstripe_ks4;
       switch (program->filter_size_real) {
-      case 1: return resize_h_planar_float_avx512_transpose_vstripe_ks4<1>; break;
+/*      case 1: return resize_h_planar_float_avx512_transpose_vstripe_ks4<1>; break;
       case 2: return resize_h_planar_float_avx512_transpose_vstripe_ks4<2>; break;
       case 3: return resize_h_planar_float_avx512_transpose_vstripe_ks4<3>; break;
-      case 4: return resize_h_planar_float_avx512_transpose_vstripe_ks4<0>; break;
+      case 4: return resize_h_planar_float_avx512_transpose_vstripe_ks4<0>; break;*/
+      case 1: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<1>; break;
+      case 2: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<2>; break;
+      case 3: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<3>; break;
+      case 4: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<0>; break;
       }
     }
 #endif
