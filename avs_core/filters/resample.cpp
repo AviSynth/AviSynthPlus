@@ -2272,7 +2272,7 @@ FilteredResize_2p::FilteredResize_2p(PClip _child,
   vi.width = target_width;
 }
 
-PVideoFrame __stdcall FilteredResize_2p::GetFrame(int n, IScriptEnvironment* env)
+PVideoFrame __stdcall FilteredResize_2p::GetFrame(int n, IScriptEnvironment* env) // use env->Allocate() to get temp buf from other allocated memory - it is NOT returned to the memory pool for the NewVideoFrameP for the downstream filter to write to ?
 {
   PVideoFrame src = child->GetFrame(n, env);
   PVideoFrame dst = env->NewVideoFrameP(vi, &src);
@@ -2353,6 +2353,98 @@ PVideoFrame __stdcall FilteredResize_2p::GetFrame(int n, IScriptEnvironment* env
 
   return dst;
 }
+
+#if 0
+PVideoFrame __stdcall FilteredResize_2p::GetFrame(int n, IScriptEnvironment* env) // use NewVideoFrame as temp buf to return it in the vfb pool after exit this filter
+{
+  PVideoFrame src = child->GetFrame(n, env);
+  PVideoFrame dst = env->NewVideoFrameP(vi, &src);
+
+  PVideoFrame tmp = env->NewVideoFrameP(vi, &src);
+  /*
+  Here we need to ask ScriptEnvironment to look for output format of downstream filter ? So it is not trans-in-place filter we can request frame buffer larger and left
+  it unused after exiting this function. Only in this case there is a big probability the env->NewVideoFrameP(vi, &src); for downstream filter call will return this same virtual address buffer
+  to the downstream filter and it can be (at least partially) overwritten saving from useless downloading from CPU cache. It is new TODO idea for modification of ScriptEnvironment vfb memory management.
+  After this will be implemented - we can use such method of requesting temp buffer (frame) to use in 2pass resize.
+  If this is last filter in a chain - simply request lowest possible sized frame.
+  */
+
+  int src_pitch = src->GetPitch();
+  int dst_pitch = dst->GetPitch();
+  const BYTE* srcp = src->GetReadPtr();
+  BYTE* dstp = dst->GetWritePtr(); // for first (largest ?) plane or for single ?
+
+  bool isRGBPfamily = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
+
+  const BYTE* tmp_srcp = tmp->GetReadPtr();
+  BYTE* tmp_dstp = tmp->GetWritePtr(); // for first (largest ?) plane or for single ?
+  int tmp_pitch = tmp->GetPitch();
+
+  // Do resizing, single plane by plane
+  resampler_luma_h(tmp_dstp, srcp, tmp_pitch, src_pitch, resampling_program_luma_h, dst_width, src_height, bits_per_pixel);
+  int work_height = vi.IsPlanar() ? vi.width : vi.BytesFromPixels(vi.width) / pixelsize; // packed RGB: or vi.width * vi.NumComponent()
+  resampler_luma_v(dstp, tmp_srcp, dst_pitch, tmp_pitch, resampling_program_luma_v, work_height, vi.height, bits_per_pixel);
+
+  /* Currently left non-changed from env-Allocate() method untill we can request immediately reusable to writing temp buffer by downstream filter
+  if (isRGBPfamily)
+  {
+    src_pitch = src->GetPitch(PLANAR_B);
+    dst_pitch = dst->GetPitch(PLANAR_B);
+    srcp = src->GetReadPtr(PLANAR_B);
+    dstp = dst->GetWritePtr(PLANAR_B);
+
+    resampler_luma_h(temp_1, srcp, dst_pitch, src_pitch, resampling_program_luma_h, dst_width, src_height, bits_per_pixel);
+    int work_height = vi.IsPlanar() ? vi.width : vi.BytesFromPixels(vi.width) / pixelsize; // packed RGB: or vi.width * vi.NumComponent()
+    resampler_luma_v(dstp, temp_1, dst_pitch, dst_pitch, resampling_program_luma_v, work_height, vi.height, bits_per_pixel);
+
+    src_pitch = src->GetPitch(PLANAR_R);
+    dst_pitch = dst->GetPitch(PLANAR_R);
+    srcp = src->GetReadPtr(PLANAR_R);
+    dstp = dst->GetWritePtr(PLANAR_R);
+
+    resampler_luma_h(temp_1, srcp, dst_pitch, src_pitch, resampling_program_luma_h, dst_width, src_height, bits_per_pixel);
+    resampler_luma_v(dstp, temp_1, dst_pitch, dst_pitch, resampling_program_luma_v, work_height, vi.height, bits_per_pixel);
+
+  }
+  else if (!grey && vi.IsPlanar()) {
+    int width = vi.width >> vi.GetPlaneWidthSubsampling(PLANAR_U);
+    int height = vi.height >> vi.GetPlaneHeightSubsampling(PLANAR_U);
+
+    // Plane U resizing
+    src_pitch = src->GetPitch(PLANAR_U);
+    dst_pitch = dst->GetPitch(PLANAR_U);
+    srcp = src->GetReadPtr(PLANAR_U);
+    dstp = dst->GetWritePtr(PLANAR_U);
+
+    resampler_chroma_h(temp_1, srcp, dst_pitch, src_pitch, resampling_program_chroma_h, width, src_height >> vi.GetPlaneHeightSubsampling(PLANAR_U), bits_per_pixel);
+    resampler_chroma_v(dstp, temp_1, dst_pitch, dst_pitch, resampling_program_chroma_v, width, height, bits_per_pixel);
+
+    // Plane V resizing
+    src_pitch = src->GetPitch(PLANAR_V);
+    dst_pitch = dst->GetPitch(PLANAR_V);
+    srcp = src->GetReadPtr(PLANAR_V);
+    dstp = dst->GetWritePtr(PLANAR_V);
+
+    resampler_chroma_h(temp_1, srcp, dst_pitch, src_pitch, resampling_program_chroma_h, width, src_height >> vi.GetPlaneHeightSubsampling(PLANAR_U), bits_per_pixel);
+    resampler_chroma_v(dstp, temp_1, dst_pitch, dst_pitch, resampling_program_chroma_v, width, height, bits_per_pixel);
+
+  }
+
+  if (vi.IsYUVA() || vi.IsPlanarRGBA()) {
+    src_pitch = src->GetPitch(PLANAR_A);
+    dst_pitch = dst->GetPitch(PLANAR_A);
+    srcp = src->GetReadPtr(PLANAR_A);
+    dstp = dst->GetWritePtr(PLANAR_A);
+
+    resampler_luma_h(temp_1, srcp, dst_pitch, src_pitch, resampling_program_luma_h, dst_width, src_height, bits_per_pixel);
+    int work_height = vi.IsPlanar() ? vi.width : vi.BytesFromPixels(vi.width) / pixelsize; // packed RGB: or vi.width * vi.NumComponent()
+    resampler_luma_v(dstp, temp_1, dst_pitch, dst_pitch, resampling_program_luma_v, work_height, vi.height, bits_per_pixel);
+  }
+  */
+
+  return dst;
+}
+#if 0
 
 ResamplerV FilteredResize_2p::GetResamplerV(int CPU, int pixelsize, int bits_per_pixel, ResamplingProgram* program, IScriptEnvironment* env) // may be somehow call same method from FilteredResizeV class ?
 {
