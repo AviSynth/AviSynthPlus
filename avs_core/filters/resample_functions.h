@@ -48,9 +48,15 @@ constexpr int FPScale = 1 << FPScale8bits; // fixed point scaler (1<<14)
 // for 16 bits: one bit less
 constexpr int FPScale16bits = 13;
 constexpr int FPScale16 = 1 << FPScale16bits; // fixed point scaler for 10-16 bit SIMD signed operation
-constexpr int ALIGN_RESIZER_TARGET_SIZE = 8;
+constexpr int ALIGN_RESIZER_TARGET_SIZE = 16; // 16: avx512 float Hoprizontal
 // 09-14-2002 - Vlad59 - Lanczos3Resize - Constant added
 #define M_PI 3.14159265358979323846
+
+struct SafeLimit {
+  bool overread_possible;
+  int source_overread_offset;
+  int source_overread_beyond_targetx;
+};
 
 struct ResamplingProgram {
   IScriptEnvironment * Env;
@@ -59,6 +65,7 @@ struct ResamplingProgram {
   int filter_size;
   int filter_size_real; // maybe less than filter_size if dimensions are small
   int filter_size_alignment; // for info, 1 (C, nonvector-friendly), 8 (sse or avx2) or 16 (avx2)
+  int target_size_alignment; // coeff table exists (and containt zero coeffs) even beyond target_size. Helps alternative H resizers.
 
   // Array of Integer indicate starting point of sampling
   std::vector<int> pixel_offset;
@@ -74,24 +81,24 @@ struct ResamplingProgram {
   std::vector<short> kernel_sizes; 
   // 3.7.4- can be different for each line but then they get equalized and aligned.
 
-  // anti-overread helpers for float resizer simd code reading 8 pixels from a given offset
-  bool overread_possible;
-  int source_overread_offset; // offset from where reading 8 bytes requires masking garbage on the right side
-  int source_overread_beyond_targetx; 
   // in H resizers danger zone starts from here.
-  // When reading aligned_filter_size elements from (src+offset) no longer fits image scanline dimensions
-
+  // When reading multiple (SIMD load) source pixels from (src+offset) and it no
+  // longer fits image scanline dimensions (width)
+  SafeLimit safelimit_filter_size_aligned = { false, -1, -1 };
+  SafeLimit safelimit_4_pixels = { false, -1, -1 };
+  SafeLimit safelimit_8_pixels = { false, -1, -1 };
+  SafeLimit safelimit_16_pixels = { false, -1, -1 };
+  SafeLimit safelimit_32_pixels = { false, -1, -1 };
 
   ResamplingProgram(int filter_size, int source_size, int target_size, double crop_start, double crop_size, int bits_per_pixel, IScriptEnvironment* env)
     : Env(env), source_size(source_size), target_size(target_size), crop_start(crop_start), crop_size(crop_size), filter_size(filter_size), filter_size_real(filter_size),
     bits_per_pixel(bits_per_pixel), pixel_coefficient(0), pixel_coefficient_float(0)
   {
-    overread_possible = false;
-    source_overread_offset = -1;
-    source_overread_beyond_targetx = -1;
 
-    // align target_size to 8 units to allow safe 8 pixels/cycle in H resizers
+    
     filter_size_alignment = 1;
+    // align target_size to 8 units to allow safe up to 8 pixels/cycle in H resizers. modded later.
+    target_size_alignment = 1;
     // resize_prepare_coeff can override and realign the size of coefficient table
     if (bits_per_pixel < 32)
       pixel_coefficient = (short*)Env->Allocate(sizeof(short) * target_size * filter_size, 64, AVS_NORMAL_ALLOC);
