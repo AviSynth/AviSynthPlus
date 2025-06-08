@@ -200,7 +200,7 @@ void resize_h_planar_float_avx512_transpose_vstripe_ks4(BYTE* dst8, const BYTE* 
       result = _mm512_fmadd_ps(data_3_7_11_15, coef_3_7_11_15, result);
       result = _mm512_fmadd_ps(data_4_8_12_16, coef_4_8_12_16, result);
 
-      _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_store_ps(dst_ptr, result); 
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -358,7 +358,7 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4(BYTE* dst8, const 
         result = _mm512_fmadd_ps(data_3_7_11_15, coef_3_7_11_15, result);
         result = _mm512_fmadd_ps(data_4_8_12_16, coef_4_8_12_16, result);
 
-        _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+        _mm512_store_ps(dst_ptr, result); 
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -437,7 +437,7 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4(BYTE* dst8, const 
         result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
         result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
 
-        _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+        _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -587,7 +587,7 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w(BYTE* dst8, con
         result = _mm512_fmadd_ps(data_3_7_11_15, coef_3_7_11_15, result);
         result = _mm512_fmadd_ps(data_4_8_12_16, coef_4_8_12_16, result);
 
-        _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+        _mm512_store_ps(dst_ptr, result); 
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -713,8 +713,8 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w(BYTE* dst8, con
         result_2 = _mm512_fmadd_ps(data_4_8_12_16_2, coef_4_8_12_16_2, result_2);
 
 
-        _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
-        _mm512_stream_ps(dst_ptr + 16, result_2);
+        _mm512_store_ps(dst_ptr, result); 
+        _mm512_store_ps(dst_ptr + 16, result_2);
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -847,8 +847,8 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w(BYTE* dst8, con
         result1_2 = _mm512_fmadd_ps(data_3_2, coef_r3_2, result1_2);
 
 
-        _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
-        _mm512_stream_ps(dst_ptr + 16, _mm512_add_ps(result0_2, result1_2)); 
+        _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
+        _mm512_store_ps(dst_ptr + 16, _mm512_add_ps(result0_2, result1_2)); 
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -914,7 +914,7 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w(BYTE* dst8, con
         result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
         result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
 
-        _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+        _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -974,7 +974,7 @@ void resize_h_planar_float_avx512_transpose_vstripe_ks4(BYTE* dst8, const BYTE* 
             result = _mm512_fmadd_ps(d3_d7_d11_d15, c3_c7_c11_c15, result);
             result = _mm512_fmadd_ps(d4_d8_d12_d16, c4_c8_c12_c16, result);
 
-            _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+            _mm512_store_ps(dst_ptr, result); 
 
             dst_ptr += dst_pitch;
             src_ptr += src_pitch;
@@ -1050,7 +1050,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
       result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
 
-      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -1086,8 +1086,8 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_3, coef_r3, result0);
       result1 = _mm512_fmadd_ps(data_3_2, coef_r3, result1);
 
-      _mm512_stream_ps(dst_ptr, result0); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
-      _mm512_stream_ps(dst_ptr + dst_pitch, result1);
+      _mm512_store_ps(dst_ptr, result0); 
+      _mm512_store_ps(dst_ptr + dst_pitch, result1);
 
       dst_ptr += dst_pitch * 2;
       src_ptr += src_pitch * 2;
@@ -1108,7 +1108,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
       result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
 
-      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
     }
 
     current_coeff += filter_size * 16;
@@ -1212,7 +1212,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_3, coef_r3, result0);
       result1 = _mm512_fmadd_ps(data_7, coef_r7, result1);
 
-      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -1268,8 +1268,8 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_7, coef_r7, result0);
       result1 = _mm512_fmadd_ps(data_7_2, coef_r7, result1);
 
-      _mm512_stream_ps(dst_ptr, result0); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
-      _mm512_stream_ps(dst_ptr + dst_pitch, result1);
+      _mm512_store_ps(dst_ptr, result0); 
+      _mm512_store_ps(dst_ptr + dst_pitch, result1);
 
       dst_ptr += dst_pitch * 2;
       src_ptr += src_pitch * 2;
@@ -1300,7 +1300,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_3, coef_r3, result0);
       result1 = _mm512_fmadd_ps(data_7, coef_r7, result1);
 
-      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
     }
 
     current_coeff += filter_size * 16;
@@ -1456,7 +1456,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks16(BYTE* dst8, const BYTE* 
       result0 = _mm512_fmadd_ps(data_7, coef_r7, result0);
       result1 = _mm512_fmadd_ps(data_15, coef_r15, result1);
 
-      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1)); 
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -1524,7 +1524,7 @@ void resize_v_avx512_planar_float(BYTE* dst8, const BYTE* src8, int dst_pitch, i
         result_single = _mm512_fmadd_ps(src_val, coeff, result_single);
       }
 
-      _mm512_stream_ps(dst + x, result_single);
+      _mm512_store_ps(dst + x, result_single);
     }
 
     dst += dst_pitch;
@@ -1593,14 +1593,14 @@ void resize_v_avx512_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pit
         src2_ptr += src_pitch;
       }
 
-      _mm512_stream_ps(dst + x, result_1); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
-      _mm512_stream_ps(dst + x + 16, result_2);
-      _mm512_stream_ps(dst + x + 32, result_3);
-      _mm512_stream_ps(dst + x + 48, result_4);
-      _mm512_stream_ps(dst + x + 64, result_5);
-      _mm512_stream_ps(dst + x + 80, result_6);
-      _mm512_stream_ps(dst + x + 96, result_7);
-      _mm512_stream_ps(dst + x + 112, result_8);
+      _mm512_store_ps(dst + x, result_1); 
+      _mm512_store_ps(dst + x + 16, result_2);
+      _mm512_store_ps(dst + x + 32, result_3);
+      _mm512_store_ps(dst + x + 48, result_4);
+      _mm512_store_ps(dst + x + 64, result_5);
+      _mm512_store_ps(dst + x + 80, result_6);
+      _mm512_store_ps(dst + x + 96, result_7);
+      _mm512_store_ps(dst + x + 112, result_8);
     }
 
     for (int x = width_mod128; x < width_mod64; x += 64) {
@@ -1628,10 +1628,10 @@ void resize_v_avx512_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pit
         src2_ptr += src_pitch;
       }
 
-      _mm512_stream_ps(dst + x, result_1);
-      _mm512_stream_ps(dst + x + 16, result_2);
-      _mm512_stream_ps(dst + x + 32, result_3);
-      _mm512_stream_ps(dst + x + 48, result_4);
+      _mm512_store_ps(dst + x, result_1);
+      _mm512_store_ps(dst + x + 16, result_2);
+      _mm512_store_ps(dst + x + 32, result_3);
+      _mm512_store_ps(dst + x + 48, result_4);
     }
 
     for (int x = width_mod64; x < width_mod32; x += 32) {
@@ -1653,8 +1653,8 @@ void resize_v_avx512_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pit
         src2_ptr += src_pitch;
       }
 
-      _mm512_stream_ps(dst + x, result_1);
-      _mm512_stream_ps(dst + x + 16, result_2);
+      _mm512_store_ps(dst + x, result_1);
+      _mm512_store_ps(dst + x + 16, result_2);
     }
 
 
@@ -1691,7 +1691,7 @@ void resize_v_avx512_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pit
         result_single = _mm512_fmadd_ps(src_val, coeff, result_single);
       }
 
-      _mm512_stream_ps(dst + x, result_single);
+      _mm512_store_ps(dst + x, result_single);
     }
 
 

@@ -1036,10 +1036,10 @@ void resize_v_avx2_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pitch
         src2_ptr += src_pitch;
       }
 
-      _mm256_stream_ps(dst + x, result_1); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
-      _mm256_stream_ps(dst + x + 8, result_2);
-      _mm256_stream_ps(dst + x + 16, result_3);
-      _mm256_stream_ps(dst + x + 24, result_4);
+      _mm256_store_ps(dst + x, result_1); 
+      _mm256_store_ps(dst + x + 8, result_2);
+      _mm256_store_ps(dst + x + 16, result_3);
+      _mm256_store_ps(dst + x + 24, result_4);
     } // width_mod32
 
     // 32 byte 8 floats (AVX2 register holds 8 floats)
@@ -1075,7 +1075,7 @@ void resize_v_avx2_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pitch
         result_single = _mm256_fmadd_ps(src_val, coeff, result_single);
       }
 
-      _mm256_stream_ps(dst + x, result_single);
+      _mm256_store_ps(dst + x, result_single);
     }
 
     dst += dst_pitch;
