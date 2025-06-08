@@ -1700,4 +1700,166 @@ void resize_v_avx512_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pit
   }
 }
 
+// uint8_t
+void resize_v_avx512_planar_uint8_t_w_sr(BYTE* AVS_RESTRICT dst, const BYTE* src, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel)
+{
+  AVS_UNUSED(bits_per_pixel);
+  int filter_size = program->filter_size;
+  const short* AVS_RESTRICT current_coeff = program->pixel_coefficient;
+  __m512i rounder = _mm512_set1_epi32(1 << (FPScale8bits - 1));
+  __m512i zero = _mm512_setzero_si512();
+
+  const int kernel_size = program->filter_size_real; // not the aligned
+
+  const int width_mod128 = (width / 128) * 128;
+
+  const __m512i perm_idx1 = _mm512_set_epi64(8 + 5, 8 + 4, 8 + 1, 8 + 0, 5, 4, 1, 0);
+  const __m512i perm_idx2 = _mm512_set_epi64(8 + 7, 8 + 6, 8 + 3, 8 + 2, 7, 6, 3, 2);
+
+  for (int y = 0; y < target_height; y++) {
+    int offset = program->pixel_offset[y];
+    const BYTE* AVS_RESTRICT src_ptr = src + offset * src_pitch;
+
+    for (int x = 0; x < width_mod128; x += 128) {
+
+      __m512i result_lo = rounder;
+      __m512i result_hi = rounder;
+      __m512i result_lo2 = rounder;
+      __m512i result_hi2 = rounder;
+
+      __m512i result_lo_2 = rounder;
+      __m512i result_hi_2 = rounder;
+      __m512i result_lo2_2 = rounder;
+      __m512i result_hi2_2 = rounder;
+
+      const uint8_t* AVS_RESTRICT src2_ptr = src_ptr + x;
+
+      int i = 0;
+      // 128 byte 128 pixel
+      for (; i < kernel_size; i++) {
+        // Broadcast a single coefficients
+        __m512i coeff = _mm512_set1_epi16(*reinterpret_cast<const short*>(current_coeff + i)); // 0|co|0|co|0|co|0|co   0|co|0|co|0|co|0|co
+
+        __m512i src_1_1 = _mm512_cvtepu8_epi16(_mm256_load_si256(reinterpret_cast<const __m256i*>(src2_ptr))); // 32x 8->16bit pixels
+        __m512i src_1_2 = _mm512_cvtepu8_epi16(_mm256_load_si256(reinterpret_cast<const __m256i*>(src2_ptr + 32))); // 32x 8->16bit pixels
+        __m512i src_2_1 = _mm512_cvtepu8_epi16(_mm256_load_si256(reinterpret_cast<const __m256i*>(src2_ptr + 64))); // 32x 8->16bit pixels
+        __m512i src_2_2 = _mm512_cvtepu8_epi16(_mm256_load_si256(reinterpret_cast<const __m256i*>(src2_ptr + 96))); // 32x 8->16bit pixels
+
+        __m512i src_lo = _mm512_unpacklo_epi16(src_1_1, zero);
+        __m512i src_hi = _mm512_unpackhi_epi16(src_1_1, zero);
+        __m512i src_lo2 = _mm512_unpacklo_epi16(src_1_2, zero);
+        __m512i src_hi2 = _mm512_unpackhi_epi16(src_1_2, zero);
+
+        __m512i src_lo_2 = _mm512_unpacklo_epi16(src_2_1, zero);
+        __m512i src_hi_2 = _mm512_unpackhi_epi16(src_2_1, zero);
+        __m512i src_lo2_2 = _mm512_unpacklo_epi16(src_2_2, zero);
+        __m512i src_hi2_2 = _mm512_unpackhi_epi16(src_2_2, zero);
+
+        result_lo = _mm512_add_epi32(result_lo, _mm512_madd_epi16(src_lo, coeff)); // a*b + c
+        result_hi = _mm512_add_epi32(result_hi, _mm512_madd_epi16(src_hi, coeff)); // a*b + c
+        result_lo2 = _mm512_add_epi32(result_lo2, _mm512_madd_epi16(src_lo2, coeff)); // a*b + c
+        result_hi2 = _mm512_add_epi32(result_hi2, _mm512_madd_epi16(src_hi2, coeff)); // a*b + c
+
+        result_lo_2 = _mm512_add_epi32(result_lo_2, _mm512_madd_epi16(src_lo_2, coeff)); // a*b + c
+        result_hi_2 = _mm512_add_epi32(result_hi_2, _mm512_madd_epi16(src_hi_2, coeff)); // a*b + c
+        result_lo2_2 = _mm512_add_epi32(result_lo2_2, _mm512_madd_epi16(src_lo2_2, coeff)); // a*b + c
+        result_hi2_2 = _mm512_add_epi32(result_hi2_2, _mm512_madd_epi16(src_hi2_2, coeff)); // a*b + c
+
+        src2_ptr += src_pitch;
+
+      }
+
+      // scale back, store
+      // shift back integer arithmetic 14 bits precision
+      result_lo = _mm512_srai_epi32(result_lo, FPScale8bits);
+      result_hi = _mm512_srai_epi32(result_hi, FPScale8bits);
+      result_lo2 = _mm512_srai_epi32(result_lo2, FPScale8bits);
+      result_hi2 = _mm512_srai_epi32(result_hi2, FPScale8bits);
+
+      result_lo_2 = _mm512_srai_epi32(result_lo_2, FPScale8bits);
+      result_hi_2 = _mm512_srai_epi32(result_hi_2, FPScale8bits);
+      result_lo2_2 = _mm512_srai_epi32(result_lo2_2, FPScale8bits);
+      result_hi2_2 = _mm512_srai_epi32(result_hi2_2, FPScale8bits);
+
+      __m512i result_2x8x_uint16 = _mm512_packus_epi32(result_lo, result_hi);
+      __m512i result2_2x8x_uint16 = _mm512_packus_epi32(result_lo2, result_hi2);
+
+      __m512i result_2x8x_uint16_2 = _mm512_packus_epi32(result_lo_2, result_hi_2);
+      __m512i result2_2x8x_uint16_2 = _mm512_packus_epi32(result_lo2_2, result_hi2_2);
+
+      __m512i pack_1 = _mm512_permutex2var_epi64(result_2x8x_uint16, perm_idx1, result2_2x8x_uint16);
+      __m512i pack_2 = _mm512_permutex2var_epi64(result_2x8x_uint16, perm_idx2, result2_2x8x_uint16);
+
+      __m512i pack_1_2 = _mm512_permutex2var_epi64(result_2x8x_uint16_2, perm_idx1, result2_2x8x_uint16_2);
+      __m512i pack_2_2 = _mm512_permutex2var_epi64(result_2x8x_uint16_2, perm_idx2, result2_2x8x_uint16_2);
+
+      __m512i res = _mm512_packus_epi16(pack_1, pack_2);
+      __m512i res_2 = _mm512_packus_epi16(pack_1_2, pack_2_2);
+
+      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x), res);
+      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x + 64), res);
+
+    }
+
+    // 64 byte 64 pixel
+    // no need wmod16, alignment is safe at least 32
+    for (int x = width_mod128; x < width; x += 64) {
+
+      __m512i result_lo = rounder;
+      __m512i result_hi = rounder;
+
+      __m512i result_lo2 = rounder;
+      __m512i result_hi2 = rounder;
+
+      const uint8_t* AVS_RESTRICT src2_ptr = src_ptr + x;
+
+      int i = 0;
+      for (; i < kernel_size; i++) {
+        // Broadcast a single coefficients
+        __m512i coeff = _mm512_set1_epi16(*reinterpret_cast<const short*>(current_coeff + i)); // 0|co|0|co|0|co|0|co   0|co|0|co|0|co|0|co
+
+        __m512i src_1_1 = _mm512_cvtepu8_epi16(_mm256_load_si256(reinterpret_cast<const __m256i*>(src2_ptr))); // 32x 8->16bit pixels
+        __m512i src_1_2 = _mm512_cvtepu8_epi16(_mm256_load_si256(reinterpret_cast<const __m256i*>(src2_ptr + 32))); // 32x 8->16bit pixels
+
+        __m512i src_lo = _mm512_unpacklo_epi16(src_1_1, zero);
+        __m512i src_hi = _mm512_unpackhi_epi16(src_1_1, zero);
+
+        __m512i src_lo2 = _mm512_unpacklo_epi16(src_1_2, zero);
+        __m512i src_hi2 = _mm512_unpackhi_epi16(src_1_2, zero);
+
+        result_lo = _mm512_add_epi32(result_lo, _mm512_madd_epi16(src_lo, coeff)); // a*b + c
+        result_hi = _mm512_add_epi32(result_hi, _mm512_madd_epi16(src_hi, coeff)); // a*b + c
+
+        result_lo2 = _mm512_add_epi32(result_lo2, _mm512_madd_epi16(src_lo2, coeff)); // a*b + c
+        result_hi2 = _mm512_add_epi32(result_hi2, _mm512_madd_epi16(src_hi2, coeff)); // a*b + c
+
+        src2_ptr += src_pitch;
+
+      }
+
+      // scale back, store
+      // shift back integer arithmetic 14 bits precision
+      result_lo = _mm512_srai_epi32(result_lo, FPScale8bits);
+      result_hi = _mm512_srai_epi32(result_hi, FPScale8bits);
+
+      result_lo2 = _mm512_srai_epi32(result_lo2, FPScale8bits);
+      result_hi2 = _mm512_srai_epi32(result_hi2, FPScale8bits);
+
+      __m512i result_2x8x_uint16 = _mm512_packus_epi32(result_lo, result_hi);
+      __m512i result_2x8x_uint16_2 = _mm512_packus_epi32(result_lo2, result_hi2);
+
+      __m512i pack_1 = _mm512_permutex2var_epi64(result_2x8x_uint16, perm_idx1, result_2x8x_uint16_2);
+      __m512i pack_2 = _mm512_permutex2var_epi64(result_2x8x_uint16, perm_idx2, result_2x8x_uint16_2);
+
+      __m512i res = _mm512_packus_epi16(pack_1, pack_2);
+
+      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x), res);
+
+    }
+
+    dst += dst_pitch;
+    current_coeff += filter_size;
+  }
+}
+
 
