@@ -200,7 +200,7 @@ void resize_h_planar_float_avx512_transpose_vstripe_ks4(BYTE* dst8, const BYTE* 
       result = _mm512_fmadd_ps(data_3_7_11_15, coef_3_7_11_15, result);
       result = _mm512_fmadd_ps(data_4_8_12_16, coef_4_8_12_16, result);
 
-      _mm512_store_ps(dst_ptr, result);
+      _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -226,6 +226,7 @@ template void resize_h_planar_float_avx512_transpose_vstripe_ks4<0>(BYTE* dst8, 
 template void resize_h_planar_float_avx512_transpose_vstripe_ks4<1>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 template void resize_h_planar_float_avx512_transpose_vstripe_ks4<2>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 template void resize_h_planar_float_avx512_transpose_vstripe_ks4<3>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+
 
 /* Universal function supporting 2 ways of processing depending on the max offset of the source samples to read in the resampling program :
 1. For high upsampling ratios it uses low read (single 8 float source samples) and permute-transpose before V-fma
@@ -357,7 +358,7 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4(BYTE* dst8, const 
         result = _mm512_fmadd_ps(data_3_7_11_15, coef_3_7_11_15, result);
         result = _mm512_fmadd_ps(data_4_8_12_16, coef_4_8_12_16, result);
 
-        _mm512_store_ps(dst_ptr, result);
+        _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -436,7 +437,7 @@ void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4(BYTE* dst8, const 
         result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
         result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
 
-        _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+        _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
 
         dst_ptr += dst_pitch;
         src_ptr += src_pitch;
@@ -451,6 +452,483 @@ template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<0>(BYTE* 
 template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<1>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<2>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<3>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+
+
+/* Universal function supporting 2 ways of processing depending on the max offset of the source samples to read in the resampling program :
+1. For high upsampling ratios it uses low read (single 8 float source samples) and permute-transpose before V-fma
+2. For downsample and no-resize convolution - use each input sequence gathering by direct addressing
+*/
+template<int filtersizemod4>
+void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel)
+{
+  assert(filtersizemod4 >= 0 && filtersizemod4 <= 3);
+
+  const int filter_size = program->filter_size; // aligned, practically the coeff table stride
+
+  src_pitch /= sizeof(float);
+  dst_pitch /= sizeof(float);
+
+  float* src = (float*)src8;
+  float* dst = (float*)dst8;
+
+  const float* AVS_RESTRICT current_coeff = (const float* AVS_RESTRICT)program->pixel_coefficient_float;
+
+  const int width_mod32 = (width / 32) * 32; // Process by 2x 512it (2 x 16 floats) to make memory read/write linear streams longer,
+
+  constexpr int MAX_PIXELS_AT_A_TIME = 32; // Process sixteen pixels in parallel using AVX512 (4x4 using m128 lanes)
+  constexpr int PIXELS_AT_A_TIME = 16; // Process sixteen pixels in parallel using AVX512 (4x4 using m128 lanes)
+
+  // 'source_overread_beyond_targetx' indicates if the filter kernel can read beyond the target width.
+  // Even if the filter alignment allows larger reads, our safety boundary for unaligned loads starts at 4 pixels back
+  // from the target width, as we load 4 floats at once conceptually with our safe load.
+  const int width_safe_mod = (program->safelimit_4_pixels.overread_possible ? program->safelimit_4_pixels.source_overread_beyond_targetx : width) / MAX_PIXELS_AT_A_TIME * MAX_PIXELS_AT_A_TIME;
+
+  // Preconditions:
+  assert(program->filter_size_real <= 4); // We preload all relevant coefficients (up to 4) before the height loop.
+
+  // 'target_size_alignment' ensures we can safely access coefficients using offsets like
+  // 'filter_size * 7' when processing 8 H pixels at a time or
+  // 'filter_size * 15' when processing 16 H pixels at a time
+  assert(program->target_size_alignment >= 16); // Adjusted for 16 pixels
+  assert(FRAME_ALIGN >= 64); // Adjusted for 16 pixels AviSynth+ default
+
+  // Ensure that coefficient loading beyond the valid target size is safe for 4x4 float loads.
+  assert(program->filter_size_alignment >= 4);
+
+  bool bDoGather = false;
+  // Analyse input resampling program to select method of processing
+  for (int x = 0; x < width - 16; x += 16) // -16 to save from vector overrread at program->pixel_offset[x + 15 + 3]; ?
+  {
+    int start_off = program->pixel_offset[x + 0];
+    int end_off = program->pixel_offset[x + 15];
+    if ((end_off - start_off) + (program->filter_size_real - 1) > 32) bDoGather = true;
+
+    start_off = program->pixel_offset[x + 1];
+    end_off = program->pixel_offset[x + 15 + 1];
+    if ((end_off - start_off) + (program->filter_size_real - 1) > 32) bDoGather = true;
+
+    start_off = program->pixel_offset[x + 2];
+    end_off = program->pixel_offset[x + 15 + 2];
+    if ((end_off - start_off) + (program->filter_size_real - 1) > 32) bDoGather = true;
+
+    start_off = program->pixel_offset[x + 3];
+    end_off = program->pixel_offset[x + 15 + 3];
+    if ((end_off - start_off) + (program->filter_size_real - 1) > 32) bDoGather = true;
+  }
+
+  int x = 0;
+
+  if (bDoGather) 
+  {
+    // This 'auto' lambda construct replaces the need of templates
+    auto do_h_float_core_16 = [&](auto partial_load) {
+      // Load up to 4x4 coefficients at once before the height loop.
+      // Pre-loading and transposing coefficients keeps register usage efficient.
+      // Assumes 'filter_size_aligned' is at least 4.
+
+      // Coefficients for the source pixel offset (for src_ptr + begin1 [0..3], begin5 [0..3], begin9 [0..3], begin13 [0..3])
+      __m512 coef_1_5_9_13 = _mm512_load_4_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4, current_coeff + filter_size * 8, current_coeff + filter_size * 12);
+      __m512 coef_2_6_10_14 = _mm512_load_4_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5, current_coeff + filter_size * 9, current_coeff + filter_size * 13);
+      __m512 coef_3_7_11_15 = _mm512_load_4_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6, current_coeff + filter_size * 10, current_coeff + filter_size * 14);
+      __m512 coef_4_8_12_16 = _mm512_load_4_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7, current_coeff + filter_size * 11, current_coeff + filter_size * 15);
+
+      _MM_TRANSPOSE16_LANE4_PS(coef_1_5_9_13, coef_2_6_10_14, coef_3_7_11_15, coef_4_8_12_16);
+
+      float* AVS_RESTRICT dst_ptr = dst + x;
+      const float* src_ptr = src;
+
+      // Pixel offsets for the current target x-positions.
+      // Even for x >= width, these offsets are guaranteed to be within the allocated 'target_size_alignment'.
+      const int begin1 = program->pixel_offset[x + 0];
+      const int begin2 = program->pixel_offset[x + 1];
+      const int begin3 = program->pixel_offset[x + 2];
+      const int begin4 = program->pixel_offset[x + 3];
+      const int begin5 = program->pixel_offset[x + 4];
+      const int begin6 = program->pixel_offset[x + 5];
+      const int begin7 = program->pixel_offset[x + 6];
+      const int begin8 = program->pixel_offset[x + 7];
+      const int begin9 = program->pixel_offset[x + 8];
+      const int begin10 = program->pixel_offset[x + 9];
+      const int begin11 = program->pixel_offset[x + 10];
+      const int begin12 = program->pixel_offset[x + 11];
+      const int begin13 = program->pixel_offset[x + 12];
+      const int begin14 = program->pixel_offset[x + 13];
+      const int begin15 = program->pixel_offset[x + 14];
+      const int begin16 = program->pixel_offset[x + 15];
+
+      for (int y = 0; y < height; y++)
+      {
+        __m512 data_1_5_9_13;
+        __m512 data_2_6_10_14;
+        __m512 data_3_7_11_15;
+        __m512 data_4_8_12_16;
+
+        if constexpr (partial_load) {
+          // In the potentially unsafe zone (near the right edge of the image), we use a safe loading function
+          // to prevent reading beyond the allocated source scanline.
+
+          data_1_5_9_13 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin1, src_ptr + begin5, src_ptr + begin9, src_ptr + begin13);
+          data_2_6_10_14 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin2, src_ptr + begin6, src_ptr + begin10, src_ptr + begin14);
+          data_3_7_11_15 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin3, src_ptr + begin7, src_ptr + begin11, src_ptr + begin15);
+          data_4_8_12_16 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin4, src_ptr + begin8, src_ptr + begin12, src_ptr + begin16);
+        }
+        else {
+          // In the safe zone, we can directly load 4 pixels at a time for each of the four lanes.
+          data_1_5_9_13 = _mm512_loadu_4_m128(src_ptr + begin1, src_ptr + begin5, src_ptr + begin9, src_ptr + begin13);
+          data_2_6_10_14 = _mm512_loadu_4_m128(src_ptr + begin2, src_ptr + begin6, src_ptr + begin10, src_ptr + begin14);
+          data_3_7_11_15 = _mm512_loadu_4_m128(src_ptr + begin3, src_ptr + begin7, src_ptr + begin11, src_ptr + begin15);
+          data_4_8_12_16 = _mm512_loadu_4_m128(src_ptr + begin4, src_ptr + begin8, src_ptr + begin12, src_ptr + begin16);
+        }
+
+        _MM_TRANSPOSE16_LANE4_PS(data_1_5_9_13, data_2_6_10_14, data_3_7_11_15, data_4_8_12_16);
+
+        __m512 result = _mm512_mul_ps(data_1_5_9_13, coef_1_5_9_13);
+        result = _mm512_fmadd_ps(data_2_6_10_14, coef_2_6_10_14, result);
+        result = _mm512_fmadd_ps(data_3_7_11_15, coef_3_7_11_15, result);
+        result = _mm512_fmadd_ps(data_4_8_12_16, coef_4_8_12_16, result);
+
+        _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+
+        dst_ptr += dst_pitch;
+        src_ptr += src_pitch;
+      } // y
+      current_coeff += filter_size * 16; // Move to the next set of coefficients for the next 16 output pixels
+    }; // end of lambda_16
+
+    // This 'auto' lambda construct replaces the need of templates
+    auto do_h_float_core_32 = [&](auto partial_load) {
+      // Load up to 4x4 coefficients at once before the height loop.
+      // Pre-loading and transposing coefficients keeps register usage efficient.
+      // Assumes 'filter_size_aligned' is at least 4.
+
+      // Coefficients for the source pixel offset (for src_ptr + begin1 [0..3], begin5 [0..3], begin9 [0..3], begin13 [0..3])
+      __m512 coef_1_5_9_13 = _mm512_load_4_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4, current_coeff + filter_size * 8, current_coeff + filter_size * 12);
+      __m512 coef_2_6_10_14 = _mm512_load_4_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5, current_coeff + filter_size * 9, current_coeff + filter_size * 13);
+      __m512 coef_3_7_11_15 = _mm512_load_4_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6, current_coeff + filter_size * 10, current_coeff + filter_size * 14);
+      __m512 coef_4_8_12_16 = _mm512_load_4_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7, current_coeff + filter_size * 11, current_coeff + filter_size * 15);
+
+      _MM_TRANSPOSE16_LANE4_PS(coef_1_5_9_13, coef_2_6_10_14, coef_3_7_11_15, coef_4_8_12_16);
+
+      // Coefficients for the source pixel offset (for src_ptr + begin1 [0..3], begin5 [0..3], begin9 [0..3], begin13 [0..3])
+      __m512 coef_1_5_9_13_2 = _mm512_load_4_m128(current_coeff + filter_size * 16, current_coeff + filter_size * 20, current_coeff + filter_size * 24, current_coeff + filter_size * 28);
+      __m512 coef_2_6_10_14_2 = _mm512_load_4_m128(current_coeff + filter_size * 17, current_coeff + filter_size * 21, current_coeff + filter_size * 25, current_coeff + filter_size * 29);
+      __m512 coef_3_7_11_15_2 = _mm512_load_4_m128(current_coeff + filter_size * 18, current_coeff + filter_size * 22, current_coeff + filter_size * 26, current_coeff + filter_size * 30);
+      __m512 coef_4_8_12_16_2 = _mm512_load_4_m128(current_coeff + filter_size * 19, current_coeff + filter_size * 23, current_coeff + filter_size * 27, current_coeff + filter_size * 31);
+
+      _MM_TRANSPOSE16_LANE4_PS(coef_1_5_9_13_2, coef_2_6_10_14_2, coef_3_7_11_15_2, coef_4_8_12_16_2);
+
+      float* AVS_RESTRICT dst_ptr = dst + x;
+      const float* src_ptr = src;
+
+      // Pixel offsets for the current target x-positions.
+      // Even for x >= width, these offsets are guaranteed to be within the allocated 'target_size_alignment'.
+      const int begin1 = program->pixel_offset[x + 0];
+      const int begin2 = program->pixel_offset[x + 1];
+      const int begin3 = program->pixel_offset[x + 2];
+      const int begin4 = program->pixel_offset[x + 3];
+      const int begin5 = program->pixel_offset[x + 4];
+      const int begin6 = program->pixel_offset[x + 5];
+      const int begin7 = program->pixel_offset[x + 6];
+      const int begin8 = program->pixel_offset[x + 7];
+      const int begin9 = program->pixel_offset[x + 8];
+      const int begin10 = program->pixel_offset[x + 9];
+      const int begin11 = program->pixel_offset[x + 10];
+      const int begin12 = program->pixel_offset[x + 11];
+      const int begin13 = program->pixel_offset[x + 12];
+      const int begin14 = program->pixel_offset[x + 13];
+      const int begin15 = program->pixel_offset[x + 14];
+      const int begin16 = program->pixel_offset[x + 15];
+
+      // Pixel offsets for the current target x-positions.
+      // Even for x >= width, these offsets are guaranteed to be within the allocated 'target_size_alignment'.
+      const int begin1_2 = program->pixel_offset[x + 16];
+      const int begin2_2 = program->pixel_offset[x + 17];
+      const int begin3_2 = program->pixel_offset[x + 18];
+      const int begin4_2 = program->pixel_offset[x + 19];
+      const int begin5_2 = program->pixel_offset[x + 20];
+      const int begin6_2 = program->pixel_offset[x + 21];
+      const int begin7_2 = program->pixel_offset[x + 22];
+      const int begin8_2 = program->pixel_offset[x + 23];
+      const int begin9_2 = program->pixel_offset[x + 24];
+      const int begin10_2 = program->pixel_offset[x + 25];
+      const int begin11_2 = program->pixel_offset[x + 26];
+      const int begin12_2 = program->pixel_offset[x + 27];
+      const int begin13_2 = program->pixel_offset[x + 28];
+      const int begin14_2 = program->pixel_offset[x + 29];
+      const int begin15_2 = program->pixel_offset[x + 30];
+      const int begin16_2 = program->pixel_offset[x + 31];
+
+      for (int y = 0; y < height; y++)
+      {
+        __m512 data_1_5_9_13;
+        __m512 data_2_6_10_14;
+        __m512 data_3_7_11_15;
+        __m512 data_4_8_12_16;
+
+        __m512 data_1_5_9_13_2;
+        __m512 data_2_6_10_14_2;
+        __m512 data_3_7_11_15_2;
+        __m512 data_4_8_12_16_2;
+
+        if constexpr (partial_load) {
+          // In the potentially unsafe zone (near the right edge of the image), we use a safe loading function
+          // to prevent reading beyond the allocated source scanline.
+
+          data_1_5_9_13 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin1, src_ptr + begin5, src_ptr + begin9, src_ptr + begin13);
+          data_2_6_10_14 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin2, src_ptr + begin6, src_ptr + begin10, src_ptr + begin14);
+          data_3_7_11_15 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin3, src_ptr + begin7, src_ptr + begin11, src_ptr + begin15);
+          data_4_8_12_16 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin4, src_ptr + begin8, src_ptr + begin12, src_ptr + begin16);
+
+          data_1_5_9_13_2 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin1_2, src_ptr + begin5_2, src_ptr + begin9_2, src_ptr + begin13_2);
+          data_2_6_10_14_2 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin2_2, src_ptr + begin6_2, src_ptr + begin10_2, src_ptr + begin14_2);
+          data_3_7_11_15_2 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin3_2, src_ptr + begin7_2, src_ptr + begin11_2, src_ptr + begin15_2);
+          data_4_8_12_16_2 = _mm512_load_partial_safe_4_m128<filtersizemod4>(src_ptr + begin4_2, src_ptr + begin8_2, src_ptr + begin12_2, src_ptr + begin16_2);
+
+        }
+        else {
+          // In the safe zone, we can directly load 4 pixels at a time for each of the four lanes.
+          data_1_5_9_13 = _mm512_loadu_4_m128(src_ptr + begin1, src_ptr + begin5, src_ptr + begin9, src_ptr + begin13);
+          data_2_6_10_14 = _mm512_loadu_4_m128(src_ptr + begin2, src_ptr + begin6, src_ptr + begin10, src_ptr + begin14);
+          data_3_7_11_15 = _mm512_loadu_4_m128(src_ptr + begin3, src_ptr + begin7, src_ptr + begin11, src_ptr + begin15);
+          data_4_8_12_16 = _mm512_loadu_4_m128(src_ptr + begin4, src_ptr + begin8, src_ptr + begin12, src_ptr + begin16);
+
+          data_1_5_9_13_2 = _mm512_loadu_4_m128(src_ptr + begin1_2, src_ptr + begin5_2, src_ptr + begin9_2, src_ptr + begin13_2);
+          data_2_6_10_14_2 = _mm512_loadu_4_m128(src_ptr + begin2_2, src_ptr + begin6_2, src_ptr + begin10_2, src_ptr + begin14_2);
+          data_3_7_11_15_2 = _mm512_loadu_4_m128(src_ptr + begin3_2, src_ptr + begin7_2, src_ptr + begin11_2, src_ptr + begin15_2);
+          data_4_8_12_16_2 = _mm512_loadu_4_m128(src_ptr + begin4_2, src_ptr + begin8_2, src_ptr + begin12_2, src_ptr + begin16_2);
+
+        }
+
+        _MM_TRANSPOSE16_LANE4_PS(data_1_5_9_13, data_2_6_10_14, data_3_7_11_15, data_4_8_12_16);
+        _MM_TRANSPOSE16_LANE4_PS(data_1_5_9_13_2, data_2_6_10_14_2, data_3_7_11_15_2, data_4_8_12_16_2);
+
+        __m512 result = _mm512_mul_ps(data_1_5_9_13, coef_1_5_9_13);
+        result = _mm512_fmadd_ps(data_2_6_10_14, coef_2_6_10_14, result);
+        result = _mm512_fmadd_ps(data_3_7_11_15, coef_3_7_11_15, result);
+        result = _mm512_fmadd_ps(data_4_8_12_16, coef_4_8_12_16, result);
+
+        __m512 result_2 = _mm512_mul_ps(data_1_5_9_13_2, coef_1_5_9_13_2);
+        result_2 = _mm512_fmadd_ps(data_2_6_10_14_2, coef_2_6_10_14_2, result_2);
+        result_2 = _mm512_fmadd_ps(data_3_7_11_15_2, coef_3_7_11_15_2, result_2);
+        result_2 = _mm512_fmadd_ps(data_4_8_12_16_2, coef_4_8_12_16_2, result_2);
+
+
+        _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+        _mm512_stream_ps(dst_ptr + 16, result_2);
+
+        dst_ptr += dst_pitch;
+        src_ptr += src_pitch;
+      } // y
+      current_coeff += filter_size * 32; // Move to the next set of coefficients for the next 32 output pixels
+    }; // end of lambda
+
+    // Process the 'safe zone' where direct full unaligned loads are acceptable.
+    for (; x < std::min(width_mod32, width_safe_mod); x += 32)
+    {
+      do_h_float_core_32(std::false_type{}); // partial_load == false, use direct _mm512_loadu_4_m128
+    }
+
+    for (width_mod32; x < width_safe_mod; x += PIXELS_AT_A_TIME) 
+    {
+      do_h_float_core_16(std::false_type{}); // partial_load == false, use direct _mm512_loadu_4_m128
+    }
+
+    // Process the potentially 'unsafe zone' near the image edge, using safe loading.
+    for (; x < width; x += PIXELS_AT_A_TIME)
+    {
+      do_h_float_core_16(std::true_type{}); // partial_load == true, use the safer '_mm512_load_partial_safe_4_m128'
+    }
+  }
+  else // if(bDoGather)
+  {
+    for (int x = 0; x < width_mod32; x += 32)
+    {
+      // prepare coefs in transposed V-form
+      __m512 coef_r0 = _mm512_load_4_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4, current_coeff + filter_size * 8, current_coeff + filter_size * 12);
+      __m512 coef_r1 = _mm512_load_4_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5, current_coeff + filter_size * 9, current_coeff + filter_size * 13);
+      __m512 coef_r2 = _mm512_load_4_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6, current_coeff + filter_size * 10, current_coeff + filter_size * 14);
+      __m512 coef_r3 = _mm512_load_4_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7, current_coeff + filter_size * 11, current_coeff + filter_size * 15);
+
+      _MM_TRANSPOSE16_LANE4_PS(coef_r0, coef_r1, coef_r2, coef_r3);
+
+      __m512 coef_r0_2 = _mm512_load_4_m128(current_coeff + filter_size * 16, current_coeff + filter_size * 20, current_coeff + filter_size * 24, current_coeff + filter_size * 28);
+      __m512 coef_r1_2 = _mm512_load_4_m128(current_coeff + filter_size * 17, current_coeff + filter_size * 21, current_coeff + filter_size * 25, current_coeff + filter_size * 29);
+      __m512 coef_r2_2 = _mm512_load_4_m128(current_coeff + filter_size * 18, current_coeff + filter_size * 22, current_coeff + filter_size * 26, current_coeff + filter_size * 30);
+      __m512 coef_r3_2 = _mm512_load_4_m128(current_coeff + filter_size * 19, current_coeff + filter_size * 23, current_coeff + filter_size * 27, current_coeff + filter_size * 31);
+
+      _MM_TRANSPOSE16_LANE4_PS(coef_r0_2, coef_r1_2, coef_r2_2, coef_r3_2);
+
+      // convert resampling program in H-form into permuting indexes for src transposition in V-form
+      int iStart = program->pixel_offset[x + 0];
+
+      __m512i perm_0 = _mm512_set_epi32(
+        program->pixel_offset[x + 15] - iStart,
+        program->pixel_offset[x + 14] - iStart,
+        program->pixel_offset[x + 13] - iStart,
+        program->pixel_offset[x + 12] - iStart,
+        program->pixel_offset[x + 11] - iStart,
+        program->pixel_offset[x + 10] - iStart,
+        program->pixel_offset[x + 9] - iStart,
+        program->pixel_offset[x + 8] - iStart,
+        program->pixel_offset[x + 7] - iStart,
+        program->pixel_offset[x + 6] - iStart,
+        program->pixel_offset[x + 5] - iStart,
+        program->pixel_offset[x + 4] - iStart,
+        program->pixel_offset[x + 3] - iStart,
+        program->pixel_offset[x + 2] - iStart,
+        program->pixel_offset[x + 1] - iStart,
+        0);
+
+      __m512i one_epi32 = _mm512_set1_epi32(1);
+      __m512i perm_1 = _mm512_add_epi32(perm_0, one_epi32);
+      one_epi32 = _mm512_set1_epi32(program->pixel_offset[x + 2] - program->pixel_offset[x + 1]);
+      __m512i perm_2 = _mm512_add_epi32(perm_1, one_epi32);
+      one_epi32 = _mm512_set1_epi32(program->pixel_offset[x + 3] - program->pixel_offset[x + 2]);
+      __m512i perm_3 = _mm512_add_epi32(perm_2, one_epi32);
+
+      // second gropup
+      __m512i perm_0_2 = _mm512_set_epi32(
+        program->pixel_offset[x + 31] - iStart,
+        program->pixel_offset[x + 30] - iStart,
+        program->pixel_offset[x + 29] - iStart,
+        program->pixel_offset[x + 28] - iStart,
+        program->pixel_offset[x + 27] - iStart,
+        program->pixel_offset[x + 26] - iStart,
+        program->pixel_offset[x + 25] - iStart,
+        program->pixel_offset[x + 24] - iStart,
+        program->pixel_offset[x + 23] - iStart,
+        program->pixel_offset[x + 22] - iStart,
+        program->pixel_offset[x + 21] - iStart,
+        program->pixel_offset[x + 20] - iStart,
+        program->pixel_offset[x + 19] - iStart,
+        program->pixel_offset[x + 18] - iStart,
+        program->pixel_offset[x + 17] - iStart,
+        program->pixel_offset[x + 16] - iStart);
+
+
+      __m512i perm_1_2 = _mm512_add_epi32(perm_0_2, one_epi32);
+      one_epi32 = _mm512_set1_epi32(program->pixel_offset[x + 2] - program->pixel_offset[x + 1]);
+      __m512i perm_2_2 = _mm512_add_epi32(perm_1_2, one_epi32);
+      one_epi32 = _mm512_set1_epi32(program->pixel_offset[x + 3] - program->pixel_offset[x + 2]);
+      __m512i perm_3_2 = _mm512_add_epi32(perm_2_2, one_epi32);
+
+      float* AVS_RESTRICT dst_ptr = dst + x;
+      const float* src_ptr = src + program->pixel_offset[x + 0]; // all permute offsets relative to this start offset
+      const float* src_ptr2 = src + program->pixel_offset[x + 16]; // all permute offsets relative to this start offset
+
+      for (int y = 0; y < height; y++) // single row proc
+      {
+        __m512 data_src = _mm512_loadu_ps(src_ptr);
+        __m512 data_src2 = _mm512_loadu_ps(src_ptr + 16); // not always needed for upscale also can cause end of buffer overread - need to add limitation (special end of buffer processing ?)
+
+        __m512 data_src_2 = _mm512_loadu_ps(src_ptr2);
+        __m512 data_src2_2 = _mm512_loadu_ps(src_ptr2 + 16); // not always needed for upscale also can cause end of buffer overread - need to add limitation (special end of buffer processing ?)
+
+        __m512 data_0 = _mm512_permutex2var_ps(data_src, perm_0, data_src2);
+        __m512 data_1 = _mm512_permutex2var_ps(data_src, perm_1, data_src2);
+        __m512 data_2 = _mm512_permutex2var_ps(data_src, perm_2, data_src2);
+        __m512 data_3 = _mm512_permutex2var_ps(data_src, perm_3, data_src2);
+
+        __m512 data_0_2 = _mm512_permutex2var_ps(data_src_2, perm_0_2, data_src2_2);
+        __m512 data_1_2 = _mm512_permutex2var_ps(data_src_2, perm_1_2, data_src2_2);
+        __m512 data_2_2 = _mm512_permutex2var_ps(data_src_2, perm_2_2, data_src2_2);
+        __m512 data_3_2 = _mm512_permutex2var_ps(data_src_2, perm_3_2, data_src2_2);
+
+        __m512 result0 = _mm512_mul_ps(data_0, coef_r0);
+        __m512 result1 = _mm512_mul_ps(data_2, coef_r2);
+
+        __m512 result0_2 = _mm512_mul_ps(data_0_2, coef_r0_2);
+        __m512 result1_2 = _mm512_mul_ps(data_2_2, coef_r2_2);
+
+        result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
+        result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
+
+        result0_2 = _mm512_fmadd_ps(data_1_2, coef_r1_2, result0_2);
+        result1_2 = _mm512_fmadd_ps(data_3_2, coef_r3_2, result1_2);
+
+
+        _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+        _mm512_stream_ps(dst_ptr + 16, _mm512_add_ps(result0_2, result1_2)); 
+
+        dst_ptr += dst_pitch;
+        src_ptr += src_pitch;
+      }
+
+      current_coeff += filter_size * 32;
+    } // to width_mo32
+
+    for (int x = width_mod32; x < width; x += 16)
+    {
+      // prepare coefs in transposed V-form
+      __m512 coef_r0 = _mm512_load_4_m128(current_coeff + filter_size * 0, current_coeff + filter_size * 4, current_coeff + filter_size * 8, current_coeff + filter_size * 12);
+      __m512 coef_r1 = _mm512_load_4_m128(current_coeff + filter_size * 1, current_coeff + filter_size * 5, current_coeff + filter_size * 9, current_coeff + filter_size * 13);
+      __m512 coef_r2 = _mm512_load_4_m128(current_coeff + filter_size * 2, current_coeff + filter_size * 6, current_coeff + filter_size * 10, current_coeff + filter_size * 14);
+      __m512 coef_r3 = _mm512_load_4_m128(current_coeff + filter_size * 3, current_coeff + filter_size * 7, current_coeff + filter_size * 11, current_coeff + filter_size * 15);
+
+      _MM_TRANSPOSE16_LANE4_PS(coef_r0, coef_r1, coef_r2, coef_r3);
+
+      // convert resampling program in H-form into permuting indexes for src transposition in V-form
+      int iStart = program->pixel_offset[x + 0];
+
+      __m512i perm_0 = _mm512_set_epi32(
+        program->pixel_offset[x + 15] - iStart,
+        program->pixel_offset[x + 14] - iStart,
+        program->pixel_offset[x + 13] - iStart,
+        program->pixel_offset[x + 12] - iStart,
+        program->pixel_offset[x + 11] - iStart,
+        program->pixel_offset[x + 10] - iStart,
+        program->pixel_offset[x + 9] - iStart,
+        program->pixel_offset[x + 8] - iStart,
+        program->pixel_offset[x + 7] - iStart,
+        program->pixel_offset[x + 6] - iStart,
+        program->pixel_offset[x + 5] - iStart,
+        program->pixel_offset[x + 4] - iStart,
+        program->pixel_offset[x + 3] - iStart,
+        program->pixel_offset[x + 2] - iStart,
+        program->pixel_offset[x + 1] - iStart,
+        0);
+
+      __m512i one_epi32 = _mm512_set1_epi32(1);
+      __m512i perm_1 = _mm512_add_epi32(perm_0, one_epi32);
+      one_epi32 = _mm512_set1_epi32(program->pixel_offset[x + 2] - program->pixel_offset[x + 1]);
+      __m512i perm_2 = _mm512_add_epi32(perm_1, one_epi32);
+      one_epi32 = _mm512_set1_epi32(program->pixel_offset[x + 3] - program->pixel_offset[x + 2]);
+      __m512i perm_3 = _mm512_add_epi32(perm_2, one_epi32);
+
+      float* AVS_RESTRICT dst_ptr = dst + x;
+      const float* src_ptr = src + program->pixel_offset[x + 0]; // all permute offsets relative to this start offset
+
+      for (int y = 0; y < height; y++) // single row proc
+      {
+        __m512 data_src = _mm512_loadu_ps(src_ptr);
+        __m512 data_src2 = _mm512_loadu_ps(src_ptr + 16); // not always needed for upscale also can cause end of buffer overread - need to add limitation (special end of buffer processing ?)
+
+        __m512 data_0 = _mm512_permutex2var_ps(data_src, perm_0, data_src2);
+        __m512 data_1 = _mm512_permutex2var_ps(data_src, perm_1, data_src2);
+        __m512 data_2 = _mm512_permutex2var_ps(data_src, perm_2, data_src2);
+        __m512 data_3 = _mm512_permutex2var_ps(data_src, perm_3, data_src2);
+
+        __m512 result0 = _mm512_mul_ps(data_0, coef_r0);
+        __m512 result1 = _mm512_mul_ps(data_2, coef_r2);
+
+        result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
+        result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
+
+        _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+
+        dst_ptr += dst_pitch;
+        src_ptr += src_pitch;
+      }
+
+      current_coeff += filter_size * 16;
+    } // to width
+  }
+}
+
+template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<0>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<1>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<2>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
+template void resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<3>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 
 
 #if 0 // DTL version
@@ -496,7 +974,7 @@ void resize_h_planar_float_avx512_transpose_vstripe_ks4(BYTE* dst8, const BYTE* 
             result = _mm512_fmadd_ps(d3_d7_d11_d15, c3_c7_c11_c15, result);
             result = _mm512_fmadd_ps(d4_d8_d12_d16, c4_c8_c12_c16, result);
 
-            _mm512_store_ps(dst_ptr, result);
+            _mm512_stream_ps(dst_ptr, result); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
 
             dst_ptr += dst_pitch;
             src_ptr += src_pitch;
@@ -572,7 +1050,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
       result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
 
-      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -608,8 +1086,8 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_3, coef_r3, result0);
       result1 = _mm512_fmadd_ps(data_3_2, coef_r3, result1);
 
-      _mm512_store_ps(dst_ptr, result0);
-      _mm512_store_ps(dst_ptr + dst_pitch, result1);
+      _mm512_stream_ps(dst_ptr, result0); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_stream_ps(dst_ptr + dst_pitch, result1);
 
       dst_ptr += dst_pitch * 2;
       src_ptr += src_pitch * 2;
@@ -630,7 +1108,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_1, coef_r1, result0);
       result1 = _mm512_fmadd_ps(data_3, coef_r3, result1);
 
-      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
     }
 
     current_coeff += filter_size * 16;
@@ -734,7 +1212,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_3, coef_r3, result0);
       result1 = _mm512_fmadd_ps(data_7, coef_r7, result1);
 
-      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -790,8 +1268,8 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_7, coef_r7, result0);
       result1 = _mm512_fmadd_ps(data_7_2, coef_r7, result1);
 
-      _mm512_store_ps(dst_ptr, result0);
-      _mm512_store_ps(dst_ptr + dst_pitch, result1);
+      _mm512_stream_ps(dst_ptr, result0); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_stream_ps(dst_ptr + dst_pitch, result1);
 
       dst_ptr += dst_pitch * 2;
       src_ptr += src_pitch * 2;
@@ -822,7 +1300,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
       result0 = _mm512_fmadd_ps(data_3, coef_r3, result0);
       result1 = _mm512_fmadd_ps(data_7, coef_r7, result1);
 
-      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
     }
 
     current_coeff += filter_size * 16;
@@ -978,7 +1456,7 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks16(BYTE* dst8, const BYTE* 
       result0 = _mm512_fmadd_ps(data_7, coef_r7, result0);
       result1 = _mm512_fmadd_ps(data_15, coef_r15, result1);
 
-      _mm512_store_ps(dst_ptr, _mm512_add_ps(result0, result1));
+      _mm512_stream_ps(dst_ptr, _mm512_add_ps(result0, result1)); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
 
       dst_ptr += dst_pitch;
       src_ptr += src_pitch;
@@ -1046,11 +1524,180 @@ void resize_v_avx512_planar_float(BYTE* dst8, const BYTE* src8, int dst_pitch, i
         result_single = _mm512_fmadd_ps(src_val, coeff, result_single);
       }
 
-      _mm512_store_ps(dst + x, result_single);
+      _mm512_stream_ps(dst + x, result_single);
     }
 
     dst += dst_pitch;
     current_coeff += filter_size;
   }
 }
+
+void resize_v_avx512_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel)
+{
+  AVS_UNUSED(bits_per_pixel);
+
+  const int filter_size = program->filter_size;
+  const float* AVS_RESTRICT current_coeff = program->pixel_coefficient_float;
+
+  const float* src = (const float*)src8;
+  float* AVS_RESTRICT dst = (float*)dst8;
+  dst_pitch = dst_pitch / sizeof(float);
+  src_pitch = src_pitch / sizeof(float);
+
+  const int kernel_size = program->filter_size_real; // not the aligned
+  const int kernel_size_mod2 = (kernel_size / 2) * 2; // Process pairs of rows for better efficiency
+  const bool notMod2 = kernel_size_mod2 < kernel_size;
+
+  const int width_mod128 = (width / 128) * 128; // Process by 8x 512it (8 x 16 floats) to make memory read/write linear streams longer, 32x512 bit registers should be enough
+  const int width_mod64 = (width / 64) * 64; // Process by 4x 512it (4 x 16 floats) to make memory read/write linear streams longer,
+  const int width_mod32 = (width / 32) * 32; // Process by 2x 512it (2 x 16 floats) to make memory read/write linear streams longer,
+
+  for (int y = 0; y < target_height; y++) {
+    int offset = program->pixel_offset[y];
+    const float* src_ptr = src + offset * src_pitch;
+
+    for (int x = 0; x < width_mod128; x += 128) {
+      __m512 result_1 = _mm512_setzero_ps();
+      __m512 result_2 = _mm512_setzero_ps();
+      __m512 result_3 = _mm512_setzero_ps();
+      __m512 result_4 = _mm512_setzero_ps();
+      __m512 result_5 = _mm512_setzero_ps();
+      __m512 result_6 = _mm512_setzero_ps();
+      __m512 result_7 = _mm512_setzero_ps();
+      __m512 result_8 = _mm512_setzero_ps();
+
+      const float* AVS_RESTRICT src2_ptr = src_ptr + x; // __restrict here
+
+      int i = 0;
+      for (; i < kernel_size; i ++) {
+        __m512 coeff = _mm512_set1_ps(current_coeff[i]);
+
+        __m512 src_1 = _mm512_load_ps(src2_ptr);
+        __m512 src_2 = _mm512_load_ps(src2_ptr + 16);
+        __m512 src_3 = _mm512_load_ps(src2_ptr + 32);
+        __m512 src_4 = _mm512_load_ps(src2_ptr + 48);
+        __m512 src_5 = _mm512_load_ps(src2_ptr + 64);
+        __m512 src_6 = _mm512_load_ps(src2_ptr + 80);
+        __m512 src_7 = _mm512_load_ps(src2_ptr + 96);
+        __m512 src_8 = _mm512_load_ps(src2_ptr + 112);
+
+        result_1 = _mm512_fmadd_ps(src_1, coeff, result_1);
+        result_2 = _mm512_fmadd_ps(src_2, coeff, result_2);
+        result_3 = _mm512_fmadd_ps(src_3, coeff, result_3);
+        result_4 = _mm512_fmadd_ps(src_4, coeff, result_4);
+        result_5 = _mm512_fmadd_ps(src_5, coeff, result_5);
+        result_6 = _mm512_fmadd_ps(src_6, coeff, result_6);
+        result_7 = _mm512_fmadd_ps(src_7, coeff, result_7);
+        result_8 = _mm512_fmadd_ps(src_8, coeff, result_8);
+
+        src2_ptr += src_pitch;
+      }
+
+      _mm512_stream_ps(dst + x, result_1); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm512_stream_ps(dst + x + 16, result_2);
+      _mm512_stream_ps(dst + x + 32, result_3);
+      _mm512_stream_ps(dst + x + 48, result_4);
+      _mm512_stream_ps(dst + x + 64, result_5);
+      _mm512_stream_ps(dst + x + 80, result_6);
+      _mm512_stream_ps(dst + x + 96, result_7);
+      _mm512_stream_ps(dst + x + 112, result_8);
+    }
+
+    for (int x = width_mod128; x < width_mod64; x += 64) {
+      __m512 result_1 = _mm512_setzero_ps();
+      __m512 result_2 = _mm512_setzero_ps();
+      __m512 result_3 = _mm512_setzero_ps();
+      __m512 result_4 = _mm512_setzero_ps();
+
+      const float* AVS_RESTRICT src2_ptr = src_ptr + x; // __restrict here
+
+      int i = 0;
+      for (; i < kernel_size; i++) {
+        __m512 coeff = _mm512_set1_ps(current_coeff[i]);
+
+        __m512 src_1 = _mm512_load_ps(src2_ptr);
+        __m512 src_2 = _mm512_load_ps(src2_ptr + 16);
+        __m512 src_3 = _mm512_load_ps(src2_ptr + 32);
+        __m512 src_4 = _mm512_load_ps(src2_ptr + 48);
+
+        result_1 = _mm512_fmadd_ps(src_1, coeff, result_1);
+        result_2 = _mm512_fmadd_ps(src_2, coeff, result_2);
+        result_3 = _mm512_fmadd_ps(src_3, coeff, result_3);
+        result_4 = _mm512_fmadd_ps(src_4, coeff, result_4);
+
+        src2_ptr += src_pitch;
+      }
+
+      _mm512_stream_ps(dst + x, result_1);
+      _mm512_stream_ps(dst + x + 16, result_2);
+      _mm512_stream_ps(dst + x + 32, result_3);
+      _mm512_stream_ps(dst + x + 48, result_4);
+    }
+
+    for (int x = width_mod64; x < width_mod32; x += 32) {
+      __m512 result_1 = _mm512_setzero_ps();
+      __m512 result_2 = _mm512_setzero_ps();
+
+      const float* AVS_RESTRICT src2_ptr = src_ptr + x; // __restrict here
+
+      int i = 0;
+      for (; i < kernel_size; i++) {
+        __m512 coeff = _mm512_set1_ps(current_coeff[i]);
+
+        __m512 src_1 = _mm512_load_ps(src2_ptr);
+        __m512 src_2 = _mm512_load_ps(src2_ptr + 16);
+
+        result_1 = _mm512_fmadd_ps(src_1, coeff, result_1);
+        result_2 = _mm512_fmadd_ps(src_2, coeff, result_2);
+
+        src2_ptr += src_pitch;
+      }
+
+      _mm512_stream_ps(dst + x, result_1);
+      _mm512_stream_ps(dst + x + 16, result_2);
+    }
+
+
+    // 64 byte 16 floats (AVX512 register holds 16 floats)
+    // row alignment is 64 bytes - so it is safe to load mod16 of float32 ?
+    for (int x = width_mod32; x < width; x += 16) {
+      __m512 result_single = _mm512_setzero_ps();
+      __m512 result_single_2 = _mm512_setzero_ps();
+
+      const float* AVS_RESTRICT src2_ptr = src_ptr + x; // __restrict here
+
+      // Process pairs of rows for better efficiency (2 coeffs/cycle)
+      // two result variables for potential parallel operation
+      int i = 0;
+      for (; i < kernel_size_mod2; i += 2) {
+        __m512 coeff_even = _mm512_set1_ps(current_coeff[i]);
+        __m512 coeff_odd = _mm512_set1_ps(current_coeff[i + 1]);
+
+        __m512 src_even = _mm512_load_ps(src2_ptr);
+        __m512 src_odd = _mm512_load_ps(src2_ptr + src_pitch);
+
+        result_single = _mm512_fmadd_ps(src_even, coeff_even, result_single);
+        result_single_2 = _mm512_fmadd_ps(src_odd, coeff_odd, result_single_2);
+
+        src2_ptr += 2 * src_pitch;
+      }
+
+      result_single = _mm512_add_ps(result_single, result_single_2);
+
+      // Process the last odd row if needed
+      if (notMod2) {
+        __m512 coeff = _mm512_set1_ps(current_coeff[i]);
+        __m512 src_val = _mm512_loadu_ps(src2_ptr);
+        result_single = _mm512_fmadd_ps(src_val, coeff, result_single);
+      }
+
+      _mm512_stream_ps(dst + x, result_single);
+    }
+
+
+    dst += dst_pitch;
+    current_coeff += filter_size;
+  }
+}
+
 

@@ -987,6 +987,102 @@ void resize_v_avx2_planar_float(BYTE* dst8, const BYTE* src8, int dst_pitch, int
   }
 }
 
+// Memory-transfer optimized version 
+void resize_v_avx2_planar_float_w_sr(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel)
+{
+  AVS_UNUSED(bits_per_pixel);
+
+  const int filter_size = program->filter_size;
+  const float* AVS_RESTRICT current_coeff = program->pixel_coefficient_float;
+
+  const float* src = (const float*)src8;
+  float* AVS_RESTRICT dst = (float*)dst8;
+  dst_pitch = dst_pitch / sizeof(float);
+  src_pitch = src_pitch / sizeof(float);
+
+  const int kernel_size = program->filter_size_real; // not the aligned
+  const int kernel_size_mod2 = (kernel_size / 2) * 2; // Process pairs of rows for better efficiency
+  const bool notMod2 = kernel_size_mod2 < kernel_size;
+
+  const int width_mod32 = (width / 32) * 32; // Process by 4x 256bit (8 x 8 floats) to make memory read/write linear streams longer, 16x256 bit registers in 64bit mode should be enough
+
+  for (int y = 0; y < target_height; y++) {
+    int offset = program->pixel_offset[y];
+    const float* src_ptr = src + offset * src_pitch;
+
+    for (int x = 0; x < width_mod32; x += 32) {
+      __m256 result_1 = _mm256_setzero_ps();
+      __m256 result_2 = _mm256_setzero_ps();
+      __m256 result_3 = _mm256_setzero_ps();
+      __m256 result_4 = _mm256_setzero_ps();
+
+      const float* AVS_RESTRICT src2_ptr = src_ptr + x; // __restrict here
+
+      int i = 0;
+      for (; i < kernel_size; i ++) {
+        // coefs are equal for all H-samples
+        __m256 coeff = _mm256_set1_ps(current_coeff[i]);
+
+        __m256 src_1 = _mm256_load_ps(src2_ptr); // why was loadu ? source always aligned in V-resizers ?
+        __m256 src_2 = _mm256_load_ps(src2_ptr + 8);
+        __m256 src_3 = _mm256_load_ps(src2_ptr + 16);
+        __m256 src_4 = _mm256_load_ps(src2_ptr + 24);
+
+        result_1 = _mm256_fmadd_ps(src_1, coeff, result_1);
+        result_2 = _mm256_fmadd_ps(src_2, coeff, result_2);
+        result_3 = _mm256_fmadd_ps(src_3, coeff, result_3);
+        result_4 = _mm256_fmadd_ps(src_4, coeff, result_4);
+
+        src2_ptr += src_pitch;
+      }
+
+      _mm256_stream_ps(dst + x, result_1); // it is best with RAW compute performance test but may be not best in filter chain and data splitting - better to use filter store control param cached or not cached stores
+      _mm256_stream_ps(dst + x + 8, result_2);
+      _mm256_stream_ps(dst + x + 16, result_3);
+      _mm256_stream_ps(dst + x + 24, result_4);
+    } // width_mod32
+
+    // 32 byte 8 floats (AVX2 register holds 8 floats)
+    // no need for wmod8, alignment is safe 32 bytes at least
+    for (int x = width_mod32; x < width; x += 8) {
+      __m256 result_single = _mm256_setzero_ps();
+      __m256 result_single_2 = _mm256_setzero_ps();
+
+      const float* AVS_RESTRICT src2_ptr = src_ptr + x; // __restrict here
+
+      // Process pairs of rows for better efficiency (2 coeffs/cycle)
+      // two result variables for potential parallel operation
+      int i = 0;
+      for (; i < kernel_size_mod2; i += 2) {
+        __m256 coeff_even = _mm256_set1_ps(current_coeff[i]);
+        __m256 coeff_odd = _mm256_set1_ps(current_coeff[i + 1]);
+
+        __m256 src_even = _mm256_load_ps(src2_ptr);
+        __m256 src_odd = _mm256_load_ps(src2_ptr + src_pitch);
+
+        result_single = _mm256_fmadd_ps(src_even, coeff_even, result_single);
+        result_single_2 = _mm256_fmadd_ps(src_odd, coeff_odd, result_single_2);
+
+        src2_ptr += 2 * src_pitch;
+      }
+
+      result_single = _mm256_add_ps(result_single, result_single_2);
+
+      // Process the last odd row if needed
+      if (notMod2) {
+        __m256 coeff = _mm256_set1_ps(current_coeff[i]);
+        __m256 src_val = _mm256_load_ps(src2_ptr);
+        result_single = _mm256_fmadd_ps(src_val, coeff, result_single);
+      }
+
+      _mm256_stream_ps(dst + x, result_single);
+    }
+
+    dst += dst_pitch;
+    current_coeff += filter_size;
+  }
+}
+
 // avx2 16bit
 template void resizer_h_avx2_generic_uint16_t<false>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 // avx2 10-14bit
