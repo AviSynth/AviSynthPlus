@@ -1615,10 +1615,10 @@ ResamplerH FilteredResizeH::GetResampler(int CPU, int pixelsize, int bits_per_pi
       case 2: return resize_h_planar_float_avx512_transpose_vstripe_ks4<2>; break;
       case 3: return resize_h_planar_float_avx512_transpose_vstripe_ks4<3>; break;
       case 4: return resize_h_planar_float_avx512_transpose_vstripe_ks4<0>; break;*/
-      case 1: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<1>; break;
-      case 2: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<2>; break;
-      case 3: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<3>; break;
-      case 4: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<0>; break;
+      case 1: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<1>; break;
+      case 2: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<2>; break;
+      case 3: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<3>; break;
+      case 4: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<0>; break;
       }
     }
 #endif
@@ -1848,11 +1848,13 @@ ResamplerV FilteredResizeV::GetResampler(int CPU, int pixelsize, int bits_per_pi
 #ifdef INTEL_INTRINSICS
 #ifdef INTEL_INTRINSICS_AVX512
       if (CPU & CPUF_AVX512F) {
-        return resize_v_avx512_planar_float;
+//        return resize_v_avx512_planar_float;
+        return resize_v_avx512_planar_float_w_sr;
       }
 #endif
       if (CPU & CPUF_AVX2) {
-        return resize_v_avx2_planar_float;
+//        return resize_v_avx2_planar_float;
+        return resize_v_avx2_planar_float_w_sr;
       }
       if (CPU & CPUF_SSE2) {
         return resize_v_sse2_planar_float;
@@ -2511,7 +2513,8 @@ ResamplerV FilteredResize_2p::GetResamplerV(int CPU, int pixelsize, int bits_per
 #ifdef INTEL_INTRINSICS
 #ifdef INTEL_INTRINSICS_AVX512
       if (CPU & CPUF_AVX512F) {
-        return resize_v_avx512_planar_float;
+//        return resize_v_avx512_planar_float;
+        return resize_v_avx512_planar_float_w_sr;
       }
 #endif
       if (CPU & CPUF_AVX2) {
@@ -2585,10 +2588,10 @@ ResamplerH FilteredResize_2p::GetResamplerH(int CPU, int pixelsize, int bits_per
               case 2: return resize_h_planar_float_avx512_transpose_vstripe_ks4<2>; break;
               case 3: return resize_h_planar_float_avx512_transpose_vstripe_ks4<3>; break;
               case 4: return resize_h_planar_float_avx512_transpose_vstripe_ks4<0>; break;*/
-      case 1: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<1>; break;
-      case 2: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<2>; break;
-      case 3: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<3>; break;
-      case 4: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4<0>; break;
+      case 1: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<1>; break;
+      case 2: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<2>; break;
+      case 3: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<3>; break;
+      case 4: return resize_h_planar_float_avx512_gather_permutex_vstripe_ks4_2w<0>; break;
       }
     }
 #endif
