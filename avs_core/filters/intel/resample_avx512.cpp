@@ -1862,4 +1862,153 @@ void resize_v_avx512_planar_uint8_t_w_sr(BYTE* AVS_RESTRICT dst, const BYTE* src
   }
 }
 
+//uint16_t
+template<bool lessthan16bit>
+void resize_v_avx512_planar_uint16_t_w_sr(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel)
+{
+  int filter_size = program->filter_size;
+  const short* AVS_RESTRICT current_coeff = program->pixel_coefficient;
+
+  const __m512i zero = _mm512_setzero_si512();
+
+  const int width_mod64 = (width / 64) * 64;
+
+  // for 16 bits only
+  const __m512i shifttosigned = _mm512_set1_epi16(-32768);
+  const __m512i shiftfromsigned = _mm512_set1_epi32(32768 << FPScale16bits);
+
+  const __m512i rounder = _mm512_set1_epi32(1 << (FPScale16bits - 1));
+
+  const uint16_t* src = (uint16_t*)src8;
+  uint16_t* AVS_RESTRICT dst = (uint16_t * AVS_RESTRICT)dst8;
+  dst_pitch = dst_pitch / sizeof(uint16_t);
+  src_pitch = src_pitch / sizeof(uint16_t);
+
+  const int kernel_size = program->filter_size_real; // not the aligned
+
+  const int limit = (1 << bits_per_pixel) - 1;
+  __m512i clamp_limit = _mm512_set1_epi16((short)limit); // clamp limit for <16 bits
+
+  for (int y = 0; y < target_height; y++) {
+    int offset = program->pixel_offset[y];
+    const uint16_t* src_ptr = src + offset * src_pitch;
+
+    // 128 byte 32 word
+    for (int x = 0; x < width_mod64; x += 64) {
+
+      __m512i result_lo = rounder;
+      __m512i result_hi = rounder;
+
+      __m512i result_lo_2 = rounder;
+      __m512i result_hi_2 = rounder;
+
+      const uint16_t* AVS_RESTRICT src2_ptr = src_ptr + x;
+
+      int i = 0;
+      for (; i < kernel_size; i++) {
+        // Broadcast a single coefficients
+        __m512i coeff = _mm512_set1_epi16(current_coeff[i]); // 0|co|0|co|0|co|0|co   0|co|0|co|0|co|0|co
+
+        __m512i src = _mm512_load_si512(reinterpret_cast<const __m512i*>(src2_ptr)); // 32x 16bit pixels
+        __m512i src_2 = _mm512_load_si512(reinterpret_cast<const __m512i*>(src2_ptr + 32)); // 32x 16bit pixels
+
+        if (!lessthan16bit) {
+          src = _mm512_add_epi16(src, shifttosigned);
+          src_2 = _mm512_add_epi16(src_2, shifttosigned);
+        }
+
+        __m512i src_lo = _mm512_unpacklo_epi16(src, zero);
+        __m512i src_hi = _mm512_unpackhi_epi16(src, zero);
+
+        __m512i src_lo_2 = _mm512_unpacklo_epi16(src_2, zero);
+        __m512i src_hi_2 = _mm512_unpackhi_epi16(src_2, zero);
+
+        result_lo = _mm512_add_epi32(result_lo, _mm512_madd_epi16(src_lo, coeff)); // a*b + c
+        result_hi = _mm512_add_epi32(result_hi, _mm512_madd_epi16(src_hi, coeff)); // a*b + c
+
+        result_lo_2 = _mm512_add_epi32(result_lo_2, _mm512_madd_epi16(src_lo_2, coeff)); // a*b + c
+        result_hi_2 = _mm512_add_epi32(result_hi_2, _mm512_madd_epi16(src_hi_2, coeff)); // a*b + c
+
+        src2_ptr += src_pitch;
+      }
+
+      if (!lessthan16bit) {
+        result_lo = _mm512_add_epi32(result_lo, shiftfromsigned);
+        result_hi = _mm512_add_epi32(result_hi, shiftfromsigned);
+
+        result_lo_2 = _mm512_add_epi32(result_lo_2, shiftfromsigned);
+        result_hi_2 = _mm512_add_epi32(result_hi_2, shiftfromsigned);
+
+      }
+      // shift back integer arithmetic 13 bits precision
+      result_lo = _mm512_srai_epi32(result_lo, FPScale16bits);
+      result_hi = _mm512_srai_epi32(result_hi, FPScale16bits);
+
+      result_lo_2 = _mm512_srai_epi32(result_lo_2, FPScale16bits);
+      result_hi_2 = _mm512_srai_epi32(result_hi_2, FPScale16bits);
+
+      __m512i result_2x8x_uint16 = _mm512_packus_epi32(result_lo, result_hi);
+      __m512i result_2x8x_uint16_2 = _mm512_packus_epi32(result_lo_2, result_hi_2);
+      if (lessthan16bit) {
+        result_2x8x_uint16 = _mm512_min_epu16(result_2x8x_uint16, clamp_limit); // extra clamp for 10-14 bit
+        result_2x8x_uint16_2 = _mm512_min_epu16(result_2x8x_uint16_2, clamp_limit); // extra clamp for 10-14 bit
+      }
+      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x), result_2x8x_uint16);
+      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x + 32), result_2x8x_uint16_2);
+    }
+    
+    // last 32
+    // 64 byte 32 word
+    for (int x = width_mod64; x < width; x += 32) { 
+
+      __m512i result_lo = rounder;
+      __m512i result_hi = rounder;
+
+      const uint16_t* AVS_RESTRICT src2_ptr = src_ptr + x;
+
+      int i = 0;
+      for (; i < kernel_size; i++) {
+        // Broadcast a single coefficients
+        __m512i coeff = _mm512_set1_epi16(current_coeff[i]); // 0|co|0|co|0|co|0|co   0|co|0|co|0|co|0|co
+
+        __m512i src = _mm512_load_si512(reinterpret_cast<const __m512i*>(src2_ptr)); // 32x 16bit pixels
+        if (!lessthan16bit) {
+          src = _mm512_add_epi16(src, shifttosigned);
+        }
+        __m512i src_lo = _mm512_unpacklo_epi16(src, zero);
+        __m512i src_hi = _mm512_unpackhi_epi16(src, zero);
+        result_lo = _mm512_add_epi32(result_lo, _mm512_madd_epi16(src_lo, coeff)); // a*b + c
+        result_hi = _mm512_add_epi32(result_hi, _mm512_madd_epi16(src_hi, coeff)); // a*b + c
+
+        src2_ptr += src_pitch;
+      }
+
+      if (!lessthan16bit) {
+        result_lo = _mm512_add_epi32(result_lo, shiftfromsigned);
+        result_hi = _mm512_add_epi32(result_hi, shiftfromsigned);
+      }
+      // shift back integer arithmetic 13 bits precision
+      result_lo = _mm512_srai_epi32(result_lo, FPScale16bits);
+      result_hi = _mm512_srai_epi32(result_hi, FPScale16bits);
+
+      __m512i result_2x8x_uint16 = _mm512_packus_epi32(result_lo, result_hi);
+      if (lessthan16bit) {
+        result_2x8x_uint16 = _mm512_min_epu16(result_2x8x_uint16, clamp_limit); // extra clamp for 10-14 bit
+      }
+      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x), result_2x8x_uint16);
+
+    }
+
+    dst += dst_pitch;
+    current_coeff += filter_size;
+  }
+}
+
+// avx512 16
+template void resize_v_avx512_planar_uint16_t_w_sr<false>(BYTE* dst0, const BYTE* src0, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel);
+// avx512 10-14bit
+template void resize_v_avx512_planar_uint16_t_w_sr<true>(BYTE* dst0, const BYTE* src0, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int target_height, int bits_per_pixel);
+
+
+
 
