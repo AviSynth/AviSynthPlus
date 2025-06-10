@@ -1797,7 +1797,7 @@ void resize_v_avx512_planar_uint8_t_w_sr(BYTE* AVS_RESTRICT dst, const BYTE* src
       __m512i res_2 = _mm512_packus_epi16(pack_1_2, pack_2_2);
 
       _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x), res);
-      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x + 64), res);
+      _mm512_store_si512(reinterpret_cast<__m512i*>(dst + x + 64), res_2);
 
     }
 
