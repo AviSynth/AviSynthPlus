@@ -539,9 +539,9 @@ ResamplingProgram* ResamplingFunction::GetResamplingProgram(int source_size, dou
     // in order not to have NaN floats
     if (start_pos + AlignNumber(fir_filter_size, ALIGN_FLOAT_RESIZER_COEFF_SIZE) - 1 > source_size - 1)
     {
-      if (!program->overread_possible) {
+      if (!program->overread_possible_filter_size_aligned) {
         // register the first occurance
-        program->overread_possible = true;
+        program->overread_possible_filter_size_aligned = true;
         program->source_overread_offset = start_pos;
         program->source_overread_beyond_targetx = i;
       }
