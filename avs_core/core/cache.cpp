@@ -117,7 +117,7 @@ struct CachePimpl
 };
 
 
-Cache::Cache(const PClip& _child, Device* device, std::mutex& CacheGuardMutex, InternalEnvironment* env) :
+AvsCache::AvsCache(const PClip& _child, Device* device, std::mutex& CacheGuardMutex, InternalEnvironment* env) :
   Env(env),
   _pimpl(NULL),
   device(device),
@@ -125,7 +125,7 @@ Cache::Cache(const PClip& _child, Device* device, std::mutex& CacheGuardMutex, I
 {
   _pimpl = new CachePimpl(_child, env->GetCacheMode());
   env->ManageCache(MC_RegisterCache, reinterpret_cast<void*>(this));
-  _RPT5(0, "Cache::Cache registered. cache_id=%p child=%p w=%d h=%d VideoCacheSize=%Iu\n", (void*)this, (void*)_child, _pimpl->vi.width, _pimpl->vi.height, _pimpl->VideoCache->size());
+  _RPT5(0, "AvsCache::AvsCache registered. cache_id=%p child=%p w=%d h=%d VideoCacheSize=%Iu\n", (void*)this, (void*)_child, _pimpl->vi.width, _pimpl->vi.height, _pimpl->VideoCache->size());
 
   const int dummy = 0;
   // child is usually MTGuard, which forwards this request to its child filter - the real one
@@ -150,14 +150,14 @@ Cache::Cache(const PClip& _child, Device* device, std::mutex& CacheGuardMutex, I
   }
 }
 
-Cache::~Cache()
+AvsCache::~AvsCache()
 {
-  _RPT5(0, "Cache::Cache unregister. cache_id=%p child=%p w=%d h=%d VideoCacheSize=%Iu\n", (void *)this, (void *)_pimpl->child, _pimpl->vi.width, _pimpl->vi.height, _pimpl->VideoCache->size()); // P.F.
+  _RPT5(0, "AvsCache::AvsCache unregister. cache_id=%p child=%p w=%d h=%d VideoCacheSize=%Iu\n", (void *)this, (void *)_pimpl->child, _pimpl->vi.width, _pimpl->vi.height, _pimpl->VideoCache->size()); // P.F.
   Env->ManageCache(MC_UnRegisterCache, reinterpret_cast<void*>(this));
   delete _pimpl;
 }
 
-PVideoFrame __stdcall Cache::GetFrame(int n, IScriptEnvironment* env_)
+PVideoFrame __stdcall AvsCache::GetFrame(int n, IScriptEnvironment* env_)
 {
 #ifdef _DEBUG
   constexpr auto BUFSIZE = 255;
@@ -186,10 +186,10 @@ PVideoFrame __stdcall Cache::GetFrame(int n, IScriptEnvironment* env_)
   LruLookupResult LruLookupRes = _pimpl->VideoCache->lookup(n, &cache_handle, true, result, &env->GetSupressCaching());
   /*
   std::string name = FuncName;
-  snprintf(buf.get(), BUFSIZE, "Cache::GetFrame lookup follows: [%s] n=%6d Thread=%zu", name.c_str(), n, env->GetEnvProperty(AEP_THREAD_ID));
+  snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame lookup follows: [%s] n=%6d Thread=%zu", name.c_str(), n, env->GetEnvProperty(AEP_THREAD_ID));
   _RPT0(0, buf.get());
 
-  snprintf(buf.get(), BUFSIZE, "Cache::GetFrame lookup ready: [%s] n=%6d Thread=%zu res=%d", name.c_str(), n, env->GetEnvProperty(AEP_THREAD_ID), (int)LruLookupRes);
+  snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame lookup ready: [%s] n=%6d Thread=%zu res=%d", name.c_str(), n, env->GetEnvProperty(AEP_THREAD_ID), (int)LruLookupRes);
   _RPT0(0, buf.get());
   */
 
@@ -208,7 +208,7 @@ PVideoFrame __stdcall Cache::GetFrame(int n, IScriptEnvironment* env_)
       try
       {
 #ifdef _DEBUG
-        snprintf(buf.get(), BUFSIZE, "Cache::GetFrame LRU_LOOKUP_NOT_FOUND: [%s] n=%6d child=%p\n", name.c_str(), n, (void*)_pimpl->child); // P.F.
+        snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame LRU_LOOKUP_NOT_FOUND: [%s] n=%6d child=%p\n", name.c_str(), n, (void*)_pimpl->child); // P.F.
         _RPT0(0, buf.get());
 #endif
         //cache_handle.first->value = _pimpl->child->GetFrame(n, env);
@@ -238,10 +238,10 @@ PVideoFrame __stdcall Cache::GetFrame(int n, IScriptEnvironment* env_)
       std::chrono::duration<double> elapsed_seconds = t_end - t_start;
       std::string name = FuncName;
       if (NULL == cache_handle.first->value) {
-          snprintf(buf.get(), BUFSIZE, "Cache::GetFrame LRU_LOOKUP_NOT_FOUND: HEY! got nulled! [%s] n=%6d child=%p frame=%p framebefore=%p SeekTimeWithGetFrame:%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)cache_handle.first->value, (void *)result, elapsed_seconds.count()); // P.F.
+          snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame LRU_LOOKUP_NOT_FOUND: HEY! got nulled! [%s] n=%6d child=%p frame=%p framebefore=%p SeekTimeWithGetFrame:%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)cache_handle.first->value, (void *)result, elapsed_seconds.count()); // P.F.
           _RPT0(0, buf.get());
       } else {
-          snprintf(buf.get(), BUFSIZE, "Cache::GetFrame LRU_LOOKUP_NOT_FOUND: [%s] n=%6d child=%p frame=%p framebefore=%p videoCacheSize=%zu SeekTimeWithGetFrame:%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)cache_handle.first->value, (void *)result, _pimpl->VideoCache->size(), elapsed_seconds.count()); // P.F.
+          snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame LRU_LOOKUP_NOT_FOUND: [%s] n=%6d child=%p frame=%p framebefore=%p videoCacheSize=%zu SeekTimeWithGetFrame:%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)cache_handle.first->value, (void *)result, _pimpl->VideoCache->size(), elapsed_seconds.count()); // P.F.
           _RPT0(0, buf.get());
       }
 #endif
@@ -261,7 +261,7 @@ PVideoFrame __stdcall Cache::GetFrame(int n, IScriptEnvironment* env_)
       t_end = std::chrono::high_resolution_clock::now();
       std::chrono::duration<double> elapsed_seconds = t_end - t_start;
       std::string name = FuncName;
-      snprintf(buf.get(), BUFSIZE, "Cache::GetFrame LRU_LOOKUP_FOUND_AND_READY: [%s] n=%6d child=%p frame=%p vfb=%p videoCacheSize=%zu SeekTime            :%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)result, (void *)result->GetFrameBuffer(), _pimpl->VideoCache->size(), elapsed_seconds.count());
+      snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame LRU_LOOKUP_FOUND_AND_READY: [%s] n=%6d child=%p frame=%p vfb=%p videoCacheSize=%zu SeekTime            :%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)result, (void *)result->GetFrameBuffer(), _pimpl->VideoCache->size(), elapsed_seconds.count());
       _RPT0(0, buf.get());
       assert(result != NULL);
 #endif
@@ -270,14 +270,14 @@ PVideoFrame __stdcall Cache::GetFrame(int n, IScriptEnvironment* env_)
   case LRU_LOOKUP_NO_CACHE:
     {
 #ifdef _DEBUG
-    snprintf(buf.get(), BUFSIZE, "Cache::GetFrame <Before GetFrame> LRU_LOOKUP_NO_CACHE: [%s] n=%6d child=%p\n", name.c_str(), n, (void*)_pimpl->child); // P.F.
+    snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame <Before GetFrame> LRU_LOOKUP_NO_CACHE: [%s] n=%6d child=%p\n", name.c_str(), n, (void*)_pimpl->child); // P.F.
     _RPT0(0, buf.get());
 #endif
     result = _pimpl->child->GetFrame(n, env);
 #ifdef _DEBUG
       t_end = std::chrono::high_resolution_clock::now();
       std::chrono::duration<double> elapsed_seconds = t_end - t_start;
-      snprintf(buf.get(), BUFSIZE, "Cache::GetFrame <After GetFrame> LRU_LOOKUP_NO_CACHE: [%s] n=%6d child=%p frame=%p vfb=%p videoCacheSize=%zu SeekTime            :%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)result, (void *)result->GetFrameBuffer(), _pimpl->VideoCache->size(), elapsed_seconds.count()); // P.F.
+      snprintf(buf.get(), BUFSIZE, "AvsCache::GetFrame <After GetFrame> LRU_LOOKUP_NO_CACHE: [%s] n=%6d child=%p frame=%p vfb=%p videoCacheSize=%zu SeekTime            :%f\n", name.c_str(), n, (void *)_pimpl->child, (void *)result, (void *)result->GetFrameBuffer(), _pimpl->VideoCache->size(), elapsed_seconds.count()); // P.F.
       _RPT0(0, buf.get());
 #endif
       break;
@@ -293,13 +293,13 @@ PVideoFrame __stdcall Cache::GetFrame(int n, IScriptEnvironment* env_)
   return result;
 }
 
-void Cache::FillAudioZeros(void* buf, size_t start_offset, size_t count) {
+void AvsCache::FillAudioZeros(void* buf, size_t start_offset, size_t count) {
     const int bps = _pimpl->vi.BytesPerAudioSample();
     unsigned char* byte_buf = (unsigned char*)buf;
     memset(byte_buf + start_offset * bps, 0, count * bps);
 }
 
-void __stdcall Cache::GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
+void __stdcall AvsCache::GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env)
 {
   if (count <= 0)
     return;
@@ -439,19 +439,19 @@ void __stdcall Cache::GetAudio(void* buf, int64_t start, int64_t count, IScriptE
 
 }
 
-const VideoInfo& __stdcall Cache::GetVideoInfo()
+const VideoInfo& __stdcall AvsCache::GetVideoInfo()
 {
   return _pimpl->vi;
 }
 
-bool __stdcall Cache::GetParity(int n)
+bool __stdcall AvsCache::GetParity(int n)
 {
   return _pimpl->child->GetParity(n);
 }
 
-int __stdcall Cache::SetCacheHints(int cachehints, int frame_range)
+int __stdcall AvsCache::SetCacheHints(int cachehints, int frame_range)
 {
-  // _RPT3(0, "Cache::SetCacheHints called. cache=%p hint=%d frame_range=%d\n", (void *)this, cachehints, frame_range);
+  // _RPT3(0, "AvsCache::SetCacheHints called. cache=%p hint=%d frame_range=%d\n", (void *)this, cachehints, frame_range);
   switch(cachehints)
   {
     /*********************************************
@@ -490,7 +490,7 @@ int __stdcall Cache::SetCacheHints(int cachehints, int frame_range)
       _pimpl->VideoCache->limits(&min, &max);
       max = frame_range;
       _pimpl->VideoCache->set_limits(min, max);
-      _RPT3(0, "Cache::SetCacheHints CACHE_SET_MAX_CAPACITY cache=%p hint=%d frame_range=%d\n", (void *)this, cachehints, frame_range);
+      _RPT3(0, "AvsCache::SetCacheHints CACHE_SET_MAX_CAPACITY cache=%p hint=%d frame_range=%d\n", (void *)this, cachehints, frame_range);
       break;
     }
 
@@ -636,7 +636,7 @@ PClip CacheGuard::GetCache(IScriptEnvironment* env_)
   }
 
   // not found for current device, create it
-  Cache* cache = new Cache(child, device, /*ref*/mutex, static_cast<InternalEnvironment*>(globalEnv));
+  AvsCache* cache = new AvsCache(child, device, /*ref*/mutex, static_cast<InternalEnvironment*>(globalEnv));
 
   // apply cache hints if it is changed
   if (hints.min != hints.default_min)

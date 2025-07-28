@@ -1007,7 +1007,7 @@ class VideoFrameBuffer {
   volatile long sequence_number;
 
   friend class VideoFrame;
-  friend class Cache;
+  friend class AvsCache;
   friend class ScriptEnvironment;
   volatile long refcount;
 
@@ -1101,7 +1101,7 @@ class VideoFrame {
   void Release();
 
   friend class ScriptEnvironment;
-  friend class Cache;
+  friend class AvsCache;
 
   VideoFrame(VideoFrameBuffer* _vfb, AVSMap* avsmap, int _offset, int _pitch, int _row_size, int _height, int _pixel_type);
   VideoFrame(VideoFrameBuffer* _vfb, AVSMap* avsmap, int _offset, int _pitch, int _row_size, int _height, int _offsetU, int _offsetV, int _pitchUV, int _row_sizeUV, int _heightUV, int _pixel_type);

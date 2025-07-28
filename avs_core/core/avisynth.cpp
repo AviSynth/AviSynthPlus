@@ -1070,7 +1070,7 @@ private:
   typedef std::vector<DebugTimestampedFrame> VideoFrameArrayType;
   typedef std::map<VideoFrameBuffer *, VideoFrameArrayType> FrameBufferRegistryType;
   typedef std::map<size_t, FrameBufferRegistryType> FrameRegistryType2; // post r1825 P.F.
-  typedef mapped_list<Cache*> CacheRegistryType;
+  typedef mapped_list<AvsCache*> CacheRegistryType;
 
 
   FrameRegistryType2 FrameRegistry2; // P.F.
@@ -1080,7 +1080,7 @@ private:
 
   std::unique_ptr<DeviceManager> Devices;
   CacheRegistryType CacheRegistry;
-  Cache* FrontCache;
+  AvsCache* FrontCache;
   VideoFrame* GetNewFrame(size_t vfb_size, size_t margin, Device* device);
   VideoFrame* GetFrameFromRegistry(size_t vfb_size, Device* device);
   void ShrinkCache(Device* device);
@@ -3605,7 +3605,7 @@ VideoFrame* ScriptEnvironment::GetNewFrame(size_t vfb_size, size_t margin, Devic
   for (auto &cit: CacheRegistry)
   {
     cache_counter++;
-    Cache* cache = cit;
+    AvsCache* cache = cit;
     int cache_size = cache->SetCacheHints(CACHE_GET_SIZE, 0);
     _RPT4(0, "  cache#%d cache_ptr=%p cache_size=%d \n", cache_counter, (void*)cache, cache_size); // let's see what's in the cache
   }
@@ -3729,7 +3729,7 @@ void ScriptEnvironment::ShrinkCache(Device *device)
 
     // We try to shrink least recently used caches first.
 
-    Cache* cache = cit;
+    AvsCache* cache = cit;
     if (cache->GetDevice() != device) {
       continue;
     }
@@ -4206,7 +4206,7 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
     // Called by Cache instances upon creation
   case MC_RegisterCache:
   {
-    Cache* cache = reinterpret_cast<Cache*>(data);
+    AvsCache* cache = reinterpret_cast<AvsCache*>(data);
     if (FrontCache != NULL)
       CacheRegistry.push_back(FrontCache);
     FrontCache = cache;
@@ -4215,7 +4215,7 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
   // Called by Cache instances upon destruction
   case MC_UnRegisterCache:
   {
-    Cache* cache = reinterpret_cast<Cache*>(data);
+    AvsCache* cache = reinterpret_cast<AvsCache*>(data);
     if (FrontCache == cache)
       FrontCache = NULL;
     else
@@ -4225,7 +4225,7 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
   // Called by Cache instances when they want to expand their limit
   case MC_NodAndExpandCache:
   {
-    Cache* cache = reinterpret_cast<Cache*>(data);
+    AvsCache* cache = reinterpret_cast<AvsCache*>(data);
 
     // Nod
     if (cache != FrontCache)
@@ -4249,7 +4249,7 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
       // If we don't have enough free reserves, take away a cache slot from
       // a cache instance that hasn't been used since long.
 
-      for (Cache* old_cache : CacheRegistry)
+      for (AvsCache* old_cache : CacheRegistry)
       {
         if (old_cache->GetDevice() != device) {
           continue;
@@ -4272,7 +4272,7 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
   // Called by Cache instances when they are accessed
   case MC_NodCache:
   {
-    Cache* cache = reinterpret_cast<Cache*>(data);
+    AvsCache* cache = reinterpret_cast<AvsCache*>(data);
     if (cache == FrontCache) {
       return 0;
     }
@@ -5127,11 +5127,11 @@ bool ScriptEnvironment::Invoke_(AVSValue *result, const AVSValue& implicit_last,
 #ifdef _DEBUG
     if (PrevFrontCache != FrontCache && FrontCache != NULL) // cache registering swaps frontcache to the current
     {
-      _RPT2(0, "ScriptEnvironment::Invoke done Cache::Create %s  cache_id=%p\r\n", name, (void*)FrontCache);
+      _RPT2(0, "ScriptEnvironment::Invoke done AvsCache::Create %s  cache_id=%p\r\n", name, (void*)FrontCache);
       FrontCache->FuncName = name; // helps debugging. See also in cache.cpp
     }
     else {
-      _RPT1(0, "ScriptEnvironment::Invoke done Cache::Create %s\r\n", name);
+      _RPT1(0, "ScriptEnvironment::Invoke done AvsCache::Create %s\r\n", name);
     }
 #endif
   }
