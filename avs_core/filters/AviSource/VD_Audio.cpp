@@ -17,7 +17,9 @@
 
 //#include "VirtualDub.h"
 
+#undef _DEBUG
 #include <crtdbg.h>
+#define _DEBUG 1
 #include <cassert>
 #include <limits>
 #include <new>
