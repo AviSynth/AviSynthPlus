@@ -121,6 +121,52 @@ private:
 };
 
 
+/**
+  * Class to resize in the dual directions using a specified sampling filter and lower size used temporal buffer
+  * Helper for resample functions
+ **/
+class FilteredResize_2p : public GenericVideoFilter
+{
+public:
+  FilteredResize_2p(PClip _child,
+    double subrange_left, double subrange_width, int target_width, 
+    double subrange_top, double subrange_height, int target_height,
+    ResamplingFunction* func, bool preserve_center, int chroma_placement, IScriptEnvironment* env);
+  virtual ~FilteredResize_2p(void);
+
+  PVideoFrame __stdcall GetFrame(int n, IScriptEnvironment* env) override;
+
+  int __stdcall SetCacheHints(int cachehints, int frame_range) override {
+    AVS_UNUSED(frame_range);
+    return cachehints == CACHE_GET_MTMODE ? MT_NICE_FILTER : 0;
+  }
+
+  static ResamplerH GetResamplerH(int CPU, int pixelsize, int bits_per_pixel, ResamplingProgram* program, IScriptEnvironment* env);
+  static ResamplerV GetResamplerV(int CPU, int pixelsize, int bits_per_pixel, ResamplingProgram* program, IScriptEnvironment* env);
+
+private:
+  bool grey;
+  int pixelsize; // AVS16
+  int bits_per_pixel;
+
+  int src_width, src_height, dst_width, dst_height;
+
+  ResamplingProgram* resampling_program_luma_h;
+  ResamplingProgram* resampling_program_chroma_h;
+
+  ResamplingProgram* resampling_program_luma_v;
+  ResamplingProgram* resampling_program_chroma_v;
+
+  ResamplerH resampler_luma_h;
+  ResamplerH resampler_chroma_h;
+
+  ResamplerV resampler_luma_v;
+  ResamplerV resampler_chroma_v;
+
+};
+
+
+
 /*** Resample factory methods ***/
 
 class FilteredResize
