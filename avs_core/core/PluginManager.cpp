@@ -79,7 +79,8 @@ static std::string GetLastErrorText(DWORD nErrorCode)
     return("Unknown error");
   else
   {
-    std::string ret(msg);
+    auto msg_utf8 = AnsiToUtf8(msg);
+    std::string ret(msg_utf8.get());
     LocalFree(msg);
     return ret;
   }
