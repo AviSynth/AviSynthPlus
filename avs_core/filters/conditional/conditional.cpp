@@ -216,7 +216,7 @@ PVideoFrame __stdcall ConditionalSelect::GetFrame(int n, IScriptEnvironment* env
     PVideoFrame dst = child->GetFrame(min(num_frames-1, n), env);
 
     env->MakeWritable(&dst);
-    env->ApplyMessage(&dst, vi, error.msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0);
+    env->ApplyMessageEx(&dst, vi, error.msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0, true);
 
     return dst;
   }
@@ -416,7 +416,7 @@ PVideoFrame __stdcall ConditionalFilter::GetFrame(int n, IScriptEnvironment* env
 
     PVideoFrame dst = source1->GetFrame(n,env);
     env->MakeWritable(&dst);
-    env->ApplyMessage(&dst, vi1, error_msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0);
+    env->ApplyMessageEx(&dst, vi1, error_msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0, true);
 
     if (!local) {
       env->SetVar("last", prev_last);       // Restore implicit last
@@ -478,7 +478,7 @@ PVideoFrame __stdcall ConditionalFilter::GetFrame(int n, IScriptEnvironment* env
 
     PVideoFrame dst = source1->GetFrame(n,env);
     env->MakeWritable(&dst);
-    env->ApplyMessage(&dst, vi1, error_msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0);
+    env->ApplyMessageEx(&dst, vi1, error_msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0, true);
     return dst;
   }
 
@@ -663,7 +663,7 @@ PVideoFrame __stdcall ScriptClip::GetFrame(int n, IScriptEnvironment* env_)
 
     PVideoFrame dst = child->GetFrame(n,env);
     env->MakeWritable(&dst);
-    env->ApplyMessage(&dst, vi, error_msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0);
+    env->ApplyMessageEx(&dst, vi, error_msg, vi.width/W_DIVISOR, 0xa0a0a0, 0, 0, true);
     if (!local) {
       env->SetVar("last", prev_last);       // Restore implicit last
       env->SetVar("current_frame", prev_current_frame);       // Restore current_frame
