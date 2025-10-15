@@ -73,13 +73,13 @@ void IFunction::Release() {
 // Translates a Windows error code to a human-readable text message.
 static std::string GetLastErrorText(DWORD nErrorCode)
 {
-  char* msg;
+  wchar_t* msg;
   // Ask Windows to prepare a standard message for a GetLastError() code:
-  if (0 == FormatMessageA(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, nErrorCode, 0, (LPSTR)&msg, 0, NULL))
+  if (0 == FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, NULL, nErrorCode, 0, (LPWSTR)&msg, 0, NULL))
     return("Unknown error");
   else
   {
-    auto msg_utf8 = AnsiToUtf8(msg);
+    auto msg_utf8 = WideCharToUtf8(msg);
     std::string ret(msg_utf8.get());
     LocalFree(msg);
     return ret;
