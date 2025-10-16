@@ -833,7 +833,7 @@ bool CAVIFileSynth::DelayInit2() {
 void CAVIFileSynth::MakeErrorStream(const char* msg) {
   error_msg = msg;
   filter_graph = Create_MessageClip(msg, vi->width, vi->height, vi->pixel_type, false, 0xFF3333, 0, 0, -1, -1, -1,
-    false, /* no utf8 input expected, however if Windows code page happens to be utf8, it just works */
+    true, /* may be utf8 when using AvisynthError::msgr */
     env);
 }
 
