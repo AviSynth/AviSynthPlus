@@ -970,7 +970,7 @@ struct AVS_Value {
 // Should also set to avs_void after the value is released
 // with avs_copy_value.  Consider it the equivalent of setting
 // a pointer to NULL
-static const AVS_Value avs_void = {'v'};
+static const AVS_Value avs_void = {'v', 0, {0}};
 // see also avs_set_to_void v11 API
 
 /*******************************
@@ -1469,6 +1469,7 @@ AVSC_API(int64_t, avs_get_var_long)(AVS_ScriptEnvironment*, const char* name, in
   FreeLibrary(HMODULE);
 */
 
+#ifndef EXTERNAL_AVS_C_API_LOADER // If external loader is NOT active, then define these helpers
 
 typedef struct AVS_Library AVS_Library;
 
@@ -1985,7 +1986,10 @@ AVSC_INLINE void avs_free_library(AVS_Library *library) {
   FreeLibrary(library->handle);
   free(library);
 }
-#endif
+
+#endif // EXTERNAL_AVS_C_API_LOADER
+
+#endif // AVSC_NO_DECLSPEC
 
 #endif // AVS_WINDOWS
 
