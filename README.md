@@ -6,6 +6,37 @@ features and developer friendliness.
 
 Visit our [forum thread](http://forum.doom9.org/showthread.php?t=181351) for compilation instructions and support.
 
+
+Headers for applications which dynamically load AviSynth+:
+----------------------------------------------------------
+
+The expected use-case of AviSynth+ is as a dynamically
+loaded library (using LoadLibrary on Windows or dlopen
+everywhere else).
+
+Due to this, it's not actually necessary to build the
+AviSynth+ library itself in order for applications using
+it this way to find it.
+
+To facilitate this, we support using CMake to do a
+limited, headers-only install.
+
+### Using CMake:
+
+#### To install:
+
+> mkdir avisynth-build && cd avisynth-build
+> <br>cmake ../ -DHEADERS_ONLY:bool=on
+> <br>make VersionGen install
+
+`-DCMAKE_INSTALL_PREFIX` can be used to override the
+install location if need be.
+
+#### To uninstall:
+
+>make uninstall
+
+
 Building the documentation:
 ---------------------------
 (Note: the bundled documentation lags behind the descriptions found in the wiki.
@@ -39,31 +70,3 @@ Once Sphinx is installed, we can build the documentation.
 > <br>make html
 
 
-Headers for applications which dynamically load AviSynth+:
-----------------------------------------------------------
-
-The expected use-case of AviSynth+ is as a dynamically
-loaded library (using LoadLibrary on Windows or dlopen
-everywhere else).
-
-Due to this, it's not actually necessary to build the
-AviSynth+ library itself in order for applications using
-it this way to find it.
-
-To facilitate this, we support using CMake to do a
-limited, headers-only install.
-
-### Using CMake:
-
-#### To install:
-
-> mkdir avisynth-build && cd avisynth-build
-> <br>cmake ../ -DHEADERS_ONLY:bool=on
-> <br>make VersionGen install
-
-`-DCMAKE_INSTALL_PREFIX` can be used to override the
-install location if need be.
-
-#### To uninstall:
-
->make uninstall
