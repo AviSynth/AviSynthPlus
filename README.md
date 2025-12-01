@@ -51,8 +51,7 @@ AviSynth+ library itself in order for applications using
 it this way to find it.
 
 To facilitate this, we support using CMake to do a
-limited, headers-only install.  The GNUmakefile is
-deprecated and will eventually be removed.
+limited, headers-only install.
 
 ### Using CMake:
 
@@ -68,17 +67,3 @@ install location if need be.
 #### To uninstall:
 
 >make uninstall
-
-### Using GNUmakefile (legacy):
-
-#### To install:
-
->make install
-
-#### To install to a non-standard location:
-
->make install PREFIX=/path/to/location
-
-#### To uninstall:
-
->make uninstall PREFIX=/path/to/location
