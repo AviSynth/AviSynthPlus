@@ -244,6 +244,11 @@ if (MSVC_IDE)
     POST_BUILD
     COMMAND xcopy /Y \"$(TargetDir)AviSynth.lib\" \"${CMAKE_BINARY_DIR}/Output/c_api\"
   )
+  add_custom_command(
+    TARGET AvsCore
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory ${CMAKE_CURRENT_SOURCE_DIR}/include ${CMAKE_BINARY_DIR}/Output/include
+  )
 endif()
 
 # Determine target architecture
@@ -264,6 +269,14 @@ ADD_CUSTOM_TARGET(
                      -P ${CMAKE_CURRENT_SOURCE_DIR}/Version.cmake
 )
 ADD_DEPENDENCIES("AvsCore" VersionGen)
+
+IF(MSVC_IDE)
+  add_custom_command(
+    TARGET AvsCore
+    POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/avs_core/version.h ${CMAKE_BINARY_DIR}/avs_core/arch.h ${CMAKE_BINARY_DIR}/Output/include/avs
+  )
+endif()
 
 if (NOT EXISTS "${CMAKE_SOURCE_DIR}/.git" OR NOT GIT_FOUND)
   set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -DRELEASE_TARBALL")
