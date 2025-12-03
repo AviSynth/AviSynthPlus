@@ -27,7 +27,7 @@ limited, headers-only install.
 
 > mkdir avisynth-build && cd avisynth-build
 > <br>cmake ../ -DHEADERS_ONLY:bool=on
-> <br>make VersionGen install
+> <br>make install
 
 `-DCMAKE_INSTALL_PREFIX` can be used to override the
 install location if need be.
