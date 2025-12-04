@@ -7,6 +7,28 @@ features and developer friendliness.
 Visit our [forum thread](http://forum.doom9.org/showthread.php?t=181351) for compilation instructions and support.
 
 
+| Supported OSes |
+|----------------|
+| Windows        |
+| macOS          |
+| Linux          |
+| *BSD           |
+| Haiku          |
+
+| Supported CPU architectures |
+|-----------------------------|
+| x86(-64)                    | 
+| ARM                         |
+| PowerPC                     |
+| SPARC                       |
+| RISC-V                      |
+| MIPS                        |
+| LoongArch                   |
+
+Not all OS/CPU combinations possible from either the OS' standpoint or AviSynth+'s.
+MIPS and LoongArch enabled by request to allow source compilation to succeed, but not tested on either hardware or VM
+
+
 Headers for applications which dynamically load AviSynth+:
 ----------------------------------------------------------
 
