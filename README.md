@@ -7,6 +7,9 @@ features and developer friendliness.
 Visit our [forum thread](http://forum.doom9.org/showthread.php?t=181351) for compilation instructions and support.
 
 
+Platform availability
+---------------------
+
 | Supported OSes |
 |----------------|
 | Windows        |
@@ -27,6 +30,12 @@ Visit our [forum thread](http://forum.doom9.org/showthread.php?t=181351) for com
 
 Not all OS/CPU combinations possible from either the OS' standpoint or AviSynth+'s.
 MIPS and LoongArch enabled by request to allow source compilation to succeed, but not tested on either hardware or VM
+
+
+Packaging status
+----------------
+
+[![Packaging status](https://repology.org/badge/vertical-allrepos/avisynthplus.svg)](https://repology.org/project/avisynthplus/versions)
 
 
 Headers for applications which dynamically load AviSynth+:
