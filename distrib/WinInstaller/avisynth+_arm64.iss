@@ -176,7 +176,7 @@ Source: "..\docs\english\build\html\*"; DestDir: "{app}\docs\English"; Component
 
 #ifdef WITH_SDK
 Source: "..\docs\english\build\html\avisynthdoc\FilterSDK\*"; DestDir: "{app}\FilterSDK"; Components: sdk; Flags: ignoreversion recursesubdirs
-Source: "..\..\avs_core\include\*"; DestDir: "{app}\FilterSDK\include"; Components: sdk; Flags: ignoreversion recursesubdirs
+Source: "{#BuildDir64}\usr\aarch64-w64-mingw32\include\*"; DestDir: "{app}\FilterSDK\include\arm64"; Components: sdk; Flags: ignoreversion recursesubdirs
 Source: "{#BuildDir64}\usr\aarch64-w64-mingw32\lib\*.a"; DestDir: "{app}\FilterSDK\lib\arm64"; Components: sdk; Flags: ignoreversion recursesubdirs
 #endif
 
