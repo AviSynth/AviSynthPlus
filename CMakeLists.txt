@@ -525,7 +525,7 @@ else()
   FIND_PACKAGE(Git)
   INCLUDE_DIRECTORIES(${CMAKE_CURRENT_BINARY_DIR})
   ADD_CUSTOM_TARGET(
-    VersionGen
+    VersionGen ALL
     ${CMAKE_COMMAND} -D SRC=${CMAKE_CURRENT_SOURCE_DIR}/avs_core/core/version.h.in
                       -D DST=${CMAKE_CURRENT_BINARY_DIR}/version.h
                       -D GIT=${GIT_EXECUTABLE}

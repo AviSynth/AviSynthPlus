@@ -6,37 +6,36 @@ features and developer friendliness.
 
 Visit our [forum thread](http://forum.doom9.org/showthread.php?t=181351) for compilation instructions and support.
 
-Building the documentation:
----------------------------
-(Note: the bundled documentation lags behind the descriptions found in the wiki.
-You can always check the online documentation at http://avisynth.nl/index.php/Main_Page)
 
-AviSynth+'s documentation can be generated into HTML by using Sphinx.
+Platform availability
+---------------------
 
-### Set-up:
+| Supported OSes |
+|----------------|
+| Windows        |
+| macOS          |
+| Linux          |
+| *BSD           |
+| Haiku          |
 
-Make sure that Sphinx is installed. This requires that Python is already
-installed and the pip tool is available.  Sphinx 1.3 is the recommended
-version.
+| Supported CPU architectures |
+|-----------------------------|
+| x86(-64)                    | 
+| ARM                         |
+| PowerPC                     |
+| SPARC                       |
+| RISC-V                      |
+| MIPS                        |
+| LoongArch                   |
 
->pip install sphinx
+Not all OS/CPU combinations possible from either the OS' standpoint or AviSynth+'s.
+MIPS and LoongArch enabled by request to allow source compilation to succeed, but not tested on either hardware or VM
 
-For various Linux distributions, a Sphinx package should be available
-in the distro's repositories.  Often under the name 'python-sphinx'
-(as it is in Ubuntu's repositories).
 
-There is currently a fallback so that distros that only provide
-Sphinx 1.2 can still build the documentation.  It will look
-different than when built with Sphinx 1.3, because the theme
-used with Sphinx 1.3 (bizstyle) had not yet been added to the main
-Sphinx package.
+Packaging status
+----------------
 
-### Building the documentation
-
-Once Sphinx is installed, we can build the documentation.
-
-> cd distrib/docs/english
-> <br>make html
+[![Packaging status](https://repology.org/badge/vertical-allrepos/avisynthplus.svg)](https://repology.org/project/avisynthplus/versions)
 
 
 Headers for applications which dynamically load AviSynth+:
@@ -51,8 +50,7 @@ AviSynth+ library itself in order for applications using
 it this way to find it.
 
 To facilitate this, we support using CMake to do a
-limited, headers-only install.  The GNUmakefile is
-deprecated and will eventually be removed.
+limited, headers-only install.
 
 ### Using CMake:
 
@@ -60,7 +58,7 @@ deprecated and will eventually be removed.
 
 > mkdir avisynth-build && cd avisynth-build
 > <br>cmake ../ -DHEADERS_ONLY:bool=on
-> <br>make VersionGen install
+> <br>make install
 
 `-DCMAKE_INSTALL_PREFIX` can be used to override the
 install location if need be.
@@ -69,16 +67,30 @@ install location if need be.
 
 >make uninstall
 
-### Using GNUmakefile (legacy):
 
-#### To install:
+Building the documentation:
+---------------------------
+(Note: the bundled documentation lags behind the descriptions found in the wiki.
+You can always check the online documentation at http://avisynth.nl/index.php/Main_Page)
 
->make install
+AviSynth+'s documentation can be generated into HTML by using Sphinx.
 
-#### To install to a non-standard location:
+### Set-up:
 
->make install PREFIX=/path/to/location
+Make sure that Sphinx is installed. This requires that Python is already
+installed and the pip tool is available.
 
-#### To uninstall:
+>pip install sphinx
 
->make uninstall PREFIX=/path/to/location
+For various Linux distributions, a Sphinx package should be available
+in the distro's repositories.  Often under the name 'python-sphinx'
+(as it is in Ubuntu's repositories).
+
+### Building the documentation
+
+Once Sphinx is installed, we can build the documentation.
+
+> cd distrib/docs/english
+> <br>make html
+
+
