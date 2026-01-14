@@ -115,6 +115,12 @@
 #define __cdecl
 #endif
 
+// Use C-style linkage on Windows if targetting any CPU architecture
+// other than legacy x86
+#if defined(AVS_WINDOWS) && !defined(AVS_WINDOWS_X86)
+extern "C" {
+#endif
+
 // Important note on AVISYNTH_INTERFACE_VERSION V6->V8 change:
 // Note 1: Those few plugins which were using earlier IScriptEnvironment2 despite the big Warning will crash have to be rebuilt.
 // Note 2: How to support earlier avisynth interface with an up-to-date avisynth.h:
@@ -2053,5 +2059,9 @@ AVSC_API(IScriptEnvironment2*, CreateScriptEnvironment2)(int version = AVISYNTH_
 #endif
 
 #pragma pack(pop)
+
+#if defined(AVS_WINDOWS) && !defined(AVS_WINDOWS_X86)
+}
+#endif // extern "C"
 
 #endif //__AVISYNTH_12_H__
