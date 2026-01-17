@@ -27,9 +27,10 @@ Platform availability
 | RISC-V                      |
 | MIPS                        |
 | LoongArch                   |
+| z/Architecture              |
 
 Not all OS/CPU combinations possible from either the OS' standpoint or AviSynth+'s.
-MIPS and LoongArch enabled by request to allow source compilation to succeed, but not tested on either hardware or VM
+MIPS, LoongArch, and z/Architecture enabled by request to allow source compilation to succeed, but not tested on either hardware or VM
 
 
 Packaging status
