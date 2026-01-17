@@ -57,6 +57,8 @@ set(archdetect_c_code "
     #error cmake_ARCH sparc
 #elif defined(__mips__)
     #error cmake_ARCH mips
+#elif defined(__s390x__)
+    #error cmake_ARCH s390x
 #endif
 
 #error cmake_ARCH unknown
