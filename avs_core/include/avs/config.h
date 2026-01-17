@@ -65,6 +65,8 @@
 #   define SPARC
 #elif defined(__mips__)
 #   define MIPS
+#elif defined(__s390x__)
+#   define S390X
 #else
 #   error Unsupported CPU architecture.
 #endif
