@@ -1,0 +1,7 @@
+# Copyright 2026 林博仁(Buo-ren Lin) <buo.ren.lin@gmail.com>
+# SPDX-License-Identifier: CC-BY-SA-3.0
+
+# Debian packaging artifacts
+*.buildinfo
+*.changes
+*.deb
