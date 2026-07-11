@@ -46,6 +46,7 @@
 #else
   #include <malloc.h>
 #endif
+#include <limits>
 
 // There are two type parameters. Acceptable sample types and a prefered sample type.
 // If the current clip is already one of the defined types in sampletype, this will be returned.
@@ -139,10 +140,24 @@ void __stdcall ConvertAudio::GetAudio(void *buf, int64_t start, int64_t count, I
   int channels = vi.AudioChannels();
 
   if (tempbuffer_size < count) {
-    if (tempbuffer_size)
-      avs_free(tempbuffer);
-    tempbuffer = (char *)avs_malloc((int)count * src_bps * channels, 16);
-    tempbuffer_size = (int)count;
+    if (count < 0 || count > std::numeric_limits<int>::max())
+      env->ThrowError("ConvertAudio: audio count is too large.");
+
+    const size_t sample_count = static_cast<size_t>(count);
+    const size_t bytes_per_sample = static_cast<size_t>(src_bps) * static_cast<size_t>(channels);
+
+    if (bytes_per_sample == 0 || sample_count > std::numeric_limits<size_t>::max() / bytes_per_sample)
+      env->ThrowError("ConvertAudio: audio buffer size overflow.");
+
+    const size_t buffer_size = sample_count * bytes_per_sample;
+    char* new_tempbuffer = static_cast<char*>(avs_malloc(buffer_size, 16));
+
+    if (!new_tempbuffer)
+      env->ThrowError("ConvertAudio: insufficient memory.");
+
+    avs_free(tempbuffer);
+    tempbuffer = new_tempbuffer;
+    tempbuffer_size = static_cast<int>(count);
   }
 
   child->GetAudio(tempbuffer, start, count, env);
