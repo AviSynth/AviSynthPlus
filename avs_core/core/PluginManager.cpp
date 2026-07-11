@@ -1,5 +1,7 @@
 #include "PluginManager.h"
 #include <avisynth.h>
+#include <cstring>
+#include <memory>
 #include <unordered_set>
 #include <avisynth_c.h>
 #include "strings.h"
@@ -274,6 +276,17 @@ static bool IsValidParameterString(const char* p) {
 ---------------------------------------------------------------------------------
 */
 
+static std::unique_ptr<char[]> DuplicateString(const char* source)
+{
+  if (!source)
+    return {};
+
+  const size_t length = std::strlen(source);
+  auto result = std::make_unique<char[]>(length + 1);
+  std::memcpy(result.get(), source, length + 1);
+  return result;
+}
+
 AVSFunction::AVSFunction(void*) :
     AVSFunction(NULL, NULL, NULL, NULL, NULL, NULL, false, false)
 {}
@@ -290,47 +303,26 @@ AVSFunction::AVSFunction(const char* _name, const char* _plugin_basename, const 
   bool _isPluginAvs25, bool _isPluginPreV11C) :
     Function()
 {
+  std::string canonical_name;
+  if (_name) {
+    canonical_name.assign(_plugin_basename ? _plugin_basename : "");
+    canonical_name.append("_").append(_name);
+  }
+
+  auto dll_path_owner = DuplicateString(_dll_path);
+  auto name_owner = DuplicateString(_name);
+  auto param_types_owner = DuplicateString(_param_types);
+  auto canon_name_owner = DuplicateString(_name ? canonical_name.c_str() : nullptr);
+
   apply = _apply;
   user_data = _user_data;
   isPluginAvs25 = _isPluginAvs25;
   isPluginPreV11C = _isPluginPreV11C;
 
-    if (NULL != _dll_path)
-    {
-        size_t len = strlen(_dll_path);
-        auto tmp = new char[len + 1];
-        memcpy(tmp, _dll_path, len);
-        tmp[len] = 0;
-        dll_path = tmp;
-    }
-
-    if (NULL != _name)
-    {
-        size_t len = strlen(_name);
-        auto tmp = new char[len + 1];
-        memcpy(tmp, _name, len);
-        tmp[len] = 0;
-        name = tmp;
-    }
-
-    if ( NULL != _param_types )
-    {
-        size_t len = strlen(_param_types);
-        auto tmp = new char[len+1];
-        memcpy(tmp, _param_types, len);
-        tmp[len] = 0;
-        param_types = tmp;
-    }
-
-    if ( NULL != _name )
-    {
-        std::string cn(NULL != _plugin_basename ? _plugin_basename : "");
-        cn.append("_").append(_name);
-        auto tmp = new char[cn.size()+1];
-        memcpy(tmp, cn.c_str(), cn.size());
-        tmp[cn.size()] = 0;
-        canon_name = tmp;
-    }
+  dll_path = dll_path_owner.release();
+  name = name_owner.release();
+  param_types = param_types_owner.release();
+  canon_name = canon_name_owner.release();
 }
 
 AVSFunction::~AVSFunction()
