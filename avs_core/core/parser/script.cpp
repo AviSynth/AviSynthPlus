@@ -1489,10 +1489,11 @@ AVSValue Spline(AVSValue args, void*, IScriptEnvironment* env)
 
   n = n / 2;
 
-  float* buf = new float[(n + 1) * 3];
-  float* xa = &(buf[(n + 1) * 0]);
-  float* ya = &(buf[(n + 1) * 1]);
-  float* y2a = &(buf[(n + 1) * 2]);
+  const size_t work_array_stride = static_cast<size_t>(n) + 1;
+  std::vector<float> buf(work_array_stride * 3);
+  float* xa = buf.data();
+  float* ya = xa + work_array_stride;
+  float* y2a = ya + work_array_stride;
 
   for (i = 1; i <= n; i++) {
     xa[i] = coordinates[(i - 1) * 2 + 0].AsFloatf(0);
@@ -1505,8 +1506,6 @@ AVSValue Spline(AVSValue args, void*, IScriptEnvironment* env)
 
   spline(xa, ya, n, y2a);
   splint(xa, ya, y2a, n, x, y, cubic);
-
-  delete[] buf;
 
   return y;
 }
