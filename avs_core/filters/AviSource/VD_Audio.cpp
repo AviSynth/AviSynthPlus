@@ -1284,7 +1284,7 @@ AudioStreamResampler::AudioStreamResampler(AudioStream *src, long new_rate, bool
 
 AudioStreamResampler::~AudioStreamResampler() {
 	free(cbuffer);
-	delete filter_bank;
+	delete[] filter_bank;
 }
 
 long AudioStreamResampler::_Read(void *buffer, long samples, long *lplBytes) {
