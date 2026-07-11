@@ -1149,7 +1149,9 @@ PVideoFrame __stdcall RGBAdjust::GetFrame(int n, IScriptEnvironment* env)
           // recalculate plane LUT only if changed
           if (local_config.rgba[plane].changed)
           {
-            maps_local[plane] = new BYTE[pixelsize * real_lookup_size];
+            size_t local_lut_size = static_cast<size_t>(pixelsize) * real_lookup_size;
+            if (dither) local_lut_size *= 256;
+            maps_local[plane] = new BYTE[local_lut_size];
             maps_live[plane] = maps_local[plane]; // use our new local lut
             rgbadjust_create_lut(maps_live[plane], plane, local_config);
           }
