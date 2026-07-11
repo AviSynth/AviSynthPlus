@@ -134,7 +134,7 @@ void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironm
 
         dst_samples_filled -= copysamples;
         // Move non-used samples
-        memcpy(dstbuffer, &dstbuffer[copysamples*vi.AudioChannels()], (size_t)vi.BytesFromAudioSamples(dst_samples_filled));
+        memmove(dstbuffer, dstbuffer + copysamples * vi.AudioChannels(), (size_t)vi.BytesFromAudioSamples(dst_samples_filled));
       }
       if (samples_filled >= count)
         buffer_full = true;
@@ -146,7 +146,7 @@ void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironm
       int samples_out = 0;
       int gotsamples = 0;
       do {
-        gotsamples = sampler->receiveSamples(&dstbuffer[vi.BytesFromAudioSamples(samples_out)], BUFFERSIZE - samples_out);
+        gotsamples = sampler->receiveSamples(dstbuffer + samples_out * vi.AudioChannels(), BUFFERSIZE - samples_out);
         samples_out += gotsamples;
       } while (gotsamples > 0);
 
