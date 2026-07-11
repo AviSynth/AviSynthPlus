@@ -767,6 +767,9 @@ PExpression ScriptParser::ParseCall(PExpression left, PExpression context, bool 
         else
           Expect(',', "Script error: expected a , or )");
       }
+      if (i == max_args) {
+        env->ThrowError("Script error: argument list too long");
+      }
       // check for named argument syntax (name=val) for functions
       if (!isArraySpecifier && tokenizer.IsIdentifier()) {
         Tokenizer lookahead(&tokenizer);
@@ -775,9 +778,6 @@ PExpression ScriptParser::ParseCall(PExpression left, PExpression context, bool 
           tokenizer.NextToken();
           tokenizer.NextToken();
         }
-      }
-      if (i == max_args) {
-        env->ThrowError("Script error: argument list too long");
       }
       args[i++] = ParseAssignmentWithRet();
       params_count++;
