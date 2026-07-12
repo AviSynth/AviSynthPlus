@@ -732,6 +732,12 @@ static void accumulate_line_c(BYTE* _c_plane, const BYTE** planeP, int planes, i
     threshold = threshold * (uint16_t)(1 << (bits_per_pixel - 8)); // uint16_t, 10 bit: *4 16bit: *256
   }
 
+  float average_multiplier = 0.0f;
+  if constexpr(sizeof(pixel_t) == 2) {
+    // Match the 16-bit SSE paths' float reciprocal and default nearest rounding.
+    average_multiplier = 1.0f / static_cast<float>(planes + 1);
+  }
+
   for (size_t x = offset; x < width; ++x) {
     pixel_t current = c_plane[x];
     sum_t sum = current;
@@ -754,6 +760,8 @@ static void accumulate_line_c(BYTE* _c_plane, const BYTE** planeP, int planes, i
     }
     if (std::is_floating_point<pixel_t>::value)
       c_plane[x] = (pixel_t)(sum / (planes + 1)); // float: simple average
+    else if constexpr(sizeof(pixel_t) == 2)
+      c_plane[x] = (pixel_t)std::nearbyintf(static_cast<float>(sum) * average_multiplier);
     else
       c_plane[x] = (pixel_t)(((bigsum_t)sum * div + 16384) >> 15); // div = 32768/(planes+1) for integer arithmetic
   }
