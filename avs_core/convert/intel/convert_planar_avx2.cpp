@@ -146,10 +146,9 @@ void convert_yv24_to_rgb_avx2(BYTE* dstp, const BYTE* srcY, const BYTE* srcU, co
       __m256i result_bg = _mm256_unpacklo_epi8(result_b, result_g); //g15 b15 g14 b14 g13 b13 g12 b12 g11 b11 g10 b10 g9 b9 g8 b8 | g7 b7 g6 b6 g5 b5 g4 b4 g3 b3 g2 b2 g1 b1 g0 b0
       __m256i alpha;
       if constexpr(hasAlpha) {
-        __m128i a_lo = _mm_unpacklo_epi8(src_a, zero128);  //00 A7 00 A6 00 A5 00 A4 00 A3 00 A2 00 A1 00 A0
-        __m128i a_hi = _mm_unpackhi_epi8(src_a, zero128);  //00 A15 00 A14 00 A13 00 A12 00 A11 00 A10 00 A9 00 A8
-        alpha = _mm256_set_m128i(a_hi, a_lo); // a15 .. a0  at low of each m128i part
-        alpha = _mm256_permute4x64_epi64(alpha, (0 << 0) | (2 << 2) | (1 << 4) | (3 << 6));
+        const __m128i alpha_lo = _mm_shuffle_epi32(src_a, _MM_SHUFFLE(3, 1, 2, 0)); // a15 a14 a13 a12 a7 a6 a5 a4 a11 a10 a9 a8 a3 a2 a1 a0
+        const __m128i alpha_hi = _mm_shuffle_epi32(src_a, _MM_SHUFFLE(3, 3, 3, 1)); // a15 a14 a13 a12 a15 a14 a13 a12 a15 a14 a13 a12 a7 a6 a5 a4
+        alpha = _mm256_set_m128i(alpha_hi, alpha_lo); // high lane: a15..a12 a15..a12 a15..a12 a7..a4 | low lane: a15..a12 a7..a4 a11..a8 a3..a0
       }
       else
         alpha = _mm256_cmpeq_epi32(result_r, result_r); // FF FF FF FF ... default alpha transparent
