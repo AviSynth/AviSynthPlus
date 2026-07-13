@@ -133,7 +133,11 @@ void resizer_h_avx512_generic_float_pix16_sub4_ks_4_8_16(BYTE * dst8, const BYTE
 
 // transpose and hi/lo unpack of resampling program for permute-based H-resizers
 // allocate and fill pixel_coefficient_AVX512_H coeffs buffer of the ResamplingProgram
-void resize_prepare_coeffs_AVX512_H(ResamplingProgram* p, IScriptEnvironment* env, int iSamplesInTheGroup, int iGroupsCount);
+// fixed_kernel_size: number of taps the target kernel's fixed unrolled loop always reads
+// per x-group (now 4, 8 or 16), so the coefficient table stride matches the kernel's fixed
+// index advance amount, regardless of filter_size_real.
+// For variable-loop kernels (ks48/ks64) 0 must be passed, which read exactly filter_size_real taps.
+void resize_prepare_coeffs_AVX512_H(ResamplingProgram* p, IScriptEnvironment* env, int iSamplesInTheGroup, int iGroupsCount, int fixed_kernel_size);
 // allocate and fill pixel_coefficient_AVX512_float_H for float permutex-based H-resizers (ks16 variants)
 void resize_prepare_coeffs_AVX512_float_H(ResamplingProgram* p, IScriptEnvironment* env);
 

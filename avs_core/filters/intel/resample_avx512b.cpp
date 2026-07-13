@@ -3458,7 +3458,8 @@ template void resize_h_planar_uint16_avx512_permutex_vstripe_mp_ks16_pretranspos
 template void resize_h_planar_uint16_avx512_permutex_vstripe_mp_4s16_ks48_pretransposed_coeffs_base<false>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 template void resize_h_planar_uint16_avx512_permutex_vstripe_mp_4s16_ks48_pretransposed_coeffs_base<true>(BYTE* dst8, const BYTE* src8, int dst_pitch, int src_pitch, ResamplingProgram* program, int width, int height, int bits_per_pixel);
 
-void resize_prepare_coeffs_AVX512_H(ResamplingProgram* p, IScriptEnvironment* env, int iSamplesInTheGroup, int iGroupsCount) {
+// fixed_kernel_size == 0 marks: "not fixed".
+void resize_prepare_coeffs_AVX512_H(ResamplingProgram* p, IScriptEnvironment* env, int iSamplesInTheGroup, int iGroupsCount, int fixed_kernel_size) {
   // note: filter_size_real was the max(kernel_sizes[])
   int filter_size_aligned = AlignNumber(p->filter_size_real, p->filter_size_alignment);
   // FIXME: really this needs to be dynamic based on SIMD used in resizer
@@ -3517,12 +3518,16 @@ void resize_prepare_coeffs_AVX512_H(ResamplingProgram* p, IScriptEnvironment* en
       return *(current_coeff + filter_size_padded * std::min(j, avail - 1) + ki);
     };
     // process by 2 rows because madd/dp can only make FMA from 2 unpacked uint16 pairs
-    // ks16 (iSamplesAtATime==32): filter always reads 16 vectors per x-group (advance by 16),
-    // so we must store all filter_size_aligned/2 pairs even when filter_size_real < 16.
+    // Specific unrolled kernels (ks4/ks8/ks16) read a fixed number of taps per group of x.
+    // They advance current_coeff_SIMD by an appropriate fixed amount, regardless of
+    // filter_size_real. The coefficient table must be padded to that same fixed width
+    // (fixed_kernel_size) or else discrapancy happens after the first x group.
     // Extra iterations access zero-padded taps and produce zero coefficient pairs — harmless.
-    // ks64 (iSamplesAtATime==64): filter advances by filter_size_real*2 (variable), so it uses
-    // filter_size_to_process to store exactly that many pairs — must NOT use filter_size_aligned.
-    const int i_limit = (iSamplesAtATime == 32) ? filter_size_aligned : filter_size_to_process;
+    // For variable loop kernels like ks48/ks64 (signalled as fixed_kernel_size==0) advance
+    // current_coeff_SIMD by filter_size_real*2 (pairs), so they must store exactly filter_size_to_process
+    // pairs, contrary to the previous case, padding to a fixed width would cause coeff desynchronization
+    // after the first x group.
+    const int i_limit = (fixed_kernel_size > 0) ? fixed_kernel_size : filter_size_to_process;
     for (int i = 0; i < i_limit; i += 2)
     {
       if (iSamplesAtATime == 64) // 2 groups of 32 coeffs for columns 0..31 and 32..63
