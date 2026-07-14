@@ -168,7 +168,8 @@ static void BuildMatrix_Rgb2Yuv_core(double Kr, double Kb, int int_arith_shift, 
 
     // Luma gain check: ensure Y captures 100% of RGB energy
     // Only applies when destination is full-range (no offset)
-    if (matrix.offset_y == 0) {
+    // and the source RGB is similarly full_range
+    if (full_scale_s && full_scale_d) {
       int y_sum = matrix.y_b + matrix.y_g + matrix.y_r;
       if (y_sum != mulfac_int) {
         matrix.y_g += (mulfac_int - y_sum);
