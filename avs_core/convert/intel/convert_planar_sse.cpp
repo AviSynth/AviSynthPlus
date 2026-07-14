@@ -193,7 +193,8 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
   constexpr bool need_int_conversion_full_range = conv_type == YuvRgbConversionType::BITCONV_INT_FULL;
   constexpr bool need_int_conversion = conv_type == YuvRgbConversionType::BITCONV_INT_FULL || conv_type == YuvRgbConversionType::BITCONV_INT_LIMITED ||
     (conv_type == YuvRgbConversionType::FORCE_FLOAT && !final_is_float);
-  const bool float_matrix_workflow = force_float || need_int_conversion_full_range;
+
+  constexpr bool float_matrix_workflow = force_float || need_int_conversion_full_range;
 
   // quasi-constexpr, may help optimizer
   if constexpr (std::is_same<pixel_t, uint8_t>::value) bits_per_pixel = 8;
