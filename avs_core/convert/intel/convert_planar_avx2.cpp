@@ -595,7 +595,7 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
         }
         else {
           // this path must error out, never can be used, redirected to full-float workflow for this case due to speed reasons.
-          static_assert(false, "64-bit patch needed for RGB->YUV conversion, but not supported in this path. Redirected to float workflow instead.");
+          static_assert(!would_need_64bit_v_patch, "64-bit patch needed for RGB->YUV conversion, but not supported in this path. Redirected to float workflow instead.");
           v_patch_G = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
           v_patch_B = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.u_r + m.u_g + m.u_b) + chroma_offset_out_for_patch);
           v_patch_R = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.v_r + m.v_g + m.v_b) + chroma_offset_out_for_patch);
@@ -612,7 +612,7 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
         }
         else {
           // this path must error out, never can be used, redirected to full-float workflow for this case due to speed reasons.
-          static_assert(false, "64-bit patch needed for RGB->Y conversion, but not supported in this path. Redirected to float workflow instead.");
+          static_assert(!would_need_64bit_v_patch, "64-bit patch needed for RGB->Y conversion, but not supported in this path. Redirected to float workflow instead.");
           v_patch_G = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
           //v_patch_B = _mm256_set1_epi64x(0); // no chroma
           //v_patch_R = _mm256_set1_epi64x(0); // no chroma
