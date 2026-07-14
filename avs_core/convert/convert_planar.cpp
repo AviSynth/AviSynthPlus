@@ -609,6 +609,10 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
   // float input always uses float workflow
   typedef typename std::conditional<sizeof(pixel_t) == 1 || lessthan16bit, int, int64_t>::type safe_int_t;
 
+  // Remark: for RGB->YUV and RGB->Y 16 bit original, we later redirect the constexpr values to a full-float-workflow.
+  // Though int64_t would work here in C just fine, but has serious performance issues at Intel SIMD,
+  // so we make it identical to the SIMD path and use float path which is simple and much quicker in this case.)
+
   constexpr int INT_ARITH_SHIFT =
     (direction == ConversionDirection::YUV_TO_RGB) ? 13 :
     (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::RGB_TO_Y) ? 15 :
@@ -618,8 +622,14 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
   static_assert(!(std::is_floating_point<pixel_t>::value && conv_type != YuvRgbConversionType::FORCE_FLOAT),
     "FORCE_FLOAT conversion type is required for float input pixel type");
 
-  constexpr bool force_float = conv_type == YuvRgbConversionType::FORCE_FLOAT;
   constexpr bool final_is_float = std::is_floating_point<pixel_t_dst>::value;
+  constexpr bool would_need_64bit_v_patch = !lessthan16bit && !final_is_float && (INT_ARITH_SHIFT == 15);
+  // RGB_TO_YUV, RGB_TO_Y 16 bit origin case needs 64 bit extension at one point to avoid overflow
+  // but it makes it much slower than the full-float path, so we force float path for that case as well
+
+  // effectively full-float-inside for int full range conversion, but with the same output rules as other float conversions
+  constexpr bool force_float = (conv_type == YuvRgbConversionType::FORCE_FLOAT) || would_need_64bit_v_patch;
+
   constexpr bool need_int_conversion_narrow_range = conv_type == YuvRgbConversionType::BITCONV_INT_LIMITED;
   constexpr bool need_int_conversion_full_range = conv_type == YuvRgbConversionType::BITCONV_INT_FULL;
   constexpr bool need_int_conversion = conv_type == YuvRgbConversionType::BITCONV_INT_FULL ||
@@ -688,7 +698,7 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
       }
 
       float out0_f, out1_f, out2_f;
-      safe_int_t out0_raw, out1_raw, out2_raw; // Keep as int64_t for 16-bit
+      safe_int_t out0_raw, out1_raw, out2_raw; // Keep as int64_t for 16-bit (see would_need_64bit_v_patch remarks above)
 
       if constexpr (float_matrix_workflow) {
         // Float workflow

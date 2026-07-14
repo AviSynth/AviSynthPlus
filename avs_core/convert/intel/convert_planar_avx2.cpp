@@ -52,6 +52,24 @@
 DISABLE_WARNING_PUSH
 DISABLE_WARNING_UNREFERENCED_LOCAL_VARIABLE
 
+// no srai64 in AVX2, only in AVX512 + VL
+// AVX2 logical shift (_mm256_srl_epi64) plus sign fill
+static AVS_FORCEINLINE __m256i mm256_srai_epi64_simul(__m256i x, int count) {
+  // logical right shift on 64bit lanes
+  const __m128i cnt = _mm_cvtsi32_si128(count);
+  const __m256i logical = _mm256_srl_epi64(x, cnt);
+
+  // have the sign bit present in both 32 bit halves of each 64bit lane before we do a 32bit arithmetic shift.
+  const __m256i hi_dup = _mm256_shuffle_epi32(x, _MM_SHUFFLE(3, 3, 1, 1));
+  const __m256i sign_shifted = _mm256_sra_epi32(hi_dup, cnt);
+
+  // mask back sign extension
+  const __m256i upper_mask = _mm256_set1_epi64x(0xFFFFFFFF00000000ULL);
+  const __m256i sign_ext = _mm256_and_si256(sign_shifted, upper_mask);
+
+  return _mm256_or_si256(logical, sign_ext);
+}
+
 // packed rgb helper
 static AVS_FORCEINLINE __m256i convert_yuv_to_rgb_avx2_core(const __m256i& px0189, const __m256i& px23AB, const __m256i& px45CD, const __m256i& px67EF, const __m256i& zero, const __m256i& matrix, const __m256i& round_mask_plus_rgb_offset) {
   //int b = (((int)m[0] * Y + (int)m[1] * U + (int)m[ 2] * V + 4096 + rgb_offset)>>13);
@@ -442,8 +460,14 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
   // make a static assert
   static_assert(!(std::is_floating_point<pixel_t>::value && conv_type != YuvRgbConversionType::FORCE_FLOAT), "FORCE_FLOAT conversion type is required for float input pixel type");
 
-  constexpr bool force_float = conv_type == YuvRgbConversionType::FORCE_FLOAT; // effectively full-float-inside for int full range conversion, but with the same output rules as other float conversions
   constexpr bool final_is_float = std::is_floating_point<pixel_t_dst>::value;
+  constexpr bool would_need_64bit_v_patch = !lessthan16bit && !final_is_float && (INT_ARITH_SHIFT == 15);
+  // RGB_TO_YUV, RGB_TO_Y 16 bit origin case needs 64 bit extension at one point to avoid overflow
+  // but it makes it much slower than the full-float path, so we force float path for that case as well
+
+  // effectively full-float-inside for int full range conversion, but with the same output rules as other float conversions
+  constexpr bool force_float = (conv_type == YuvRgbConversionType::FORCE_FLOAT) || would_need_64bit_v_patch;
+
   constexpr bool need_int_conversion_narrow_range = conv_type == YuvRgbConversionType::BITCONV_INT_LIMITED;       // full_d is false
   constexpr bool need_int_conversion_full_range = conv_type == YuvRgbConversionType::BITCONV_INT_FULL; // full_d is true
   constexpr bool need_int_conversion = conv_type == YuvRgbConversionType::BITCONV_INT_FULL || conv_type == YuvRgbConversionType::BITCONV_INT_LIMITED ||
@@ -562,23 +586,42 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
         // RGB→YUV: All RGB inputs are pivoted, need to account for all three
         // Out0=Y (luma offset), Out1=U and Out2=V (chroma offset)
         // Y output = y_r*R + y_g*G + y_b*B
-        v_patch_G = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
-        // U output = u_r*R + u_g*G + u_b*B
-        v_patch_B = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.u_r + m.u_g + m.u_b) + chroma_offset_out_for_patch);
-        // V output = v_r*R + v_g*G + v_b*B
-        v_patch_R = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.v_r + m.v_g + m.v_b) + chroma_offset_out_for_patch);
+        if constexpr (!would_need_64bit_v_patch) {
+          v_patch_G = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
+          // U output = u_r*R + u_g*G + u_b*B
+          v_patch_B = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.u_r + m.u_g + m.u_b) + chroma_offset_out_for_patch);
+          // V output = v_r*R + v_g*G + v_b*B
+          v_patch_R = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.v_r + m.v_g + m.v_b) + chroma_offset_out_for_patch);
+        }
+        else {
+          // this path must error out, never can be used, redirected to full-float workflow for this case due to speed reasons.
+          static_assert(false, "64-bit patch needed for RGB->YUV conversion, but not supported in this path. Redirected to float workflow instead.");
+          v_patch_G = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
+          v_patch_B = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.u_r + m.u_g + m.u_b) + chroma_offset_out_for_patch);
+          v_patch_R = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.v_r + m.v_g + m.v_b) + chroma_offset_out_for_patch);
+        }
       }
       else if constexpr (direction == ConversionDirection::RGB_TO_Y) {
         // RGB→YUV: All RGB inputs are pivoted, need to account for all three
         // Out0=Y (luma offset), No chroma
         // Y output = y_r*R + y_g*G + y_b*B
-        v_patch_G = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
+        if constexpr (!would_need_64bit_v_patch) {
+          v_patch_G = _mm256_set1_epi32(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
+          //v_patch_B = _mm256_set1_epi32(0); // no chroma
+          //v_patch_R = _mm256_set1_epi32(0); // no chroma
+        }
+        else {
+          // this path must error out, never can be used, redirected to full-float workflow for this case due to speed reasons.
+          static_assert(false, "64-bit patch needed for RGB->Y conversion, but not supported in this path. Redirected to float workflow instead.");
+          v_patch_G = _mm256_set1_epi64x(luma_or_rgbin_pivot * (m.y_r + m.y_g + m.y_b) + offset_out_for_patch);
+          //v_patch_B = _mm256_set1_epi64x(0); // no chroma
+          //v_patch_R = _mm256_set1_epi64x(0); // no chroma
+        }
       }
       else if constexpr (direction == ConversionDirection::YUV_TO_YUV) {
         // for YUV->YUV
         // FIXME: untested, no AviSynth caller yet. Suspect m.y_b/m.y_r should be
         // m.u_b/m.v_r (chroma diagonal), and offset should be chroma_offset_out_for_patch.
-
         v_patch_G = _mm256_set1_epi32(luma_or_rgbin_pivot * m.y_g + offset_out_for_patch);
         v_patch_B = _mm256_set1_epi32(chroma_pivot * m.y_b + offset_out_for_patch);
         v_patch_R = _mm256_set1_epi32(chroma_pivot * m.y_r + offset_out_for_patch);
@@ -1209,18 +1252,66 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
         auto process_plane = [&](BYTE* plane_ptr, __m256i m_uy, __m256i m_vr, __m256i v_patch, auto apply_float_offset_out) {
           XP_LAMBDA_CAPTURE_FIX(limit);
           XP_LAMBDA_CAPTURE_FIX(safe_last_16float_64bytes);
+          // Note: v_patch is already set to the right 32 or 64 bits width based on final_is_float and lessthan16bit
           auto madd_scale = [&](__m256i uy, __m256i vr) {
             XP_LAMBDA_CAPTURE_FIX(v_patch);
             XP_LAMBDA_CAPTURE_FIX(target_shift);
             __m256i sum = _mm256_add_epi32(_mm256_madd_epi16(m_uy, uy), _mm256_madd_epi16(m_vr, vr));
             // 16-bit adjustment (signed patch, offset_in, output rgb offset_in)
-            if constexpr (!lessthan16bit) sum = _mm256_add_epi32(sum, v_patch);
+
 #ifdef XP_TLS
             if (!final_is_float)
 #else
             if constexpr (!final_is_float)
 #endif
-              sum = _mm256_srai_epi32(sum, target_shift); // INT_ARITH_SHIFT - modified with bit-conversion diff, bit fixed point shift
+            {
+              __m256i sum_lo, sum_hi;
+#ifdef XP_TLS
+              if (!would_need_64bit_v_patch)
+#else
+              if constexpr (!would_need_64bit_v_patch)
+#endif
+              {
+                sum = _mm256_add_epi32(sum, v_patch);
+              }
+              else {
+                // use two 64 bit sums
+                // avx2 extract low/high 128 bits, add, then insert back
+                sum_lo = _mm256_cvtepi32_epi64(_mm256_castsi256_si128(sum));
+                sum_lo = _mm256_add_epi64(sum_lo, v_patch);
+                sum_hi = _mm256_cvtepi32_epi64(_mm256_extracti128_si256(sum, 1));
+                sum_hi = _mm256_add_epi64(sum_hi, v_patch);
+              }
+              // target_shift is INT_ARITH_SHIFT - modified with bit-conversion diff, bit fixed point shift
+#ifdef XP_TLS
+              if (!would_need_64bit_v_patch) {
+#else
+              if constexpr (!would_need_64bit_v_patch) {
+#endif
+                sum = _mm256_srai_epi32(sum, target_shift);
+              }
+              else {
+                // _mm256_srai_epi64 is AVX512+VL only
+                sum_lo = mm256_srai_epi64_simul(sum_lo, target_shift);
+                sum_hi = mm256_srai_epi64_simul(sum_hi, target_shift);
+              }
+#ifdef XP_TLS
+              if (would_need_64bit_v_patch) {
+#else
+              if constexpr (would_need_64bit_v_patch) {
+#endif
+                // pack back to 32 bit: no _mm256_cvtepi64_epi32 in AVX2
+                __m256i pack_lo = _mm256_shuffle_epi32(sum_lo, _MM_SHUFFLE(3, 2, 2, 0));
+                __m256i pack_hi = _mm256_shuffle_epi32(sum_hi, _MM_SHUFFLE(3, 2, 2, 0));
+                __m256i mixed = _mm256_unpacklo_epi64(pack_lo, pack_hi);
+                // [0, 1, 4, 5 | 2, 3, 6, 7] => [0, 1, 2, 3 | 4, 5, 6, 7]
+                sum = _mm256_permute4x64_epi64(mixed, _MM_SHUFFLE(3, 1, 2, 0));
+              }
+            }
+            else {
+              // no 64-bit needed, no overflow danger in pivot, since no U and V integer offset which is the cause of overflow.
+              sum = _mm256_add_epi32(sum, v_patch);
+            }
             return sum;
             };
 
