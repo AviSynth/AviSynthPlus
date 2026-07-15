@@ -58,7 +58,7 @@ void FastReadStream::_Init(long lBlockCount, long lBlockSize) {
 	this->pBuffer		= VirtualAlloc(NULL, this->lBlockCount * this->lBlockSize, MEM_COMMIT, PAGE_READWRITE);
 
 	if (!this->pHeaders || !this->pBuffer) {
-		delete this->pHeaders;
+		delete[] this->pHeaders;
 		if (this->pBuffer) VirtualFree(this->pBuffer, 0, MEM_RELEASE);
 
 		this->pHeaders = NULL;
@@ -75,7 +75,7 @@ bool FastReadStream::Ready() {
 }
 
 FastReadStream::~FastReadStream() {
-	delete pHeaders;
+	delete[] pHeaders;
 	if (pBuffer) VirtualFree(pBuffer, 0, MEM_RELEASE);
 }
 

@@ -2265,7 +2265,7 @@ class ColorBars : public IClip {
 public:
 
   ~ColorBars() {
-    delete audio;
+    delete[] audio;
   }
 
   ColorBars(int w, int h, const char* pixel_type, bool _staticframes, int type, int _subtype, IScriptEnvironment* env) : subtype(_subtype) {
