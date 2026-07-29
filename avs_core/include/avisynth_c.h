@@ -167,7 +167,7 @@
 #ifndef __AVISYNTH_12_H__
 enum {
   AVISYNTH_INTERFACE_CLASSIC_VERSION = 6,
-  AVISYNTH_INTERFACE_VERSION = 12,
+  AVISYNTH_INTERFACE_VERSION = 13,
   AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 0 // reset to zero whenever the normal interface version bumps
 };
 #endif

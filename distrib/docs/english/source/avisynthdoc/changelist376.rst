@@ -3,6 +3,7 @@ Changes from 3.7.5 to 3.7.6
 
 Additions, changes
 ~~~~~~~~~~~~~~~~~~
+- Added YUV(A) 4:4:0 pixel format constants
 - Added ``SetFilterProp``, ``GetFilterProps``, and ``SetFilterPropPassthrough``:
 
   * ``SetFilterProp`` — automatically inject a frame property on the output of a named filter
@@ -173,6 +174,7 @@ Additions, changes
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Bump to interface version 13 for new color constants
 - introduce ``AVS_RESTRICT`` to ``avs/config.h`` (compiler invariant c++ ``__restrict``)
 - AVX512: CMake to recognize ``*_avx512b.*`` and ``*_avx512.*`` file pattern, add compiler specific AVX512 
   compile flags accordingly (AVX512 Base and Ice Lake extensions)
