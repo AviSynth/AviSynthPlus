@@ -54,7 +54,10 @@
 #include <cstdint>
 #include "config.h"
 
-#if defined(MSVC) && _MSC_VER<1400
+#if defined(GCC)
+    // needed for GCC
+    #define avs_alignas(x) __attribute__((aligned(x)))
+#elif defined(MSVC) && _MSC_VER<1400
     // needed for VS2013, otherwise C++11 'alignas' works
     #define avs_alignas(x) __declspec(align(x))
 #else
