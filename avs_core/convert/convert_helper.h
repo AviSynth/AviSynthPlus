@@ -183,12 +183,12 @@ typedef struct bits_conv_constants {
 
   if (use_chroma) {
     // decision: 'limited' range float +/-112 is +/-112/255.0. Must be consistent with Expr, ColorYUV etc
-    // 3.7.2: full range chroma: as per ITU Rec H.273 eq.30 p.10: Cb=Clip1_C(Round(((1<<BitDepth_C)-1)*E'_PB)+(1<<(BitDepth_C-1)))
+    // 3.7.2: full range chroma: as per ITU Rec H.273 eq.37 p.10: Cb=Clip1_C(Round(((1<<BitDepth_C)-1)*E'_PB)+(1<<(BitDepth_C-1)))
     // For 8 bit this results in 128 +/-127.5 instead of 128 +/-127
     // In general the span is ((1 << srcBitDepth) - 1) / 2.0 instead of (1 << (srcBitDepth - 1)) - 1
 
     // a bit asymmetric but meets mpeg, jpeg, Rec.2020 industry standards:
-    // full range chroma span intentionally not 128 bit 255/2.0, which is virtually 127.5.
+    // full range chroma span intentionally is not 128 but 255/2.0, which is virtually 127.5.
     // This also gives identical results to e.g. zimg when used in full range YUV-RGB conversions, which is good for consistency.
     d.src_span = (srcBitDepth == 32) ?
       (fulls ? 0.5f : 112 / 255.0f) :
