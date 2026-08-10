@@ -1,0 +1,33 @@
+# Compose configuration file
+#
+# References:
+#
+# * Compose Specification | Compose file reference | Reference | Docker Docs
+#   https://docs.docker.com/compose/compose-file/
+#
+# Copyright 2026 林博仁(Buo-ren Lin) <buo.ren.lin@gmail.com>
+# SPDX-License-Identifier: CC-BY-SA-3.0
+name: avisynthplus
+services:
+  # Environment for developing the project
+  dev-environment:
+    container_name: avisynthplus-dev
+    hostname: avisynthplus-dev
+    image: ubuntu:24.04
+    volumes:
+      - type: bind
+        source: ../
+        target: /project
+    environment:
+      # Pass host proxy settings to the container
+      - http_proxy
+      - HTTP_PROXY
+      - https_proxy
+      - HTTPS_PROXY
+      - no_proxy
+      - NO_PROXY
+
+      # Avoid debconf interactive prompts on Debian-like systems
+      - DEBIAN_FRONTEND=noninteractive
+    init: true
+    command: sleep infinity
