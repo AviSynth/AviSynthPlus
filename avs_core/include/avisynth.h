@@ -100,6 +100,7 @@
 
 #include "avs/config.h"
 #include "avs/capi.h"
+#include "avs/cpuid.h"
 #include "avs/types.h"
 
 #ifdef AVS_POSIX
@@ -165,7 +166,17 @@ enum AvsVersion {
   #define _ASSERT(x) assert(x)
 #endif
 
+#if defined(BUILDING_AVSCORE) || defined(AVS_STATIC_LIB)
+# ifndef offsetof
+#  include <stddef.h>
+# endif
+#endif
 
+// Use C-style linkage on Windows if targetting any CPU architecture
+// other than legacy x86
+#if defined(AVS_WINDOWS) && !defined(AVS_WINDOWS_X86)
+extern "C" {
+#endif
 
 // I had problems with Premiere wanting 1-byte alignment for its structures,
 // so I now set the Avisynth struct alignment explicitly here.
@@ -508,10 +519,6 @@ struct AVS_Linkage {
 extern __declspec(dllimport) const AVS_Linkage* const AVS_linkage;
 # else
 extern const AVS_Linkage* AVS_linkage;
-# endif
-
-# ifndef offsetof
-#  include <stddef.h>
 # endif
 
 # define AVS_BakedCode(arg) { arg ; }
@@ -1525,8 +1532,6 @@ public:
 #undef AVS_BakedCode
 
 
-#include "avs/cpuid.h"
-
 // IScriptEnvironment GetEnvProperty
 enum AvsEnvProperty {
   AEP_PHYSICAL_CPUS = 1,
@@ -2045,7 +2050,6 @@ AVSC_API(IScriptEnvironment*, CreateScriptEnvironment)(int version = AVISYNTH_IN
 #define VARNAME_Enable_PlanarToPackedRGB "OPT_Enable_PlanarToPackedRGB" // AVS+ convert Planar RGB to packed RGB (VfW)
 
 // C exports
-#include "avs/capi.h"
 AVSC_API(IScriptEnvironment2*, CreateScriptEnvironment2)(int version = AVISYNTH_INTERFACE_VERSION);
 
 #ifndef BUILDING_AVSCORE
@@ -2053,5 +2057,9 @@ AVSC_API(IScriptEnvironment2*, CreateScriptEnvironment2)(int version = AVISYNTH_
 #endif
 
 #pragma pack(pop)
+
+#if defined(AVS_WINDOWS) && !defined(AVS_WINDOWS_X86)
+}
+#endif // extern "C"
 
 #endif //__AVISYNTH_12_H__
