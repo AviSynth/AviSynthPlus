@@ -129,7 +129,7 @@ enum AvsVersion {
   AVISYNTH_CLASSIC_INTERFACE_VERSION_25 = 3,
   AVISYNTH_CLASSIC_INTERFACE_VERSION_26BETA = 5,
   AVISYNTH_CLASSIC_INTERFACE_VERSION = 6,
-  AVISYNTH_INTERFACE_VERSION = 12,
+  AVISYNTH_INTERFACE_VERSION = 13,
   AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 0 // reset to zero whenever the normal interface version bumps
 };
 
@@ -823,6 +823,24 @@ struct VideoInfo {
     CS_YUVA444PS  = CS_GENERIC_YUVA444 | CS_Sample_Bits_32,  // YUVA 4:4:4 32bit samples
     CS_YUVA422PS  = CS_GENERIC_YUVA422 | CS_Sample_Bits_32,  // YUVA 4:2:2 32bit samples
     CS_YUVA420PS  = CS_GENERIC_YUVA420 | CS_Sample_Bits_32,  // YUVA 4:2:0 32bit samples
+
+    // Planar YUV(A) 4:4:0, 2026-07-29
+    CS_GENERIC_YUV440  = CS_PLANAR | CS_YUV | CS_VPlaneFirst | CS_Sub_Width_1 | CS_Sub_Height_2,  // 4:4:0 planar
+    CS_GENERIC_YUVA440 = CS_PLANAR | CS_YUVA | CS_VPlaneFirst | CS_Sub_Width_1 | CS_Sub_Height_2,  // 4:4:0:A planar
+
+    CS_YUV440     = CS_GENERIC_YUV440 | CS_Sample_Bits_8,  // YUV 4:4:0 8bit samples
+    CS_YUV440P10  = CS_GENERIC_YUV440 | CS_Sample_Bits_10, // YUV 4:4:0 10bit samples
+    CS_YUV440P12  = CS_GENERIC_YUV440 | CS_Sample_Bits_12, // YUV 4:4:0 12bit samples
+    CS_YUV440P14  = CS_GENERIC_YUV440 | CS_Sample_Bits_14, // YUV 4:4:0 14bit samples
+    CS_YUV440P16  = CS_GENERIC_YUV440 | CS_Sample_Bits_16, // YUV 4:4:0 16bit samples
+    CS_YUV440PS   = CS_GENERIC_YUV440 | CS_Sample_Bits_32, // YUV 4:4:0 32bit samples
+
+    CS_YUVA440    = CS_GENERIC_YUVA440 | CS_Sample_Bits_8,  // YUVA 4:4:0 8bit samples
+    CS_YUVA440P10 = CS_GENERIC_YUVA440 | CS_Sample_Bits_10, // YUVA 4:4:0 10bit samples
+    CS_YUVA440P12 = CS_GENERIC_YUVA440 | CS_Sample_Bits_12, // YUVA 4:4:0 12bit samples
+    CS_YUVA440P14 = CS_GENERIC_YUVA440 | CS_Sample_Bits_14, // YUVA 4:4:0 14bit samples
+    CS_YUVA440P16 = CS_GENERIC_YUVA440 | CS_Sample_Bits_16, // YUVA 4:4:0 16bit samples
+    CS_YUVA440PS  = CS_GENERIC_YUVA440 | CS_Sample_Bits_32  // YUVA 4:4:0 32bit samples
   };
 
   int pixel_type;                // changed to int as of 2.5

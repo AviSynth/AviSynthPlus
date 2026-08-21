@@ -4442,6 +4442,20 @@ PVideoFrame ScriptEnvironment::NewVideoFrameOnDevice(const VideoInfo& vi, int al
     case VideoInfo::CS_YUVA420PS:
     case VideoInfo::CS_YUVA422PS:
     case VideoInfo::CS_YUVA444PS:
+        // planar 4:4:0
+    case VideoInfo::CS_YUV440:
+    case VideoInfo::CS_YUV440P10:
+    case VideoInfo::CS_YUV440P12:
+    case VideoInfo::CS_YUV440P14:
+    case VideoInfo::CS_YUV440P16:
+    case VideoInfo::CS_YUV440PS:
+        // planar 4:4:0:A
+    case VideoInfo::CS_YUVA440:
+    case VideoInfo::CS_YUVA440P10:
+    case VideoInfo::CS_YUVA440P12:
+    case VideoInfo::CS_YUVA440P14:
+    case VideoInfo::CS_YUVA440P16:
+    case VideoInfo::CS_YUVA440PS:
         break;
     default:
       ThrowError("Filter Error: Filter attempted to create VideoFrame with invalid pixel_type.");
