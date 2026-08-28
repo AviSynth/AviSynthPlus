@@ -4405,7 +4405,7 @@ PVideoFrame ScriptEnvironment::NewVideoFrameOnDevice(const VideoInfo& vi, int al
     case VideoInfo::CS_YUV420PS:
     case VideoInfo::CS_YUV422PS:
     case VideoInfo::CS_YUV444PS:
-    case VideoInfo::CS_Y32:
+    case VideoInfo::CS_YS:
         // 16 bit/sample packed RGB
     case VideoInfo::CS_BGR48:
     case VideoInfo::CS_BGR64:
@@ -4442,6 +4442,54 @@ PVideoFrame ScriptEnvironment::NewVideoFrameOnDevice(const VideoInfo& vi, int al
     case VideoInfo::CS_YUVA420PS:
     case VideoInfo::CS_YUVA422PS:
     case VideoInfo::CS_YUVA444PS:
+        // planar 4:4:0
+    case VideoInfo::CS_YUV440:
+    case VideoInfo::CS_YUV440P10:
+    case VideoInfo::CS_YUV440P12:
+    case VideoInfo::CS_YUV440P14:
+    case VideoInfo::CS_YUV440P16:
+    case VideoInfo::CS_YUV440PS:
+        // planar 4:4:0:A
+    case VideoInfo::CS_YUVA440:
+    case VideoInfo::CS_YUVA440P10:
+    case VideoInfo::CS_YUVA440P12:
+    case VideoInfo::CS_YUVA440P14:
+    case VideoInfo::CS_YUVA440P16:
+    case VideoInfo::CS_YUVA440PS:
+        // planar 4:1:1
+    case VideoInfo::CS_YUV411P10:
+    case VideoInfo::CS_YUV411P12:
+    case VideoInfo::CS_YUV411P14:
+    case VideoInfo::CS_YUV411P16:
+    case VideoInfo::CS_YUV411PS:
+        // planar 4:1:1:A
+    case VideoInfo::CS_YUVA411:
+    case VideoInfo::CS_YUVA411P10:
+    case VideoInfo::CS_YUVA411P12:
+    case VideoInfo::CS_YUVA411P14:
+    case VideoInfo::CS_YUVA411P16:
+    case VideoInfo::CS_YUVA411PS:
+        // planar 4:1:0
+    case VideoInfo::CS_YUV410:
+    case VideoInfo::CS_YUV410P10:
+    case VideoInfo::CS_YUV410P12:
+    case VideoInfo::CS_YUV410P14:
+    case VideoInfo::CS_YUV410P16:
+    case VideoInfo::CS_YUV410PS:
+        // planar 4:1:0:A
+    case VideoInfo::CS_YUVA410:
+    case VideoInfo::CS_YUVA410P10:
+    case VideoInfo::CS_YUVA410P12:
+    case VideoInfo::CS_YUVA410P14:
+    case VideoInfo::CS_YUVA410P16:
+    case VideoInfo::CS_YUVA410PS:
+        // Y+α 4:0:0:A
+    case VideoInfo::CS_YA8:
+    case VideoInfo::CS_YA10:
+    case VideoInfo::CS_YA12:
+    case VideoInfo::CS_YA14:
+    case VideoInfo::CS_YA16:
+    case VideoInfo::CS_YAS:
         break;
     default:
       ThrowError("Filter Error: Filter attempted to create VideoFrame with invalid pixel_type.");

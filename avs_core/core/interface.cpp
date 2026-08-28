@@ -430,6 +430,14 @@ unsigned int VideoInfo::GetChannelMask() const
   return dwChannelMask >> 4;
 }
 
+bool VideoInfo::Is440()  const { return ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YUV440 & CS_PLANAR_FILTER)) ||
+                                        ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YUVA440 & CS_PLANAR_FILTER)) ; }
+bool VideoInfo::IsYA()   const { return ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YA & CS_PLANAR_FILTER)) ||
+                                        ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YA & CS_PLANAR_FILTER)) ; }
+bool VideoInfo::Is410()  const { return ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YUV410 & CS_PLANAR_FILTER)) ||
+                                        ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YUVA410 & CS_PLANAR_FILTER)) ; }
+bool VideoInfo::Is411()  const { return ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YUV411 & CS_PLANAR_FILTER)) ||
+                                        ((pixel_type & CS_PLANAR_MASK & ~CS_Sample_Bits_Mask) == (CS_GENERIC_YUVA411 & CS_PLANAR_FILTER)) ; }
 
 // end struct VideoInfo
 
@@ -1311,6 +1319,12 @@ static const AVS_Linkage avs_linkage = {    // struct AVS_Linkage {
   &VideoInfo::IsChannelMaskKnown,           //   bool    (VideoInfo::*IsChannelMaskKnown)()  const;
   &VideoInfo::SetChannelMask,               //   void    (VideoInfo::*SetChannelMask)();
   &VideoInfo::GetChannelMask,               //   int     (VideoInfo::*GetChannelMask)()  const;
+
+  // V13
+  &VideoInfo::Is440,                        //   bool    (VideoInfo::*Is440)()  const;
+  &VideoInfo::IsYA,                         //   bool    (VideoInfo::*IsYA)()  const;
+  &VideoInfo::Is410,                        //   bool    (VideoInfo::*Is410)()  const;
+  &VideoInfo::Is411,                        //   bool    (VideoInfo::*Is411)()  const;
 
   // a single { nullptr } initializes the whole placeholder array
   { nullptr },                              // void          (VideoInfo::* reserved2[64 - 31])(); // Reserve pointer space for Avisynth+

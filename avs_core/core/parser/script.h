@@ -323,4 +323,9 @@ AVSValue ArraySetByKey(AVSValue args, void*, IScriptEnvironment* env);
 AVSValue ArrayDel(AVSValue args, void*, IScriptEnvironment* env);
 AVSValue ArraySort(AVSValue args, void*, IScriptEnvironment* env);
 
+AVSValue Is440(AVSValue args, void*, IScriptEnvironment* env);
+AVSValue IsYA(AVSValue args, void*, IScriptEnvironment* env);
+AVSValue Is410(AVSValue args, void*, IScriptEnvironment* env);
+AVSValue Is411(AVSValue args, void*, IScriptEnvironment* env);
+
 #endif  // __Script_H__

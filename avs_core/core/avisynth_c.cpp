@@ -747,6 +747,34 @@ void AVSC_CC avs_clear_map(AVS_ScriptEnvironment * p, AVS_Map * map)
   }
 }
 
+extern "C"
+int AVSC_CC avs_is_440(const AVS_VideoInfo * p)
+{
+  return ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YUV440 & AVS_CS_PLANAR_FILTER)) ||
+    ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YUVA440 & AVS_CS_PLANAR_FILTER));
+}
+
+extern "C"
+int AVSC_CC avs_is_ya(const AVS_VideoInfo * p)
+{
+  return ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YA & AVS_CS_PLANAR_FILTER)) ||
+    ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YA & AVS_CS_PLANAR_FILTER));
+}
+
+extern "C"
+int AVSC_CC avs_is_410(const AVS_VideoInfo * p)
+{
+  return ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YUV410 & AVS_CS_PLANAR_FILTER)) ||
+    ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YUVA410 & AVS_CS_PLANAR_FILTER));
+}
+
+extern "C"
+int AVSC_CC avs_is_411(const AVS_VideoInfo * p)
+{
+  return ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YUV411 & AVS_CS_PLANAR_FILTER)) ||
+    ((p->pixel_type & AVS_CS_PLANAR_MASK & ~AVS_CS_SAMPLE_BITS_MASK) == (AVS_CS_GENERIC_YUVA411 & AVS_CS_PLANAR_FILTER));
+}
+
 
 
 /////////////////////////////////////////////////////////////////////

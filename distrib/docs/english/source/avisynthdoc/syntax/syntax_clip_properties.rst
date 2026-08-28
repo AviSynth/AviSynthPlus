@@ -247,11 +247,30 @@ WAVE_FORMAT_EXTENSIBLE dwChannelMask speaker position definitions, see
 https://learn.microsoft.com/en-us/windows/win32/api/mmreg/ns-mmreg-waveformatextensible
 (type: int)
 
+-   Is440 (clip) (v3.7.6)
+
+Returns true if the clip is 4:4:0, false otherwise (type: bool).
+
+-   Is410 (clip) (v3.7.6)
+
+Returns true if the clip is 4:1:0, false otherwise (type: bool).
+
+-   Is411 (clip) (v3.7.6)
+
+Returns true if the clip is 4:1:1 (like IsYV411, but bit depth
+independently), false otherwise (type: bool).
+
+-   IsYA (clip) (v3.7.6)
+
+Returns true if the clip is 4:0:0:α, false otherwise (type: bool).
+
+
+
 --------
 
 Back to :doc:`AviSynth Syntax <syntax_ref>`.
 
-$Date: 2025-02-25 17:08:52-05:00 $
+$Date: 2026-08-25 22:50:00-05:00 $
 
 .. _rgb: http://avisynth.nl/index.php/RGB
 .. _rgb24: http://avisynth.nl/index.php/RGB24

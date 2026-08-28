@@ -3,6 +3,17 @@ Changes from 3.7.5 to 3.7.6
 
 Additions, changes
 ~~~~~~~~~~~~~~~~~~
+- Added new pixel format constants
+
+  * YUV(A) 4:4:0(:α) 8~32bits
+  * YV411 aliased to more standard YUV411 naming
+  * YUV 4:1:1 10~32bits
+  * YUVA 4:1:1:α 8~32bits
+  * Y plus alpha 4:0:0:α 8~32bits
+  * YUV9 (added in 2.6 but not used except in the constants list) aliased to more standard YUV410 naming
+  * YUV 4:1:0 10~32bits
+  * YUVA 4:1:0:α 8~32bits
+
 - New array syntax: 
 
   * dictionary-style ArraySet (replaces or appends).
@@ -182,6 +193,7 @@ Additions, changes
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Bump to interface version 13 for new color constants
 - introduce ``AVS_RESTRICT`` to ``avs/config.h`` (compiler invariant c++ ``__restrict``)
 - AVX512: CMake to recognize ``*_avx512b.*`` and ``*_avx512.*`` file pattern, add compiler specific AVX512 
   compile flags accordingly (AVX512 Base and Ice Lake extensions)

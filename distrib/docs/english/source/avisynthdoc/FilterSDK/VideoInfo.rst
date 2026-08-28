@@ -395,6 +395,23 @@ These functions are the bit depth independent versions of
 IsYV24, IsYV16, IsYV12 and IsY8.
 
 
+Is440 / Is410 / Is411 / IsYA (AviSynth+)
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+Added in v13:
+
+::
+
+    bool Is440() const;
+    bool Is410() const;
+    bool Is411() const;
+    bool IsYA() const;
+
+These functions will return true if the clip has the specific YUV colorspace.
+Is440, Is410, and Is411 also return true for alpha-bearing variants.  IsYA
+is the alpha-bearing version.
+
+
 IsYUVA / IsPlanarRGB / IsPlanarRGBA (AviSynth+)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -937,7 +954,7 @@ only 8, 10, 12, 14, 16 and 32.
 
 Back to :doc:`FilterSDK`
 
-$Date: 2023/02/15 12:28:50 $
+$Date: 2025/08/25 22:52:15 $
 
 .. _RGB: http://avisynth.nl/index.php/RGB
 .. _BMP frame: http://en.wikipedia.org/wiki/BMP_file_format

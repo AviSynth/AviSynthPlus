@@ -367,6 +367,12 @@ extern const AVSFunction Script_functions[] = {
   /*
   { "IsArrayOf", BUILTIN_FUNC_PREFIX, ".s", IsArrayOf },
   */
+
+  { "Is440",  BUILTIN_FUNC_PREFIX, "c", Is440 },
+  { "IsYA",   BUILTIN_FUNC_PREFIX, "c", IsYA },
+  { "Is410",  BUILTIN_FUNC_PREFIX, "c", Is410 },
+  { "Is411",  BUILTIN_FUNC_PREFIX, "c", Is411 },
+
   { 0 }
 };
 
@@ -1554,6 +1560,7 @@ static const std::map<int, std::string> pixel_format_table =
   {VideoInfo::CS_YUV422PS , "YUV422PS"},
   {VideoInfo::CS_YUV444PS , "YUV444PS"},
   {VideoInfo::CS_Y32      , "Y32"},
+  {VideoInfo::CS_YS       , "YS"},
 
   {VideoInfo::CS_BGR48    , "RGB48"},
   {VideoInfo::CS_BGR64    , "RGB64"},
@@ -1590,6 +1597,53 @@ static const std::map<int, std::string> pixel_format_table =
   {VideoInfo::CS_RGBAP14   , "RGBAP14"},
   {VideoInfo::CS_RGBAP16   , "RGBAP16"},
   {VideoInfo::CS_RGBAPS    , "RGBAPS"},
+
+  {VideoInfo::CS_YUV440    , "YUV440"},
+  {VideoInfo::CS_YUV440P10 , "YUV440P10"},
+  {VideoInfo::CS_YUV440P12 , "YUV440P12"},
+  {VideoInfo::CS_YUV440P14 , "YUV440P14"},
+  {VideoInfo::CS_YUV440P16 , "YUV440P16"},
+  {VideoInfo::CS_YUV440PS  , "YUV440PS"},
+
+  {VideoInfo::CS_YUVA440    , "YUVA440"},
+  {VideoInfo::CS_YUVA440P10 , "YUVA440P10"},
+  {VideoInfo::CS_YUVA440P12 , "YUVA440P12"},
+  {VideoInfo::CS_YUVA440P14 , "YUVA440P14"},
+  {VideoInfo::CS_YUVA440P16 , "YUVA440P16"},
+  {VideoInfo::CS_YUVA440PS  , "YUVA440PS"},
+
+  {VideoInfo::CS_YUV411P10 , "YUV411P10"},
+  {VideoInfo::CS_YUV411P12 , "YUV411P12"},
+  {VideoInfo::CS_YUV411P14 , "YUV411P14"},
+  {VideoInfo::CS_YUV411P16 , "YUV411P16"},
+  {VideoInfo::CS_YUV411PS  , "YUV411PS"},
+
+  {VideoInfo::CS_YUVA411    , "YUVA411"},
+  {VideoInfo::CS_YUVA411P10 , "YUVA411P10"},
+  {VideoInfo::CS_YUVA411P12 , "YUVA411P12"},
+  {VideoInfo::CS_YUVA411P14 , "YUVA411P14"},
+  {VideoInfo::CS_YUVA411P16 , "YUVA411P16"},
+  {VideoInfo::CS_YUVA411PS  , "YUVA411PS"},
+
+  {VideoInfo::CS_YUV410    , "YUV9"},
+  {VideoInfo::CS_YUV410P10 , "YUV410P10"},
+  {VideoInfo::CS_YUV410P12 , "YUV410P12"},
+  {VideoInfo::CS_YUV410P14 , "YUV410P14"},
+  {VideoInfo::CS_YUV410P16 , "YUV410P16"},
+  {VideoInfo::CS_YUV410PS  , "YUV410PS"},
+
+  {VideoInfo::CS_YUVA410P10 , "YUVA410P10"},
+  {VideoInfo::CS_YUVA410P12 , "YUVA410P12"},
+  {VideoInfo::CS_YUVA410P14 , "YUVA410P14"},
+  {VideoInfo::CS_YUVA410P16 , "YUVA410P16"},
+  {VideoInfo::CS_YUVA410PS  , "YUVA410PS"},
+
+  {VideoInfo::CS_YA8,  "YA8"},
+  {VideoInfo::CS_YA10, "YA10"},
+  {VideoInfo::CS_YA12, "YA12"},
+  {VideoInfo::CS_YA14, "YA14"},
+  {VideoInfo::CS_YA16, "YA16"},
+  {VideoInfo::CS_YAS,  "YAS"}
 };
 
 static const std::multimap<int, std::string> pixel_format_table_ex =
@@ -1607,6 +1661,28 @@ static const std::multimap<int, std::string> pixel_format_table_ex =
   {VideoInfo::CS_YUVA420, "YUVA420P8"},
   {VideoInfo::CS_YUVA422, "YUVA422P8"},
   {VideoInfo::CS_YUVA444, "YUVA444P8"},
+  {VideoInfo::CS_YUV440 , "YUV440P8"},
+  {VideoInfo::CS_YUVA440, "YUVA440P8"},
+  {VideoInfo::CS_YUVA411, "YUVA411P8"},
+  {VideoInfo::CS_YUV410,  "YUV410P8"},
+  {VideoInfo::CS_YUVA410, "YUVA410P8"},
+  {VideoInfo::CS_Y32,  "YS"},
+  {VideoInfo::CS_YS,   "YF32"},
+  {VideoInfo::CS_YAS,  "YAF32"},
+  {VideoInfo::CS_YUV420PS,  "YUV420PF32"},
+  {VideoInfo::CS_YUV422PS,  "YUV422PF32"},
+  {VideoInfo::CS_YUV444PS,  "YUV444PF32"},
+  {VideoInfo::CS_RGBPS   ,  "RGBPF32"},
+  {VideoInfo::CS_YUVA420PS, "YUVA420PF32"},
+  {VideoInfo::CS_YUVA422PS, "YUVA422PF32"},
+  {VideoInfo::CS_YUVA444PS, "YUVA444PF32"},
+  {VideoInfo::CS_RGBAPS   , "RGBAPF32"},
+  {VideoInfo::CS_YUV440PS , "YUV440PF32"},
+  {VideoInfo::CS_YUVA440PS, "YUVA440PF32"},
+  {VideoInfo::CS_YUV411PS , "YUV411PF32"},
+  {VideoInfo::CS_YUVA411PS, "YUVA411PF32"},
+  {VideoInfo::CS_YUV410PS , "YUV410PF32"},
+  {VideoInfo::CS_YUVA410PS, "YUVA410PF32"}
 };
 
 const char *GetPixelTypeName(const int pixel_type)
@@ -3012,3 +3088,7 @@ AVSValue ArraySort(AVSValue args, void* user_data, IScriptEnvironment* env)
   return AVSValue(new_val.data(), size);
 }
 
+AVSValue Is440(AVSValue args, void*, IScriptEnvironment*) {  return VI(args[0]).Is440(); }
+AVSValue IsYA(AVSValue args, void*, IScriptEnvironment*)  {  return VI(args[0]).IsYA(); }
+AVSValue Is410(AVSValue args, void*, IScriptEnvironment*) {  return VI(args[0]).Is410(); }
+AVSValue Is411(AVSValue args, void*, IScriptEnvironment*) {  return VI(args[0]).Is411(); }

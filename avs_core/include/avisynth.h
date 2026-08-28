@@ -129,7 +129,7 @@ enum AvsVersion {
   AVISYNTH_CLASSIC_INTERFACE_VERSION_25 = 3,
   AVISYNTH_CLASSIC_INTERFACE_VERSION_26BETA = 5,
   AVISYNTH_CLASSIC_INTERFACE_VERSION = 6,
-  AVISYNTH_INTERFACE_VERSION = 12,
+  AVISYNTH_INTERFACE_VERSION = 13,
   AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 0 // reset to zero whenever the normal interface version bumps
 };
 
@@ -480,6 +480,12 @@ struct AVS_Linkage {
   void          (VideoInfo::* SetChannelMask)(bool isChannelMaskKnown, unsigned int dwChannelMask);
   unsigned int  (VideoInfo::* GetChannelMask)() const;
 
+  // V13
+  bool          (VideoInfo::*Is440)() const;
+  bool          (VideoInfo::*IsYA)() const;
+  bool          (VideoInfo::*Is410)() const;
+  bool          (VideoInfo::*Is411)() const;
+
   /**********************************************************************/
   // Reserve pointer space for Avisynth+
   void          (VideoInfo::* reserved2[64 - 31])();
@@ -730,21 +736,28 @@ struct VideoInfo {
     CS_GENERIC_YUV422  = CS_PLANAR | CS_YUV | CS_VPlaneFirst | CS_Sub_Width_2 | CS_Sub_Height_1,  // 4:2:2 planar
     CS_GENERIC_YUV420  = CS_PLANAR | CS_YUV | CS_VPlaneFirst | CS_Sub_Width_2 | CS_Sub_Height_2,  // 4:2:0 planar
     CS_GENERIC_Y       = CS_PLANAR | CS_INTERLEAVED | CS_YUV,                                     // Y only (4:0:0)
+    CS_GENERIC_YA      = CS_PLANAR | CS_INTERLEAVED | CS_YUVA,                                    // Y plus alpha (4:0:0:A)
     CS_GENERIC_RGBP    = CS_PLANAR | CS_BGR | CS_RGB_TYPE,                                        // planar RGB. Though name is RGB but plane order G,B,R
     CS_GENERIC_RGBAP   = CS_PLANAR | CS_BGR | CS_RGBA_TYPE,                                       // planar RGBA
     CS_GENERIC_YUVA444 = CS_PLANAR | CS_YUVA | CS_VPlaneFirst | CS_Sub_Width_1 | CS_Sub_Height_1, // 4:4:4:A planar
     CS_GENERIC_YUVA422 = CS_PLANAR | CS_YUVA | CS_VPlaneFirst | CS_Sub_Width_2 | CS_Sub_Height_1, // 4:2:2:A planar
     CS_GENERIC_YUVA420 = CS_PLANAR | CS_YUVA | CS_VPlaneFirst | CS_Sub_Width_2 | CS_Sub_Height_2, // 4:2:0:A planar
+    CS_GENERIC_YUV440  = CS_PLANAR | CS_YUV  | CS_VPlaneFirst | CS_Sub_Width_1 | CS_Sub_Height_2, // 4:4:0 planar, 2026-07-29
+    CS_GENERIC_YUVA440 = CS_PLANAR | CS_YUVA | CS_VPlaneFirst | CS_Sub_Width_1 | CS_Sub_Height_2, // 4:4:0:A planar, 2026-07-29
+    CS_GENERIC_YUV411  = CS_PLANAR | CS_YUV  | CS_VPlaneFirst | CS_Sub_Width_4 | CS_Sub_Height_1, // 4:1:1 planar, 2026-08-25
+    CS_GENERIC_YUVA411 = CS_PLANAR | CS_YUVA | CS_VPlaneFirst | CS_Sub_Width_4 | CS_Sub_Height_1, // 4:1:1:A planar, 2026-08-25
+    CS_GENERIC_YUV410  = CS_PLANAR | CS_YUV  | CS_VPlaneFirst | CS_Sub_Width_4 | CS_Sub_Height_4, // 4:1:0 planar, 2026-08-25
+    CS_GENERIC_YUVA410 = CS_PLANAR | CS_YUVA | CS_VPlaneFirst | CS_Sub_Width_4 | CS_Sub_Height_4, // 4:1:0:A planar, 2026-08-25
 
     CS_YV24  = CS_GENERIC_YUV444 | CS_Sample_Bits_8,  // YVU 4:4:4 planar
     CS_YV16  = CS_GENERIC_YUV422 | CS_Sample_Bits_8,  // YVU 4:2:2 planar
     CS_YV12  = CS_GENERIC_YUV420 | CS_Sample_Bits_8,  // YVU 4:2:0 planar
     CS_I420  = CS_PLANAR | CS_YUV | CS_Sample_Bits_8 | CS_UPlaneFirst | CS_Sub_Width_2 | CS_Sub_Height_2,  // YUV 4:2:0 planar
     CS_IYUV  = CS_I420,
-    CS_YUV9  = CS_PLANAR | CS_YUV | CS_Sample_Bits_8 | CS_VPlaneFirst | CS_Sub_Width_4 | CS_Sub_Height_4,  // YUV 4:1:0 planar
-    CS_YV411 = CS_PLANAR | CS_YUV | CS_Sample_Bits_8 | CS_VPlaneFirst | CS_Sub_Width_4 | CS_Sub_Height_1,  // YUV 4:1:1 planar
+    CS_YUV9  = CS_GENERIC_YUV410 | CS_Sample_Bits_8,  // YUV 4:1:0 planar
+    CS_YV411 = CS_GENERIC_YUV411 | CS_Sample_Bits_8,  // YUV 4:1:1 planar
 
-    CS_Y8    = CS_GENERIC_Y | CS_Sample_Bits_8,                                                            // Y   4:0:0 planar
+    CS_Y8    = CS_GENERIC_Y | CS_Sample_Bits_8,       // Y   4:0:0 planar
 
     //-------------------------
     // AVS16: new planar constants go live! Experimental PF 160613
@@ -820,9 +833,64 @@ struct VideoInfo {
     CS_YUVA422P16 = CS_GENERIC_YUVA422 | CS_Sample_Bits_16, // YUVA 4:2:2 16bit samples
     CS_YUVA420P16 = CS_GENERIC_YUVA420 | CS_Sample_Bits_16, // YUVA 4:2:0 16bit samples
 
-    CS_YUVA444PS  = CS_GENERIC_YUVA444 | CS_Sample_Bits_32,  // YUVA 4:4:4 32bit samples
-    CS_YUVA422PS  = CS_GENERIC_YUVA422 | CS_Sample_Bits_32,  // YUVA 4:2:2 32bit samples
-    CS_YUVA420PS  = CS_GENERIC_YUVA420 | CS_Sample_Bits_32,  // YUVA 4:2:0 32bit samples
+    CS_YUVA444PS  = CS_GENERIC_YUVA444 | CS_Sample_Bits_32, // YUVA 4:4:4 32bit samples
+    CS_YUVA422PS  = CS_GENERIC_YUVA422 | CS_Sample_Bits_32, // YUVA 4:2:2 32bit samples
+    CS_YUVA420PS  = CS_GENERIC_YUVA420 | CS_Sample_Bits_32, // YUVA 4:2:0 32bit samples
+
+    // Planar YUV(A) 4:4:0, 2026-07-29
+    CS_YUV440     = CS_GENERIC_YUV440 | CS_Sample_Bits_8,  // YUV 4:4:0 8bit samples
+    CS_YUV440P10  = CS_GENERIC_YUV440 | CS_Sample_Bits_10, // YUV 4:4:0 10bit samples
+    CS_YUV440P12  = CS_GENERIC_YUV440 | CS_Sample_Bits_12, // YUV 4:4:0 12bit samples
+    CS_YUV440P14  = CS_GENERIC_YUV440 | CS_Sample_Bits_14, // YUV 4:4:0 14bit samples
+    CS_YUV440P16  = CS_GENERIC_YUV440 | CS_Sample_Bits_16, // YUV 4:4:0 16bit samples
+    CS_YUV440PS   = CS_GENERIC_YUV440 | CS_Sample_Bits_32, // YUV 4:4:0 32bit samples
+
+    CS_YUVA440    = CS_GENERIC_YUVA440 | CS_Sample_Bits_8,  // YUVA 4:4:0 8bit samples
+    CS_YUVA440P10 = CS_GENERIC_YUVA440 | CS_Sample_Bits_10, // YUVA 4:4:0 10bit samples
+    CS_YUVA440P12 = CS_GENERIC_YUVA440 | CS_Sample_Bits_12, // YUVA 4:4:0 12bit samples
+    CS_YUVA440P14 = CS_GENERIC_YUVA440 | CS_Sample_Bits_14, // YUVA 4:4:0 14bit samples
+    CS_YUVA440P16 = CS_GENERIC_YUVA440 | CS_Sample_Bits_16, // YUVA 4:4:0 16bit samples
+    CS_YUVA440PS  = CS_GENERIC_YUVA440 | CS_Sample_Bits_32, // YUVA 4:4:0 32bit samples
+
+    // Planar YUV(A) 4:1:1 additional bitdepths, 2026-08-25
+    CS_YUV411     = CS_YV411,                              // YUV 4:1:1 8bit samples
+    CS_YUV411P10  = CS_GENERIC_YUV411 | CS_Sample_Bits_10, // YUV 4:1:1 10bit samples
+    CS_YUV411P12  = CS_GENERIC_YUV411 | CS_Sample_Bits_12, // YUV 4:1:1 12bit samples
+    CS_YUV411P14  = CS_GENERIC_YUV411 | CS_Sample_Bits_14, // YUV 4:1:1 14bit samples
+    CS_YUV411P16  = CS_GENERIC_YUV411 | CS_Sample_Bits_16, // YUV 4:1:1 16bit samples
+    CS_YUV411PS   = CS_GENERIC_YUV411 | CS_Sample_Bits_32, // YUV 4:1:1 32bit samples
+
+    CS_YUVA411    = CS_GENERIC_YUVA411 | CS_Sample_Bits_8,  // YUVA 4:1:1 8bit samples
+    CS_YUVA411P10 = CS_GENERIC_YUVA411 | CS_Sample_Bits_10, // YUVA 4:1:1 10bit samples
+    CS_YUVA411P12 = CS_GENERIC_YUVA411 | CS_Sample_Bits_12, // YUVA 4:1:1 12bit samples
+    CS_YUVA411P14 = CS_GENERIC_YUVA411 | CS_Sample_Bits_14, // YUVA 4:1:1 14bit samples
+    CS_YUVA411P16 = CS_GENERIC_YUVA411 | CS_Sample_Bits_16, // YUVA 4:1:1 16bit samples
+    CS_YUVA411PS  = CS_GENERIC_YUVA411 | CS_Sample_Bits_32, // YUVA 4:1:1 32bit samples
+
+    // Planar YUV(A) 4:1:0, 2026-08-25
+    CS_YUV410     = CS_YUV9,                               // YUV 4:1:0 8bit samples
+    CS_YUV410P10  = CS_GENERIC_YUV410 | CS_Sample_Bits_10, // YUV 4:1:0 10bit samples
+    CS_YUV410P12  = CS_GENERIC_YUV410 | CS_Sample_Bits_12, // YUV 4:1:0 12bit samples
+    CS_YUV410P14  = CS_GENERIC_YUV410 | CS_Sample_Bits_14, // YUV 4:1:0 14bit samples
+    CS_YUV410P16  = CS_GENERIC_YUV410 | CS_Sample_Bits_16, // YUV 4:1:0 16bit samples
+    CS_YUV410PS   = CS_GENERIC_YUV410 | CS_Sample_Bits_32, // YUV 4:1:0 32bit samples
+
+    CS_YUVA410    = CS_GENERIC_YUVA410 | CS_Sample_Bits_8,  // YUVA 4:1:0 8bit samples
+    CS_YUVA410P10 = CS_GENERIC_YUVA410 | CS_Sample_Bits_10, // YUVA 4:1:0 10bit samples
+    CS_YUVA410P12 = CS_GENERIC_YUVA410 | CS_Sample_Bits_12, // YUVA 4:1:0 12bit samples
+    CS_YUVA410P14 = CS_GENERIC_YUVA410 | CS_Sample_Bits_14, // YUVA 4:1:0 14bit samples
+    CS_YUVA410P16 = CS_GENERIC_YUVA410 | CS_Sample_Bits_16, // YUVA 4:1:0 16bit samples
+    CS_YUVA410PS  = CS_GENERIC_YUVA410 | CS_Sample_Bits_32, // YUVA 4:1:0 32bit samples
+
+    // Y plus alpha 4:0:0, 2026-08-25
+    CS_YA8  = CS_GENERIC_YA | CS_Sample_Bits_8,  // Y plus alpha 4:0:0 8bit samples
+    CS_YA10 = CS_GENERIC_YA | CS_Sample_Bits_10, // Y plus alpha 4:0:0 10bit samples
+    CS_YA12 = CS_GENERIC_YA | CS_Sample_Bits_12, // Y plus alpha 4:0:0 12bit samples
+    CS_YA14 = CS_GENERIC_YA | CS_Sample_Bits_14, // Y plus alpha 4:0:0 14bit samples
+    CS_YA16 = CS_GENERIC_YA | CS_Sample_Bits_16, // Y plus alpha 4:0:0 16bit samples
+    CS_YAS  = CS_GENERIC_YA | CS_Sample_Bits_32, // Y plus alpha 4:0:0 32bit samples, float
+
+    CS_YS  = CS_Y32 // Y   4:0:0 32bit samples, float
   };
 
   int pixel_type;                // changed to int as of 2.5
@@ -991,6 +1059,12 @@ struct VideoInfo {
   bool IsChannelMaskKnown() const AVS_BakedCode(return AVS_LinkCallOptDefault(IsChannelMaskKnown, false) )
   void SetChannelMask(bool isChannelMaskKnown, unsigned int dwChannelMask) AVS_BakedCode(AVS_LinkCall_Void(SetChannelMask)(isChannelMaskKnown, dwChannelMask))
   unsigned int GetChannelMask() const AVS_BakedCode(return AVS_LinkCallOptDefault(GetChannelMask, 0) )
+
+  // v13
+  bool Is440() const AVS_BakedCode( return AVS_LinkCallOptDefault(Is440, false) )
+  bool IsYA() const AVS_BakedCode( return AVS_LinkCallOptDefault(IsYA, false) )
+  bool Is410() const AVS_BakedCode( return AVS_LinkCallOptDefault(Is410, false) )
+  bool Is411() const AVS_BakedCode( return AVS_LinkCallOpt(Is411, IsYV411) )
 
 }; // end struct VideoInfo
 

@@ -169,3 +169,7 @@ EXPORTS
   avs_release_global_lock = _avs_release_global_lock@8
 
   avs_get_cpu_flags_ex = _avs_get_cpu_flags_ex@4
+  avs_is_440 = _avs_is_440@4
+  avs_is_ya = _avs_is_ya@4
+  avs_is_410 = _avs_is_410@4
+  avs_is_411 = _avs_is_411@4

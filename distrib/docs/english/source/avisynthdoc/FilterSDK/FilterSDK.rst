@@ -471,6 +471,18 @@ What's new in the API V12
           
           see :ref:`ApplyMessageEx<cplusplus_applymessage>`
 
+.. _api_v13_whats_new:
+
+What's new in the API V13
+-------------------------
+
+- C and C++ API (AVISYNTH_INTERFACE_VERSION = 13):
+        - New API functions for additional pixel formats:
+
+          * ``avs_is_440``, ``avs_is_410``, ``avs_is_411``, ``avs_is_ya`` (C)
+          * ``Is440``, ``Is410``, ``Is411``, ``IsYA`` (C++)
+
+
 Some history
 ------------
 
@@ -498,7 +510,7 @@ License terms
 
 Note: Avisynth Filter SDK parts are under specific :doc:`SDK license <SDKLicense>` terms.
 
-$Date: 2025/12/02 15:36:00 $
+$Date: 2026/08/25 22:40:00 $
 
 Latest online Avisynth+ version is at https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/FilterSDK/FilterSDK.html
 This one is maintained properly.
