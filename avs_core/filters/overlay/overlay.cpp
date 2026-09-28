@@ -630,6 +630,23 @@ PVideoFrame __stdcall Overlay::GetFrame(int n, IScriptEnvironment *env) {
       env->ThrowError("Overlay: internal error, overlayVi must be 422 for internal422");
     Oframe = overlay->GetFrame(n, env);
   }
+  else if (isInternal411) {
+    if (!overlayVi.Is411())
+      env->ThrowError("Overlay: internal error, overlayVi must be 411 for internal411");
+    Oframe = overlay->GetFrame(n, env);
+  }
+  else if (isInternal440) {
+    if (!overlayVi.Is440())
+      env->ThrowError("Overlay: internal error, overlayVi must be 440 for internal440");
+    Oframe = overlay->GetFrame(n, env);
+  }
+  else if (isInternal410) {
+    if (!overlayVi.Is410())
+      env->ThrowError("Overlay: internal error, overlayVi must be 410 for internal410");
+    Oframe = overlay->GetFrame(n, env);
+  }
+  else
+    env->ThrowError("Overlay: internal error, unhandled internal working format for the overlay clip");
   // Fetch current overlay and convert it to internal format
   VideoInfo actual_viInternalOverlayWorkingFormat = viInternalOverlayWorkingFormat;
   if (of_mode == OF_Multiply) {
