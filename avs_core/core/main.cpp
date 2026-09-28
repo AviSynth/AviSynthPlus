@@ -1348,9 +1348,10 @@ void CAVIStreamSynth::ReadFrame(void* lpBuffer, int n) {
       plane1 = PLANAR_B;
       plane2 = PLANAR_R;
     }
-    else if (vi.pixel_type == VideoInfo::CS_YUV440) {
+    else if (vi.Is440()) {
       // No V-first FourCC exists for 4:4:0
       // exported 'I440' (U-then-V, see GetStreamInfo/ReadFormat).
+      // Is440(): both CS_YUV440 and YUVA440
       plane1 = PLANAR_U;
       plane2 = PLANAR_V;
     }
