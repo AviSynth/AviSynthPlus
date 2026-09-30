@@ -832,12 +832,14 @@ static void LightOneUVPixel(pixel_t* dstpU, int j, pixel_t* dstpV, pixel_t& font
 
   // weighed count
   constexpr int totalpixelcount =
+    (chromaMode == TOPLEFT_420) ? 16 : // 1-2-1 x 1-2-1 (3x3)
     (chromaMode == LEFT_420) ? 8 : // 1-2-1 | 1-2-1
     (chromaMode == LEFT_422) ? 4 : // 1-2-1
     (chromaMode == CENTER_420) ? 4 : // 1-1 | 1-1
     (chromaMode == CENTER_422) ? 2 : // 1-1
     (chromaMode == CENTER_411) ? 4 : // 1-1-1-1
     (chromaMode == CENTER_440) ? 2 : // 1 | 1
+    (chromaMode == TOPLEFT_440) ? 4 : // vertical 1-2-1
     (chromaMode == CENTER_410) ? 16 : // 1-1-1-1 | 1-1-1-1 | 1-1-1-1 | 1-1-1-1
     isPointSampleMode(chromaMode) ? 1 : // point sample
     1; // unreached
@@ -879,12 +881,14 @@ static void LightOneUVPixel(pixel_t* dstpU, int j, pixel_t* dstpV, pixel_t& font
     if constexpr (sizeof(pixel_t) != 4) {
       constexpr int rounder = totalpixelcount >> 1;
       constexpr int divshift = 
+        (chromaMode == TOPLEFT_420) ? 4 :
         (chromaMode == LEFT_420) ? 3 :
         (chromaMode == LEFT_422) ? 2 :
         (chromaMode == CENTER_420) ? 2 :
         (chromaMode == CENTER_422) ? 1 :
         (chromaMode == CENTER_411) ? 2 :
         (chromaMode == CENTER_440) ? 1 : // log2(totalpixelcount=2)
+        (chromaMode == TOPLEFT_440) ? 2 : // log2(totalpixelcount=4)
         (chromaMode == CENTER_410) ? 4 : // log2(totalpixelcount=16)
         isPointSampleMode(chromaMode) ? 0 : // log2(totalpixelcount=1)
         0; // unreached
@@ -1479,8 +1483,19 @@ void RenderUV(int bits_per_pixel, int color, int halocolor, int* pitches, BYTE**
   // 4:1:1 (ySubS==1, no vertical subsampling) uses just the first
   uint8_t* fontlines_ptr[4] = { nullptr };
   uint8_t* fontoutlines_ptr[4] = { nullptr };
+  // top-left (co-sited vertically) 4:2:0 and 4:4:0: the vertical 1-2-1 also needs the row
+  // above the block (the last row of the previous block); zero outside the text bitmap
+  constexpr bool needsPrevRow = (chromaMode == TOPLEFT_420 || chromaMode == TOPLEFT_440);
+  uint8_t* prevline_ptr = nullptr;
+  uint8_t* prevoutline_ptr = nullptr;
 
-  for (int ty = pre.ystart; ty < pre.yend; ty += ySubS) {
+  // With needsPrevRow the last text row can also be row -1 of the chroma row below the last
+  // text block: render one more chroma row then, if it is still inside the frame.
+  const int ty_end = needsPrevRow ? pre.yend + 1 + yshift : pre.yend;
+  const int chroma_height = pre.frame_height() >> logYRatioUV;
+  int chroma_row = pre.y >> logYRatioUV;
+
+  for (int ty = pre.ystart; ty < ty_end && chroma_row < chroma_height; ty += ySubS, chroma_row++) {
 
     pixel_t* _dstpU = reinterpret_cast<pixel_t*>(dstpU);
     pixel_t* _dstpV = reinterpret_cast<pixel_t*>(dstpV);
@@ -1500,6 +1515,13 @@ void RenderUV(int bits_per_pixel, int color, int halocolor, int* pitches, BYTE**
           const int row = ty + m - yshift;
           fontoutlines_ptr[m] = (row >= 0 && row < pre.stringbitmap_height) ? pre.stringbitmap_outline[row].data() : zeros.data();
         }
+      }
+      if constexpr (needsPrevRow) {
+        const int row = ty - 1 - yshift;
+        const bool valid = row >= 0 && row < pre.stringbitmap_height;
+        prevline_ptr = valid ? pre.stringbitmap[row].data() : zeros.data();
+        if constexpr (useHalocolor)
+          prevoutline_ptr = valid ? pre.stringbitmap_outline[row].data() : zeros.data();
       }
     }
     else {
@@ -1530,16 +1552,33 @@ void RenderUV(int bits_per_pixel, int color, int halocolor, int* pitches, BYTE**
           halopixels_right += get_bits(fontoutlines_ptr[yy], shifted_xstart - 1, 1);
       }
     }
+    // top-left 4:2:0: column sums are vertically 1-2-1 weighted (rows -1, 0, +1)
+    auto colsum_121 = [](uint8_t* prev, uint8_t* row0, uint8_t* row1, int x) {
+      return get_bits(prev, x, 1) + 2 * get_bits(row0, x, 1) + get_bits(row1, x, 1);
+    };
+    if constexpr (chromaMode == TOPLEFT_420) {
+      fontpixels_right = colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], shifted_xstart - 1);
+      if constexpr (useHalocolor)
+        halopixels_right = colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], shifted_xstart - 1);
+    }
 
     for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width + xplus; tx += xSubS) {
       int fontpixels = 0;
       int halopixels = 0;
 
-      // 411
+      // Chroma kernels: weights of the luma/outline bits contributing to one chroma sample.
+      // Where the kernel reaches outside the chroma block, '=' borders mark the block itself;
+      // the other cells belong to the neighboring blocks (row -1: above, column -1: left).
+      //
+      // 411 center
       // +------+------+------+------+
       // | 0.25 | 0.25 | 0.25 | 0.25 |
       // +------+------+------+------+
-      // 410
+      // 411 top_left (point sample)
+      // +------+------+------+------+
+      // |  1   |  0   |  0   |  0   |
+      // +------+------+------+------+
+      // 410 center
       // +------+------+------+------+
       // | 1/16 | 1/16 | 1/16 | 1/16 |
       // +------+------+------+------+
@@ -1549,21 +1588,35 @@ void RenderUV(int bits_per_pixel, int color, int halocolor, int* pitches, BYTE**
       // +------+------+------+------+
       // | 1/16 | 1/16 | 1/16 | 1/16 |
       // +------+------+------+------+
-      // 440
+      // 410 top_left (point sample)
+      // +------+------+------+------+
+      // |  1   |  0   |  0   |  0   |
+      // +------+------+------+------+
+      // |  0   |  0   |  0   |  0   |
+      // +------+------+------+------+
+      // |  0   |  0   |  0   |  0   |
+      // +------+------+------+------+
+      // |  0   |  0   |  0   |  0   |
+      // +------+------+------+------+
+      // 440 center
       // +------+
       // | 0.5  |
       // |------+
       // | 0.5  |
       // +------+
+      // 440 top (and top_left): vertical 1-2-1 around the top luma row
+      // +------+
+      // | 0.25 |  row -1
+      // +======+
+      // | 0.5  |  row 0
+      // +------+
+      // | 0.25 |  row 1
+      // +======+
       // 420 center (mpeg1, jpeg)
       // +------+------+
       // | 0.25 | 0.25 |
       // |------+------|
       // | 0.25 | 0.25 |
-      // +------+------+
-      // 422 center
-      // +------+------+
-      // | 0.5  | 0.5  |
       // +------+------+
       // 420 left (mpeg2)
       // ------+------+-------+
@@ -1571,7 +1624,20 @@ void RenderUV(int bits_per_pixel, int color, int halocolor, int* pitches, BYTE**
       // ------|------+-------|
       // 0.125 | 0.25 | 0.125 |
       // ------+------+-------+
-      // 422 left (mpeg2)
+      // 420 top_left: 1-2-1 x 1-2-1 (3x3) around the top-left luma sample
+      //  col -1  col 0   col 1
+      // -------+-------+-------+
+      //  1/16  | 2/16  | 1/16  |  row -1
+      // -------+=======+=======+
+      //  2/16  | 4/16  | 2/16  |  row 0
+      // -------+-------+-------+
+      //  1/16  | 2/16  | 1/16  |  row 1
+      // -------+=======+=======+
+      // 422 center
+      // +------+------+
+      // | 0.5  | 0.5  |
+      // +------+------+
+      // 422 left (mpeg2), also used for 422 top_left (same siting)
       // ------+------+-------+
       // 0.25  | 0.5  | 0.25  |
       // ------+------+-------+
@@ -1605,6 +1671,24 @@ void RenderUV(int bits_per_pixel, int color, int halocolor, int* pitches, BYTE**
         fontpixels = fontpixels_left + 2 * fontpixels_mid + fontpixels_right;
         if constexpr (useHalocolor)
           halopixels = halopixels_left + 2 * halopixels_mid + halopixels_right;
+      }
+      else if constexpr (chromaMode == TOPLEFT_420) {
+        // 1-2-1 horizontally over vertically 1-2-1 weighted column sums: 3x3 kernel centered
+        // on the block's top-left luma sample. Right column sum is reused as the next left one.
+        const int fontpixels_left = fontpixels_right;
+        fontpixels_right = colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], tx + 1);
+        fontpixels = fontpixels_left + 2 * colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], tx) + fontpixels_right;
+        if constexpr (useHalocolor) {
+          const int halopixels_left = halopixels_right;
+          halopixels_right = colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], tx + 1);
+          halopixels = halopixels_left + 2 * colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], tx) + halopixels_right;
+        }
+      }
+      else if constexpr (chromaMode == TOPLEFT_440) {
+        // vertical 1-2-1 centered on the block's top luma row (rows -1, 0, +1)
+        fontpixels = colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], tx);
+        if constexpr (useHalocolor)
+          halopixels = colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], tx);
       }
       else if constexpr (isPointSampleMode(chromaMode)) {
         // point sample: single top-left luma/outline bit of the box, no averaging
@@ -1649,8 +1733,10 @@ void do_DrawStringPlanar(
 
   // Chroma 410/411 would require 3 extra bits on both left and right.
   // Chroma 420 and 422 need 1 bits on both left and right
-  // Left (mpeg2) chroma placement (420, 422) requires an additional one on the left (1-2-1 kernel).
-  const bool isLeftStyleChromaLoc = (logXRatioUV == 1) && (chromalocation == ChromaLocation_e::AVS_CHROMA_LEFT);
+  // Left (mpeg2) and top_left chroma placement (420, 422) require an additional one on the left
+  // (horizontal 1-2-1 kernel).
+  const bool isLeftStyleChromaLoc = (logXRatioUV == 1) &&
+    (chromalocation == ChromaLocation_e::AVS_CHROMA_LEFT || chromalocation == ChromaLocation_e::AVS_CHROMA_TOP_LEFT);
   const int safety_bits_x_left = (1 << logXRatioUV) - 1 + (isLeftStyleChromaLoc ? 1 : 0);
   const int safety_bits_x_right = (1 << logXRatioUV) - 1;
 
@@ -1677,8 +1763,8 @@ void do_DrawStringPlanar(
     return; // Y
 
   // Subsampled cases, templates help a lot. chromalocation is already narrowed down in
-  // DrawString_internal to CENTER (box average), TOP_LEFT (point sample) or LEFT (1-2-1, 420/422 only);
-  // 411/440/410 have no 1-2-1 kernel: anything but CENTER is a point sample there.
+  // DrawString_internal to CENTER (box average), LEFT (1-2-1; 420: rows 0-1, 422) or
+  // TOP_LEFT (420: 3x3 1-2-1, 440: vertical 1-2-1). 411/410: anything but CENTER is a point sample.
   if (logXRatioUV == 2 && logYRatioUV == 0) {// 411
     if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER) {
       if (useHalocolor)
@@ -1699,12 +1785,6 @@ void do_DrawStringPlanar(
         RenderUV<pixel_t, true, fadeBackground, 1, 0, ChromaLocationMode::CENTER_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
       else
         RenderUV<pixel_t, false, fadeBackground, 1, 0, ChromaLocationMode::CENTER_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-    else if (chromalocation == ChromaLocation_e::AVS_CHROMA_TOP_LEFT) {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 1, 0, ChromaLocationMode::TOPLEFT_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 1, 0, ChromaLocationMode::TOPLEFT_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
     }
     else {
       if (useHalocolor)
@@ -1867,12 +1947,6 @@ void RenderYUY2(int color, int halocolor, int pitch, BYTE* _dstp, PreRendered& p
         if constexpr (useHalocolor)
           halopixels = halopixels_left + 2 * halopixels_mid + halopixels_right;
       }
-      else if constexpr (chromaMode == TOPLEFT_422) {
-        // point sample: single left luma/outline bit, no averaging
-        fontpixels = get_bits(fontline_ptr, tx, 1);
-        if constexpr (useHalocolor)
-          halopixels = get_bits(fontoutline_ptr, tx, 1);
-      }
       else {
         // center, equal weights
         fontpixels += get_bits(fontline_ptr, tx, xSubS);
@@ -1913,16 +1987,12 @@ static void do_DrawStringYUY2(
   if (useHalocolor) {
     if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER)
       RenderYUY2<true, fadeBackground, ChromaLocationMode::CENTER_422>(color, halocolor, pitch, _dstp, pre);
-    else if (chromalocation == ChromaLocation_e::AVS_CHROMA_TOP_LEFT)
-      RenderYUY2<true, fadeBackground, ChromaLocationMode::TOPLEFT_422>(color, halocolor, pitch, _dstp, pre);
     else
       RenderYUY2<true, fadeBackground, ChromaLocationMode::LEFT_422>(color, halocolor, pitch, _dstp, pre);
   }
   else {
     if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER)
       RenderYUY2<false, fadeBackground, ChromaLocationMode::CENTER_422>(color, halocolor, pitch, _dstp, pre);
-    else if (chromalocation == ChromaLocation_e::AVS_CHROMA_TOP_LEFT)
-      RenderYUY2<false, fadeBackground, ChromaLocationMode::TOPLEFT_422>(color, halocolor, pitch, _dstp, pre);
     else
       RenderYUY2<false, fadeBackground, ChromaLocationMode::LEFT_422>(color, halocolor, pitch, _dstp, pre);
   }
@@ -2141,15 +2211,17 @@ static void DrawString_internal(BitmapFont* current_font, const VideoInfo& vi, P
   // Chroma kernels, the same three variants as the mask kernels of Overlay/Layer/Subtitle
   // (chromaLocationToMaskPlacement, blend_common.h):
   // - "mpeg1" -> CENTER: box average
-  // - "top_left" -> TOP_LEFT: point sample (a single luma sample of the block)
+  // - "top_left" -> TOP_LEFT: 1-2-1 filter centered on the top-left luma sample (4:2:0: 3x3,
+  //   4:4:0: vertical); 4:2:2/YUY2: same siting as left, uses LEFT; 4:1:1, 4:1:0: point sample
   // - "mpeg2" -> LEFT: 1-2-1 (4:2:0, 4:2:2, YUY2); 4:1:1 has no such kernel, uses the point sample
   // This is where it is narrowed down: unlike Overlay/Layer, which keep the chroma location and
   // store the kernel variant separately, here chromalocation itself is overwritten with the
   // kernel's representative value (CENTER, TOP_LEFT or LEFT) and passed on.
   const bool subsampledYUV = (vi.IsYUV() || vi.IsYUVA()) && !vi.IsY() && !vi.IsYA() && !vi.Is444();
   const int maskPlacement = subsampledYUV ? chromaLocationToMaskPlacement(chromalocation, vi) : PLACEMENT_MPEG2;
+  const bool is422 = vi.Is422() || vi.IsYUY2(); // top_left has the same siting as left
   chromalocation = maskPlacement == PLACEMENT_MPEG1 ? ChromaLocation_e::AVS_CHROMA_CENTER
-    : maskPlacement == PLACEMENT_TOPLEFT ? ChromaLocation_e::AVS_CHROMA_TOP_LEFT
+    : (maskPlacement == PLACEMENT_TOPLEFT && !is422) ? ChromaLocation_e::AVS_CHROMA_TOP_LEFT
     : ChromaLocation_e::AVS_CHROMA_LEFT; // also n/a for non-subsampled formats
 
   // YUY2

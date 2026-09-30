@@ -55,16 +55,19 @@ enum ChromaLocationMode {
   CENTER_422,
   LEFT_422,
   CENTER_440,
-  TOPLEFT_440, // point sample, co-sited top (440 has no horizontal subsampling)
+  TOPLEFT_440, // co-sited top: vertical 1-2-1 (440 has no horizontal subsampling)
   CENTER_410,
   TOPLEFT_410, // point sample, co-sited top-left
-  TOPLEFT_420, // point sample, co-sited top-left
-  TOPLEFT_422  // point sample, co-sited left (422 has no vertical subsampling)
+  TOPLEFT_420  // co-sited top-left: 1-2-1 horizontally and vertically (3x3)
+  // 422 (and YUY2) top_left: same siting as left, rendered with LEFT_422
 };
 
-// point-sample (top-left) modes: a single luma/outline bit of the block, weight 1
+// point-sample modes: a single luma/outline bit of the block, weight 1
+// Co-sited 4:1:1 and 4:1:0. A filtered variant (x4 triangle, 1-2-3-4-3-2-1 / 16 per axis)
+// would need a 7x1 (4:1:1) or 7x7 (4:1:0) window with 3 columns (and rows) of history;
+// not considered worth implementing for these rare formats yet.
 constexpr bool isPointSampleMode(ChromaLocationMode m) {
-  return m == TOPLEFT_411 || m == TOPLEFT_440 || m == TOPLEFT_410 || m == TOPLEFT_420 || m == TOPLEFT_422;
+  return m == TOPLEFT_411 || m == TOPLEFT_410;
 }
 
 typedef struct BBX {
@@ -108,6 +111,7 @@ public:
     );
 
   void make_outline();
+  int frame_height() const { return vi_height; }
 };
 
 class BitmapFont {
