@@ -92,14 +92,22 @@ private:
 
   const char* output_pixel_format_override;
 
-  int placement; // PLACEMENT_MPEG2 (default), PLACEMENT_MPEG1 or PLACEMENT_TOPLEFT
-  const char* placementName;
-  // raw "mpeg2"/"mpeg1"/"top_left" string
-  // Role 1: passed straight through as ChromaInPlacement/ChromaOutPlacement to
-  // ConvertToYUV4xx calls in the forced-444 (use444=true) round trip, so input
-  // siting and the reconstructed output siting always match.
-  // Role 2: native, non-444 paths are using for masked-blend chroma mask downsampling.
-  // FIXME: check that base/overlay/mask's own chroma siting all agree with it and each other
+  // `placement` string parameter resolved: chroma location (ChromaLocation_e) of the base clip and
+  // the output. Passed as ChromaInPlacement/ChromaOutPlacement to the ConvertToYUV4xx calls.
+  // The overlay clip/mask are re-sited to it (see getClipChromaLocation).
+  int chromaLocation;
+
+  // true: chromaLocation really describes the base clip: it is subsampled YUV (its own
+  // _ChromaLocation or format default), or 'placement' was given explicitly (not "auto").
+  // false: non-subsampled base (RGB, 444, Y) and no 'placement': chromaLocation is only a
+  // 'left' fallback. Then a subsampled 'output' format gets that output format's own default
+  // siting instead (e.g. 'top' for 440), see the output conversion in Create.
+  bool chromaLocationDefined;
+
+  // chromaLocation mapped to the mask downsampling kernel variant for the internal working
+  // format (chromaLocationToMaskPlacement): PLACEMENT_MPEG2, PLACEMENT_MPEG1 or PLACEMENT_TOPLEFT.
+  // The actual kernel further depends on the format (resolveChromaMaskMode).
+  int placement;
 
   bool isInternalRGB; // must be planar rgb
   bool isInternalGrey;

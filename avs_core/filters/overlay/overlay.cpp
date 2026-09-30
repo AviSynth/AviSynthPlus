@@ -44,83 +44,64 @@
 #include "overlay.h"
 #include <string>
 #include "../core/internal.h"
-#include "../../convert/convert_helper.h" // ChromaLocation_e, for _ChromaLocation frame prop defaulting
+#include "../../convert/convert_helper.h" // chroma location helpers
+
+// Chroma placement helpers
+
+// Chroma location of an overlay/mask clip
+// - _ChromaLocation frame prop (frame 0) if present.
+// - Otherwise
+//   - having the same chroma subsampling as the base clip, it is assumed to be sited
+//     like the base (parameter baseChromaLocation)
+//   - if not, it gets its own format's default (similar to ConvertToYUV4xx behavior).
+static int getClipChromaLocation(PClip clip, const VideoInfo& baseVi, int baseChromaLocation, IScriptEnvironment* env) {
+  int chromaloc;
+  if (GetChromaLocationFromProps(clip, env, chromaloc))
+    return chromaloc;
+  const VideoInfo& vi = clip->GetVideoInfo();
+  if (IsSubsampledYUV(vi) && IsSubsampledYUV(baseVi) &&
+    vi.GetPlaneWidthSubsampling(PLANAR_U) == baseVi.GetPlaneWidthSubsampling(PLANAR_U) &&
+    vi.GetPlaneHeightSubsampling(PLANAR_U) == baseVi.GetPlaneHeightSubsampling(PLANAR_U))
+    return baseChromaLocation;
+  return GetDefaultChromaLocation(vi);
+}
+
+// Obtain ConvertToYUV4xx function names by vi.
+// nullptr for non-subsampled formats (Y, 4:4:4, RGB).
+static const char* subsampledConvertName(const VideoInfo& vi) {
+  if (vi.Is420()) return "ConvertToYUV420";
+  if (vi.Is422()) return "ConvertToYUV422";
+  if (vi.Is411()) return "ConvertToYUV411";
+  if (vi.Is440()) return "ConvertToYUV440";
+  if (vi.Is410()) return "ConvertToYUV410";
+  return nullptr;
+}
+
+// Converts an overlay or color mask clip (Y, YUV(A)) to the subsampled native working
+// format. ChromaInPlacement is the clip's own siting (getClipChromaLocation),
+// ChromaOutPlacement is the base clip's `placement`. Also converts when the subsampling
+// already matches but the effective siting differs, e.g. YV12 'center' -> 'left';
+// equivalent sitings are left alone, e.g. YV16 'top' vs 'center' (same horizontal position).
+static PClip convertToSubsampledWorkingFormat(PClip clip, const VideoInfo& workingVi, const VideoInfo& baseVi, int chromaLocation, IScriptEnvironment* env) {
+  const VideoInfo& vi = clip->GetVideoInfo();
+  const char* convertName = subsampledConvertName(workingVi);
+  const char* clipConvertName = subsampledConvertName(vi);
+  const int clipChromaLocation = getClipChromaLocation(clip, baseVi, chromaLocation, env);
+  if (clipConvertName && !strcmp(clipConvertName, convertName) &&
+    IsSameChromaSiting(clipChromaLocation, chromaLocation,
+      1 << workingVi.GetPlaneWidthSubsampling(PLANAR_U), 1 << workingVi.GetPlaneHeightSubsampling(PLANAR_U)))
+    return clip;
+  // c[interlaced]b[matrix]s[ChromaInPlacement]s[chromaresample]s[ChromaOutPlacement]s
+  AVSValue new_args[6] = { clip, false, AVSValue(),
+    clipConvertName ? AVSValue(GetChromaLocationName(clipChromaLocation)) : AVSValue(), // n/a for Y, 4:4:4
+    AVSValue(),
+    GetChromaLocationName(chromaLocation) };
+  return env->Invoke(convertName, AVSValue(new_args, 6)).AsClip();
+}
 
 /********************************************************************
 ***** Declare index of new filters for Avisynth's filter engine *****
 ********************************************************************/
-
-// Overlay only has 3 placement buckets (mpeg2/mpeg1/top_left), unlike the full
-// 7-value ChromaLocation_e (_ChromaLocation frame prop).
-// Only an exact LEFT maps to the centered-horizontal/centered-vertical-averaging MPEG2 bucket's
-// counterpart.
-// LEFT -> MPEG2 (co-sited H, centered V)
-// CENTER -> MPEG1 (centered both axes)
-// The rest (TOP_LEFT, DV, TOP, BOTTOM_LEFT, BOTTOM) -> TOPLEFT
-static int mapChromaLocationToPlacement(int chromaLoc) {
-  switch (chromaLoc) {
-  case ChromaLocation_e::AVS_CHROMA_LEFT:   return PLACEMENT_MPEG2;
-  case ChromaLocation_e::AVS_CHROMA_CENTER: return PLACEMENT_MPEG1;
-  default:                                  return PLACEMENT_TOPLEFT;
-  }
-}
-
-static const char* placementNameFor(int placementVal) {
-  return placementVal == PLACEMENT_MPEG1 ? "mpeg1"
-       : placementVal == PLACEMENT_TOPLEFT ? "top_left"
-       : "mpeg2";
-}
-
-// 3-bucket 'placement' value resolved to a string ConvertToYUV4xx will accept as
-// ChromaInPlacement/ChromaOutPlacement, pixel_type dependent.
-// 4:4:0 (HxV:1x2) only has vertical subsampling, only 'center' or 'top' are valid (see convert_planar.cpp)
-// Only MPEG1 (centered box-average) maps to 4:4:0's 'center'
-// MPEG2 and TOPLEFT are both point-sample equivalent ('top' for 4:4:0)
-// Other supported formats (420/422/411/410/444) accept the mpeg2/mpeg1/top_left names directly.
-static const char* placementNameForFormat(int placementVal, const VideoInfo& fmt) {
-  if (fmt.Is440())
-    return placementVal == PLACEMENT_MPEG1 ? "center" : "top";
-  return placementNameFor(placementVal);
-}
-
-// Resolves Overlay's `placement` with the same precedence ConvertToYUV4xx uses
-// for ChromaInPlacement (see convert_planar.cpp's chromaloc_parse_merge_with_props):
-// explicit argument > the base clip's _ChromaLocation frame prop > a per-format
-// hardcoded default. The hardcoded default also matches ConvertToYUV4xx's own:
-// TOPLEFT for 4:4:0/4:1:0 (no standard siting convention for those; see the
-// ffmpeg-parity discussion), MPEG2/left otherwise. Writes the canonical string
-// form to *out_name (for passing straight through as ChromaInPlacement/
-// ChromaOutPlacement to ConvertToYUV4xx Invoke calls) and returns the int form.
-static int getPlacement(const AVSValue& _placement, PClip child, const VideoInfo& vi, IScriptEnvironment* env, const char** out_name) {
-  const char* placement = _placement.AsString(nullptr);
-  if (placement) {
-    if (!lstrcmpi(placement, "mpeg2")) { *out_name = "mpeg2"; return PLACEMENT_MPEG2; }
-    if (!lstrcmpi(placement, "mpeg1")) { *out_name = "mpeg1"; return PLACEMENT_MPEG1; }
-    if (!lstrcmpi(placement, "top_left")) { *out_name = "top_left"; return PLACEMENT_TOPLEFT; }
-    env->ThrowError("Overlay: Unknown chroma placement");
-  }
-
-  // No explicit placement: try the base clip's _ChromaLocation frame prop, for
-  // subsampled YUV formats only (see convert_planar.cpp).
-  if (vi.Is420() || vi.Is422() || vi.Is411() || vi.Is440() || vi.Is410()) {
-    auto frame0 = child->GetFrame(0, env);
-    const AVSMap* props = env->getFramePropsRO(frame0);
-    if (env->propNumElements(props, "_ChromaLocation") > 0) {
-      int chromaLoc = (int)env->propGetIntSaturated(props, "_ChromaLocation", 0, nullptr);
-      int mapped = mapChromaLocationToPlacement(chromaLoc);
-      *out_name = placementNameFor(mapped);
-      return mapped;
-    }
-  }
-
-  // Fall back to the per-format hardcoded default.
-  if (vi.Is440() || vi.Is410()) {
-    *out_name = "top_left";
-    return PLACEMENT_TOPLEFT;
-  }
-  *out_name = "mpeg2";
-  return PLACEMENT_MPEG2;
-}
 
 extern const AVSFunction Overlay_filters[] = {
   { "Overlay", BUILTIN_FUNC_PREFIX, "cc[x]i[y]i[mask]c[opacity]f[mode]s[greymask]b[output]s[ignore_conditional]b[PC_Range]b[use444]b[condvarsuffix]s[placement]s", Overlay::Create },
@@ -137,7 +118,7 @@ extern const AVSFunction Overlay_filters[] = {
     // 10, full YUV range.
     // 11, ignore 4:4:4 conversion
     // 12, conditional variable suffix AVS+
-    // 13, chroma placement "mpeg2" (default) or "mpeg1"
+    // 13, chroma placement of the base clip, ConvertToYUV4xx syntax ("left"/"mpeg2", "center"/"mpeg1", "top_left", ...)
   { 0 }
 };
 
@@ -174,7 +155,9 @@ GenericVideoFilter(_child), child444(nullptr) {
   use444 = args[ARG_USE444].AsBool(true);  // avs+ option to use 444-conversionless mode
   name = args[ARG_MODE].AsString("Blend");
   condVarSuffix = args[ARG_CONDVARSUFFIX].AsString("");
-  placement = getPlacement(args[ARG_PLACEMENT], child, vi, env, &placementName);
+  // `placement`: the chroma location (ChromaLocation_e) of the base clip, and thus of the output.
+  // Same treatment like ConvertToYUV4xx's ChromaInPlacement.
+  chromaLocation = ResolveChromaLocation(child, args[ARG_PLACEMENT].AsString(nullptr), env, &chromaLocationDefined);
 
   // Make copy of the VideoInfo
   inputVi = vi;
@@ -352,6 +335,9 @@ GenericVideoFilter(_child), child444(nullptr) {
   isInternal440 = viInternalWorkingFormat.Is440();
   isInternal410 = viInternalWorkingFormat.Is410();
 
+  // narrow down the mask downsampling kernel variant for the subsampled native working formats
+  placement = chromaLocationToMaskPlacement(chromaLocation, viInternalWorkingFormat);
+
   // Base clip conversion to internal 444 working format, done once here at
   // construction, uniformly for _every_ source formats (Y, RGB, 4:2:0, 4:2:2,
   // 4:1:1, 4:4:0, 4:1:0). Always goes through a real resampler (ConvertToYUV444)
@@ -363,12 +349,12 @@ GenericVideoFilter(_child), child444(nullptr) {
     isInternal444)
   {
     if (inputVi.IsRGB()) {
-      AVSValue new_args[4] = { child, false, full_range ? "PC.601" : "rec601", placementName };
-      child444 = env->Invoke("ConvertToYUV444", AVSValue(new_args, 4)).AsClip();
+      AVSValue new_args[3] = { child, false, full_range ? "PC.601" : "rec601" }; // no chroma placement for RGB source
+      child444 = env->Invoke("ConvertToYUV444", AVSValue(new_args, 3)).AsClip();
     }
     else {
       // Y, 4:2:0, 4:2:2, 4:1:1, 4:4:0, 4:1:0
-      AVSValue new_args[4] = { child, false, AVSValue() /*matrix, unused for YUV->YUV444*/, placementNameForFormat(placement, inputVi) };
+      AVSValue new_args[4] = { child, false, AVSValue() /*matrix, unused for YUV->YUV444*/, GetChromaLocationName(chromaLocation) };
       child444 = env->Invoke("ConvertToYUV444", AVSValue(new_args, 4)).AsClip();
     }
   }
@@ -387,7 +373,9 @@ GenericVideoFilter(_child), child444(nullptr) {
   }
   if (isInternal444) {
     if (!overlayVi.Is444()) {
-      AVSValue new_args[4] = { overlay, false, AVSValue() /*matrix, unused for YUV->YUV444*/, placementNameForFormat(placement, overlayVi) };
+      // ChromaInPlacement: overlay's own siting, see getClipChromaLocation (n/a for Y)
+      AVSValue new_args[4] = { overlay, false, AVSValue() /*matrix, unused for YUV->YUV444*/,
+        GetChromaLocationName(getClipChromaLocation(overlay, inputVi, chromaLocation, env)) };
       overlay = env->Invoke("ConvertToYUV444", AVSValue(new_args, 4)).AsClip();
       overlayVi = overlay->GetVideoInfo();
     }
@@ -402,43 +390,10 @@ GenericVideoFilter(_child), child444(nullptr) {
       overlayVi = overlay->GetVideoInfo();
     }
   }
-  else if (isInternal420) {
-    if (!overlayVi.Is420()) {
-      AVSValue new_args[2] = { overlay, false };
-      overlay = env->Invoke("ConvertToYUV420", AVSValue(new_args, 2)).AsClip();
-      overlayVi = overlay->GetVideoInfo();
-    }
-  }
-  else if (isInternal422) {
-    if (!overlayVi.Is422()) {
-      AVSValue new_args[2] = { overlay, false };
-      overlay = env->Invoke("ConvertToYUV422", AVSValue(new_args, 2)).AsClip();
-      overlayVi = overlay->GetVideoInfo();
-    }
-  }
-  else if (isInternal411) {
-    // No fast 444-bridge kernel for these rare ratios (unlike 420/422): convert
-    // straight to the matching native shape once here, so GetFrame's exact-match
-    // fast path (overlayVi.pixel_type == viInternalWorkingFormat.pixel_type) always hits.
-    if (!overlayVi.Is411()) {
-      AVSValue new_args[2] = { overlay, false };
-      overlay = env->Invoke("ConvertToYUV411", AVSValue(new_args, 2)).AsClip();
-      overlayVi = overlay->GetVideoInfo();
-    }
-  }
-  else if (isInternal440) {
-    if (!overlayVi.Is440()) {
-      AVSValue new_args[2] = { overlay, false };
-      overlay = env->Invoke("ConvertToYUV440", AVSValue(new_args, 2)).AsClip();
-      overlayVi = overlay->GetVideoInfo();
-    }
-  }
-  else if (isInternal410) {
-    if (!overlayVi.Is410()) {
-      AVSValue new_args[2] = { overlay, false };
-      overlay = env->Invoke("ConvertToYUV410", AVSValue(new_args, 2)).AsClip();
-      overlayVi = overlay->GetVideoInfo();
-    }
+  else if (isInternal420 || isInternal422 || isInternal411 || isInternal440 || isInternal410) {
+    // in: overlay's own siting, out: `placement`, like the base clip
+    overlay = convertToSubsampledWorkingFormat(overlay, viInternalWorkingFormat, inputVi, chromaLocation, env);
+    overlayVi = overlay->GetVideoInfo();
   }
 
   if (mask) {
@@ -487,7 +442,11 @@ GenericVideoFilter(_child), child444(nullptr) {
       }
     } // RGB mask cases end
 
-    if (getPixelTypeWithoutAlpha(maskVi) != getPixelTypeWithoutAlpha(viInternalWorkingFormat))
+    const bool isInternalSubsampled = isInternal420 || isInternal422 || isInternal411 || isInternal440 || isInternal410;
+    // A mask of the same subsampled format may still need re-siting, so it is checked too:
+    // convertToSubsampledWorkingFormat returns it as is if the siting already matches
+    if (getPixelTypeWithoutAlpha(maskVi) != getPixelTypeWithoutAlpha(viInternalWorkingFormat)
+      || (!greymask && isInternalSubsampled))
     {
       if (!maskVi.IsRGB()) {
         if (isInternalRGB) {
@@ -504,39 +463,16 @@ GenericVideoFilter(_child), child444(nullptr) {
             mask = env->Invoke("ConvertToY", AVSValue(new_args, 1)).AsClip();
           }
           else {
-            if (isInternal420) {
-              if (!maskVi.Is420()) {
-                AVSValue new_args[2] = { mask, false };
-                mask = env->Invoke("ConvertToYUV420", AVSValue(new_args, 2)).AsClip();
-              }
-            }
-            else if (isInternal422) {
-              if (!maskVi.Is422()) {
-                AVSValue new_args[2] = { mask, false };
-                mask = env->Invoke("ConvertToYUV422", AVSValue(new_args, 2)).AsClip();
-              }
-            }
-            else if (isInternal411) {
-              if (!maskVi.Is411()) {
-                AVSValue new_args[2] = { mask, false };
-                mask = env->Invoke("ConvertToYUV411", AVSValue(new_args, 2)).AsClip();
-              }
-            }
-            else if (isInternal440) {
-              if (!maskVi.Is440()) {
-                AVSValue new_args[2] = { mask, false };
-                mask = env->Invoke("ConvertToYUV440", AVSValue(new_args, 2)).AsClip();
-              }
-            }
-            else if (isInternal410) {
-              if (!maskVi.Is410()) {
-                AVSValue new_args[2] = { mask, false };
-                mask = env->Invoke("ConvertToYUV410", AVSValue(new_args, 2)).AsClip();
-              }
+            if (isInternalSubsampled) {
+              // in: mask's own siting, out: `placement`, like the base clip
+              // returns the mask as is (no conversion) if format and effective siting already match
+              mask = convertToSubsampledWorkingFormat(mask, viInternalWorkingFormat, inputVi, chromaLocation, env);
             }
             else if (isInternal444) {
               if (!maskVi.Is444()) {
-                AVSValue new_args[4] = { mask, false, AVSValue() /*matrix, unused for YUV->YUV444*/, placementNameForFormat(placement, maskVi) };
+                // ChromaInPlacement: mask's own siting, see getClipChromaLocation (n/a for Y)
+                AVSValue new_args[4] = { mask, false, AVSValue() /*matrix, unused for YUV->YUV444*/,
+                  GetChromaLocationName(getClipChromaLocation(mask, inputVi, chromaLocation, env)) };
                 mask = env->Invoke("ConvertToYUV444", AVSValue(new_args, 4)).AsClip();
               }
             }
@@ -714,7 +650,7 @@ PVideoFrame __stdcall Overlay::GetFrame(int n, IScriptEnvironment *env) {
     func->setOpacity(opacity + op_offset, opacity_f + op_offset_f);
     func->setColorSpaceInfo(viInternalWorkingFormat.IsRGB(), viInternalWorkingFormat.IsY());
 
-    // FIXME or leave?: check placement match across base/overlay(/mask)
+    // overlay and color mask were already re-sited to `placement` in the constructor
     func->setSubsamplingInfo(viInternalWorkingFormat, placement);
     func->setGreyMask(greymask);
     func->setEnv(env);
@@ -938,31 +874,34 @@ AVSValue __cdecl Overlay::Create(AVSValue args, void*, IScriptEnvironment* env) 
      // if workingFormat is not 444 but output was specified
      // c[interlaced]b[matrix]s[ChromaInPlacement]s
      // Source is subsampled, use ChromaInPlacement to this filter's own `placement`.
-     AVSValue new_args[4] = { Result, false, Result->full_range ? "PC.601" : "rec601", placementNameForFormat(Result->placement, Result->GetVideoInfo()) };
+     AVSValue new_args[4] = { Result, false, Result->full_range ? "PC.601" : "rec601", GetChromaLocationName(Result->chromaLocation) };
      return env->Invoke(outputIsAlphaYUV ? "ConvertToYUVA444" : "ConvertToYUV444", AVSValue(new_args, 4)).AsClip();
    }
    // c[interlaced]b[matrix]s[ChromaInPlacement]s[chromaresample]s[ChromaOutPlacement]s
    // source (Result) is always 4:4:4 here (isInternal444)
+   // Non-subsampled base without explicit placement: the output format's own default siting.
+   const char* outputChromaLocationName = GetChromaLocationName(
+     Result->chromaLocationDefined ? Result->chromaLocation : GetDefaultChromaLocation(Result->outputVi));
    // ChromaOutPlacement goes to `placement`: reconstructed output siting matches
    // whatever the input side (base/overlay clip conversion in the ctor) assumed.
    if(Result->outputVi.Is422()) {
-     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), Result->placementName };
+     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), outputChromaLocationName };
      return env->Invoke(outputIsAlphaYUV ? "ConvertToYUVA422" : "ConvertToYUV422", AVSValue(new_args, 6)).AsClip();
    }
    if(Result->outputVi.Is420()) {
-     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), Result->placementName };
+     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), outputChromaLocationName };
      return env->Invoke(outputIsAlphaYUV ? "ConvertToYUVA420" : "ConvertToYUV420", AVSValue(new_args, 6)).AsClip();
    }
    if (Result->outputVi.Is411()) {
-     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), Result->placementName };
+     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), outputChromaLocationName };
      return env->Invoke(outputIsAlphaYUV ? "ConvertToYUVA411" : "ConvertToYUV411", AVSValue(new_args, 6)).AsClip();
    }
    if (Result->outputVi.Is440()) {
-     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), placementNameForFormat(Result->placement, Result->outputVi) };
+     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), outputChromaLocationName };
      return env->Invoke(outputIsAlphaYUV ? "ConvertToYUVA440" : "ConvertToYUV440", AVSValue(new_args, 6)).AsClip();
    }
    if (Result->outputVi.Is410()) {
-     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), Result->placementName };
+     AVSValue new_args[6] = { Result, false, Result->full_range ? "PC.601" : "rec601", AVSValue(), AVSValue(), outputChromaLocationName };
      return env->Invoke(outputIsAlphaYUV ? "ConvertToYUVA410" : "ConvertToYUV410", AVSValue(new_args, 6)).AsClip();
    }
    if(Result->outputVi.IsYUY2()) {
