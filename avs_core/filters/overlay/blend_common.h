@@ -112,7 +112,7 @@ enum MaskMode {
   MASK411_TOPLEFT,  // 4:1:1, point-sample left luma only (now the default; no standard siting exists)
   MASK420, // center
   MASK420_MPEG2,
-  MASK420_TOPLEFT,  // co-sited H+V (HEVC/AV1 default): point-sample top-left luma only
+  MASK420_TOPLEFT,  // co-sited H+V (UHD/HDR HEVC, AV1 'colocated'): point-sample top-left luma only
   MASK422, // center
   MASK422_MPEG2,
   MASK422_TOPLEFT,  // co-sited H (same as MPEG-2): point-sample left luma only (faster, some aliasing)
@@ -172,11 +172,44 @@ AVS_FORCEINLINE static pixel_t calculate_effective_mask_topleft(const pixel_t* p
   return ptr[x * H];
 }
 
-// Chroma placement constants — shared by Overlay and Layer.
+// Mask downsampling kernel variants — shared by Overlay, Layer and Subtitle (GDI).
+// Selected from the clip's chroma location by chromaLocationToMaskPlacement below.
 // PLACEMENT_MPEG2   (0): co-sited H, centred V   (H.262/MPEG-2, H.264 default; triangle filter)
 // PLACEMENT_MPEG1   (1): centred H+V             (MPEG-1 / JPEG; box filter)
-// PLACEMENT_TOPLEFT (2): co-sited H+V            (HEVC/AV1 default; point sample, faster)
+// PLACEMENT_TOPLEFT (2): co-sited H+V            (UHD/HDR HEVC, AV1 'colocated'; point sample, faster)
+// Note: unlike ConvertToYUV4xx and the resizers, which always apply a proper filter
+// (chromaresample; the top_left placement there only sets the filter's center),
+// TOPLEFT for masks means a point sample: a single luma sample of the block.
+// This is deliberate, for performance, and acceptable for a mask.
 enum { PLACEMENT_MPEG2 = 0, PLACEMENT_MPEG1 = 1, PLACEMENT_TOPLEFT = 2 };
+
+// Maps a chroma location (ChromaLocation_e) to the implemented mask downsampling kernel variant.
+// When the exact kernel is not implemented, it takes the nearest one (on a tie: 4:2:0 keeps the
+// horizontal position, 4:1:0 takes the point sample):
+// - 4:2:0, 4:2:2, 4:1:1: horizontally centered (center, top, bottom) -> MPEG1;
+//   top_left -> TOPLEFT; left, bottom_left, dv (U/V average is left) -> MPEG2.
+// - 4:4:0 (vertical only): top_left, top -> TOPLEFT (point); left, center, bottom_left,
+//   bottom, dv -> MPEG1 (2-row box average).
+// - 4:1:0: center, bottom -> MPEG1 (4x4 box average); others -> TOPLEFT (point).
+// resolveChromaMaskMode then picks the format's actual kernel for the variant; formats
+// without a separate one use the nearest they have (e.g. 4:1:1 MPEG2 -> its point sample).
+template<typename TVideoInfo>
+AVS_FORCEINLINE static int chromaLocationToMaskPlacement(int chromaloc, const TVideoInfo& vi) {
+  if (vi.Is440())
+    return (chromaloc == AVS_CHROMA_TOP_LEFT || chromaloc == AVS_CHROMA_TOP) ? PLACEMENT_TOPLEFT : PLACEMENT_MPEG1;
+  if (vi.Is410())
+    return (chromaloc == AVS_CHROMA_CENTER || chromaloc == AVS_CHROMA_BOTTOM) ? PLACEMENT_MPEG1 : PLACEMENT_TOPLEFT;
+  switch (chromaloc) {
+  case AVS_CHROMA_CENTER:
+  case AVS_CHROMA_TOP:
+  case AVS_CHROMA_BOTTOM:
+    return PLACEMENT_MPEG1;
+  case AVS_CHROMA_TOP_LEFT:
+    return PLACEMENT_TOPLEFT;
+  default: // left, bottom_left, dv
+    return PLACEMENT_MPEG2;
+  }
+}
 
 template<typename TVideoInfo>
 AVS_FORCEINLINE static MaskMode resolveChromaMaskMode(int placement, const TVideoInfo& vi) {
