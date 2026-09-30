@@ -381,7 +381,7 @@ private:
   bool process_alpha_channel; // both clips have alpha → blend A channel like colour channels
   int bits_per_pixel;
   float opacity; // like in "Overlay"
-  int placement; // PLACEMENT_MPEG1 or PLACEMENT_MPEG2
+  int placement; // mask kernel variant: PLACEMENT_MPEG2, PLACEMENT_MPEG1 or PLACEMENT_TOPLEFT
   float ThresholdParam_f;
 };
 

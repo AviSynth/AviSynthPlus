@@ -60,22 +60,15 @@
 #include <algorithm>
 #include <vector>
 
-static int getPlacement(const AVSValue& _placement, IScriptEnvironment* env) {
-  const char* placement = _placement.AsString(0);
-
-  if (placement) {
-    if (!lstrcmpi(placement, "mpeg2"))
-      return PLACEMENT_MPEG2;
-
-    if (!lstrcmpi(placement, "mpeg1"))
-      return PLACEMENT_MPEG1;
-
-    if (!lstrcmpi(placement, "top_left"))
-      return PLACEMENT_TOPLEFT;
-
-    env->ThrowError("Layer: Unknown chroma placement");
-  }
-  return PLACEMENT_MPEG2;
+// `placement`: chroma location of the (base) clip, same syntax, precedence and default as
+// ConvertToYUV4xx's ChromaInPlacement (explicit -> _ChromaLocation -> format default).
+// Not that unlike Overlay, Layer does not convert: both clips have the same format and are
+// assumed to share the siting.
+// Only the mask downsampling kernel depends on it, mapped to the nearest implemented
+// variant (see chromaLocationToMaskPlacement in blend_common.h).
+static int getPlacement(const AVSValue& _placement, PClip clip, IScriptEnvironment* env) {
+  const int chromaloc = ResolveChromaLocation(clip, _placement.AsString(nullptr), env);
+  return chromaLocationToMaskPlacement(chromaloc, clip->GetVideoInfo());
 }
 
 /********************************************************************
@@ -3070,7 +3063,7 @@ AVSValue __cdecl Layer::Create(AVSValue args, void*, IScriptEnvironment* env)
     args[4].AsInt(0), args[5].AsInt(0), args[6].AsInt(0),
     args[7].AsBool(true), // chroma
     args[8].AsFloatf(-1.0f), // opacity
-    getPlacement(args[9], env), // chroma placement
+    getPlacement(args[9], clip1, env), // chroma placement -> mask kernel variant
     env);
 
   if (vi1.IsRGB24()) {
