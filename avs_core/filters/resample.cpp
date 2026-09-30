@@ -1179,104 +1179,36 @@ extern const AVSFunction Resample_filters[] = {
   { 0 }
 };
 
-// Borrowed from fmtconv
-// ChromaPlacement.cpp
-// Author : Laurent de Soras, 2015
-
-// Fixes the vertical chroma placement when the picture is interlaced.
-// ofs = ordinate to skip between TFF and BFF, relative to the chroma grid. A
-// single line of full-res picture is 0.25.
-static inline void ChromaPlacement_fix_itl(double& cp_v, bool interlaced_flag, bool top_flag, double ofs = 0.5)
-{
-  assert(cp_v >= 0);
-
-  if (interlaced_flag)
-  {
-    cp_v *= 0.5;
-    if (!top_flag)
-    {
-      cp_v += ofs;
-    }
-  }
-}
 /*
-ss_h and ss_v are log2(subsampling)
-rgb_flag actually means that chroma subsampling doesn't apply.
-
-http://www.mir.com/DMG/chroma.html
-
-cp_* is the position of the sampling point relative to the frame
-top/left border, in the plane coordinates. For reference, the border
-of the frame is at 0.5 units of luma from the first luma sampling point.
-I. e., the luma sampling point is at the pixel's center.
+Chroma sampling point position of a subsampled chroma plane for the resizers:
+relative to the frame top/left border, in the plane coordinates. For reference,
+the border of the frame is at 0.5 units of luma from the first luma sampling point,
+i.e. the luma sampling point is at the pixel's center.
+The siting itself is the per-axis definition shared with ConvertToYUV4xx, see
+GetChromaSitingOffsets (in luma units from the first luma sample of the xs*ys block).
+AVS_CHROMA_UNUSED (no placement given, no _ChromaLocation) or an unknown value: centered.
+That is how the resizers worked before 3.7.4 (each chroma plane resized around its own pixel
+centers); kept so that clips without chroma placement info (no placement parameter, no
+_ChromaLocation frame property) give the same result as before.
+Only "dv" differs between U and V (vertically).
 */
-
-// PF added BOTTOM, BOTTOM_LEFT, TOP
-// Pass ChromaLocation_e::AVS_CHROMA_UNUSED for defaults
-// plane index 0:Y, 1:U, 2:V
-// cplace is a ChromaLocation_e constant
-static void ChromaPlacement_compute_cplace(double& cp_h, double& cp_v, int cplace, int plane_index, int ss_h, int ss_v, bool rgb_flag, bool interlaced_flag, bool top_flag)
+static void GetResizerChromaPosition(double& cp_h, double& cp_v, int chroma_placement, bool planeV, int ss_h, int ss_v)
 {
-  assert(cplace >= 0 || cplace == ChromaLocation_e::AVS_CHROMA_UNUSED);
-  assert(cplace < ChromaLocation_e::AVS_CHROMA_DV);
-  assert(ss_h >= 0);
-  assert(ss_v >= 0);
-  assert(plane_index >= 0);
-
-  // Generic case for luma, non-subsampled chroma and center (MPEG-1) chroma.
-  cp_h = 0.5;
-  cp_v = 0.5;
-  ChromaPlacement_fix_itl(cp_v, interlaced_flag, top_flag);
-
-  // Subsampled chroma
-  if (!rgb_flag && plane_index > 0)
-  {
-    if (ss_h > 0) // horizontal subsampling 420 411
-    {
-      if (cplace == ChromaLocation_e::AVS_CHROMA_LEFT // mpeg2
-        || cplace == ChromaLocation_e::AVS_CHROMA_DV
-        || cplace == ChromaLocation_e::AVS_CHROMA_TOP_LEFT
-        || cplace == ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT
-        )
-      {
-        cp_h = 0.5 / (1 << ss_h);
-      }
-    }
-
-    if (ss_v == 1) // vertical subsampling 420, 422
-    {
-      if (cplace == ChromaLocation_e::AVS_CHROMA_LEFT)
-      {
-        cp_v = 0.5;
-        ChromaPlacement_fix_itl(cp_v, interlaced_flag, top_flag);
-      }
-      else if (cplace == ChromaLocation_e::AVS_CHROMA_DV
-        || cplace == ChromaLocation_e::AVS_CHROMA_TOP_LEFT
-        || cplace == ChromaLocation_e::AVS_CHROMA_TOP
-        )
-      {
-        cp_v = 0.25;
-        ChromaPlacement_fix_itl(cp_v, interlaced_flag, top_flag, 0.25);
-
-        if (cplace == ChromaLocation_e::AVS_CHROMA_DV && plane_index == 2) // V
-        {
-          cp_v += 0.5;
-        }
-      }
-      else if (cplace == ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT
-        || cplace == ChromaLocation_e::AVS_CHROMA_BOTTOM
-        )
-      {
-        cp_v = 0.75;
-        ChromaPlacement_fix_itl(cp_v, interlaced_flag, top_flag, 0.25);
-      }
-    }  // ss_v == 1
+  const int xs = 1 << ss_h;
+  const int ys = 1 << ss_v;
+  ChromaSitingOffsets o;
+  if (!GetChromaSitingOffsets(chroma_placement, planeV, xs, ys, o)) {
+    cp_h = 0.5;
+    cp_v = 0.5;
+    return;
   }
+  cp_h = (o.x + 0.5) / xs;
+  cp_v = (o.y + 0.5) / ys;
 }
-
 
 // returns the requested horizontal or vertical pixel center position
-static void GetCenterShiftForResizers(double& center_pos_luma, double& center_pos_chroma, bool preserve_center, int chroma_placement, VideoInfo &vi, bool for_horizontal) {
+// planeV: chroma position for the V plane instead of U (differs only vertically, for "dv")
+static void GetCenterShiftForResizers(double& center_pos_luma, double& center_pos_chroma, bool preserve_center, int chroma_placement, VideoInfo &vi, bool for_horizontal, bool planeV = false) {
   double center_pos_h_luma = 0.0;
   double center_pos_v_luma = 0.0;
   // if not needed, these won't be used
@@ -1290,18 +1222,9 @@ static void GetCenterShiftForResizers(double& center_pos_luma, double& center_po
 
     if (preserve_center) {
       // same for source and destination
-      int plane_index = 1; // U
-      int src_ss_h = vi.GetPlaneWidthSubsampling(PLANAR_U);
-      int src_ss_v = vi.GetPlaneHeightSubsampling(PLANAR_U);
-
-      // int chromaplace = ChromaLocation_e::AVS_CHROMA_CENTER; // MPEG1
-
-      ChromaPlacement_compute_cplace(
-        cp_s_h, cp_s_v, chroma_placement, plane_index, src_ss_h, src_ss_v,
-        vi.IsRGB(),
-        false, // interlacing flag, we don't handle it here
-        false  // top_flag, we don't handle it here
-      );
+      const int src_ss_h = vi.GetPlaneWidthSubsampling(PLANAR_U);
+      const int src_ss_v = vi.GetPlaneHeightSubsampling(PLANAR_U);
+      GetResizerChromaPosition(cp_s_h, cp_s_v, chroma_placement, planeV, src_ss_h, src_ss_v);
     }
 
     center_pos_h_chroma = cp_s_h;
@@ -1368,6 +1291,7 @@ FilteredResizeH::FilteredResizeH(PClip _child, double subrange_left, double subr
   double center_pos_h_chroma;
   GetCenterShiftForResizers(center_pos_h_luma, center_pos_h_chroma, preserve_center, chroma_placement, vi, true /* for horizontal */);
   // 3.7.4- parameter, old Avisynth behavior: 0.5, 0.5
+  // U and V share the horizontal position for every placement (even "dv"), one chroma program is enough.
 
   // Main resampling program
   resampling_program_luma = func->GetResamplingProgram(vi.width, subrange_left, subrange_width, target_width, bits_per_pixel,
@@ -2169,7 +2093,7 @@ FilteredResizeV::FilteredResizeV(PClip _child, double subrange_top, double subra
   bool preserve_center, int chroma_placement,
   IScriptEnvironment* env)
   : GenericVideoFilter(_child),
-  resampling_program_luma(0), resampling_program_chroma(0)
+  resampling_program_luma(0), resampling_program_chroma(0), resampling_program_chroma_planeV(0)
 {
   if (target_height <= 0)
     env->ThrowError("Resize: Height must be greater than 0.");
@@ -2199,6 +2123,9 @@ FilteredResizeV::FilteredResizeV(PClip _child, double subrange_top, double subra
   double center_pos_v_chroma;
   GetCenterShiftForResizers(center_pos_v_luma, center_pos_v_chroma, preserve_center, chroma_placement, vi, false /* for vertical */);
   // 3.7.4- parameter, old Avisynth behavior: 0.5, 0.5
+  double center_pos_v_luma_unused; // just for having a valid parameter
+  double center_pos_v_chroma_planeV;
+  GetCenterShiftForResizers(center_pos_v_luma_unused, center_pos_v_chroma_planeV, preserve_center, chroma_placement, vi, false /* for vertical */, true /* V plane */);
 
   // Create resampling program and pitch table
   resampling_program_luma = func->GetResamplingProgram(vi.height, subrange_top, subrange_height, target_height, bits_per_pixel, 
@@ -2220,6 +2147,20 @@ FilteredResizeV::FilteredResizeV(PClip _child, double subrange_top, double subra
       env);
 
     resampler_chroma = GetResampler(cpu, pixelsize, bits_per_pixel, resampling_program_chroma, env);
+
+    // "dv": V is sited on a different row than U, needs its own program.
+    // Same filter and size, so resampler_chroma is used for it as well; GetResampler prepares its coeffs.
+    if (center_pos_v_chroma_planeV != center_pos_v_chroma) {
+      resampling_program_chroma_planeV = func->GetResamplingProgram(
+        vi.height >> shift,
+        subrange_top / div,
+        subrange_height / div,
+        target_height >> shift,
+        bits_per_pixel,
+        center_pos_v_chroma_planeV, center_pos_v_chroma_planeV,
+        env);
+      GetResampler(cpu, pixelsize, bits_per_pixel, resampling_program_chroma_planeV, env);
+    }
   }
 
   // Change target video info size
@@ -2274,7 +2215,10 @@ PVideoFrame __stdcall FilteredResizeV::GetFrame(int n, IScriptEnvironment* env)
     srcp = src->GetReadPtr(PLANAR_V);
     dstp = dst->GetWritePtr(PLANAR_V);
 
-    resampler_chroma(dstp, srcp, dst_pitch, src_pitch, resampling_program_chroma, width, height, bits_per_pixel);
+    // When no special V program, use the U's one.
+    resampler_chroma(dstp, srcp, dst_pitch, src_pitch,
+      resampling_program_chroma_planeV ? resampling_program_chroma_planeV : resampling_program_chroma,
+      width, height, bits_per_pixel);
   }
 
   if (vi.IsYUVA() || vi.IsPlanarRGBA()) { // YA is covered by IsYUVA
@@ -2390,6 +2334,7 @@ FilteredResizeV::~FilteredResizeV(void)
 {
   if (resampling_program_luma) { delete resampling_program_luma; }
   if (resampling_program_chroma) { delete resampling_program_chroma; }
+  if (resampling_program_chroma_planeV) { delete resampling_program_chroma_planeV; }
 }
 
 

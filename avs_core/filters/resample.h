@@ -128,6 +128,7 @@ private:
 
   ResamplingProgram* resampling_program_luma;
   ResamplingProgram* resampling_program_chroma;
+  ResamplingProgram* resampling_program_chroma_planeV; // nullptr unless V is sited differently than U ("dv")
 
   ResamplerV resampler_luma;
   ResamplerV resampler_chroma;
