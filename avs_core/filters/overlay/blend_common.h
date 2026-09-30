@@ -40,6 +40,7 @@
 #include <avs/types.h>
 #include <avs/config.h>
 #include <vector>
+#include "../../convert/frame_prop_enums.h"
 
 // Magic integer dividers for exact division by max_pixel_value (e.g. 255, 1023, …).
 //
