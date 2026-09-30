@@ -150,7 +150,7 @@ public:
 private:
   template<MaskMode maskMode, int bits_per_pixel>
   void ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU, BYTE* bufV, bool isRGB);
-  void ApplyYUY2(BYTE* buf, int pitch);
+  void ApplyYUY2(BYTE* buf, int pitch, MaskMode maskMode); // maskMode: one of the MASK422 variants
 
   template<typename pixel_t, bool has_alpha>
   void ApplyRGB_packed(BYTE* buf, int pitch);
@@ -163,9 +163,9 @@ private:
   // w_stride = (w + 31) & ~31  — rounded up so each sub-row is 64-byte aligned.
   uint16_t* soa_buf;   // single allocation: w_stride * h * 4 uint16_t
   int w_stride;        // padded row stride (>= w, multiple of 32)
-  std::vector<uint16_t> uv_buf_ba, uv_buf_u, uv_buf_v; // scratch for ApplyPlanar_SoA UV section, sized w
-  rowprep_u16_fn_t rowprep_fns[MASK_MODE_COUNT];  // one per MaskMode, SIMD variant selected at construction
-  int chromaplacement;              // PLACEMENT_MPEG1/MPEG2/TOPLEFT — used in Apply() per-call
+  std::vector<uint16_t> uv_buf_ba, uv_buf_u, uv_buf_v; // scratch for ApplyPlanar_SoA / ApplyYUY2 UV section, sized w
+  rowprep_u16_fn_t rowprep_fns[MASK_MODE_COUNT]; // one per MaskMode, SIMD variant selected at construction
+  int chromaplacement; // ChromaLocation_e, mapped to the mask kernel in Apply()
   HDC hdcAntialias;
   HBITMAP hbmAntialias;
   HFONT hfontDefault;

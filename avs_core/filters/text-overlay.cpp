@@ -319,8 +319,10 @@ void Antialiaser::Apply(const VideoInfo& vi, PVideoFrame* frame, int pitch)
     ApplyRGB_packed<uint8_t, false>((*frame)->GetWritePtr(), pitch);
   else if (vi.IsRGB48())
     ApplyRGB_packed<uint16_t, false>((*frame)->GetWritePtr(), pitch);
-  else if (vi.IsYUY2())
-    ApplyYUY2((*frame)->GetWritePtr(), pitch);
+  else if (vi.IsYUY2()) {
+    // YUY2 is 4:2:2: same chroma placement handling as planar 4:2:2 (YV16)
+    ApplyYUY2((*frame)->GetWritePtr(), pitch, resolveChromaMaskMode(chromaLocationToMaskPlacement(chromaplacement, vi), vi));
+  }
   else if (vi.IsPlanar()) {
     const bool isRGB = vi.IsPlanarRGB() || vi.IsPlanarRGBA();
     BYTE* bufY  = isRGB ? (*frame)->GetWritePtr(PLANAR_R) : (*frame)->GetWritePtr();
@@ -348,11 +350,9 @@ void Antialiaser::Apply(const VideoInfo& vi, PVideoFrame* frame, int pitch)
     if ((vi.IsYUV() || vi.IsYUVA()) && !vi.IsY() && !vi.IsYA()) {
       if (!vi.Is444() && !vi.Is411() && !vi.Is440() && !vi.Is410() && !vi.Is420() && !vi.Is422())
         throw AvisynthError("Antialiaser::Apply: unsupported chroma subsampling for text overlay");
-      // chromaplacement (raw ChromaLocation_e) -> Overlay/Layer's 3-bucket `placement`.
-      const int placement = (chromaplacement == ChromaLocation_e::AVS_CHROMA_CENTER) ? PLACEMENT_MPEG1
-        : (chromaplacement == ChromaLocation_e::AVS_CHROMA_TOP_LEFT) ? PLACEMENT_TOPLEFT
-        : PLACEMENT_MPEG2; // AVS_CHROMA_LEFT and anything else
-      mode = resolveChromaMaskMode(placement, vi);
+      // chromaplacement (ChromaLocation_e) mapped to the nearest implemented mask kernel,
+      // same as Overlay/Layer
+      mode = resolveChromaMaskMode(chromaLocationToMaskPlacement(chromaplacement, vi), vi);
     }
     switch (mode) {
     case MASK444:         CALL_SOA(MASK444);         break;
@@ -520,37 +520,41 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
 }
 
 
-void Antialiaser::ApplyYUY2(BYTE* buf, int pitch) {
+// YUY2: luma per pixel like planar; chroma is downsampled with the same 4:2:2 rowprep
+// (chroma placement aware) and blend formula as ApplyPlanar_SoA's 8-bit 4:2:2 path, so the
+// result equals that of YV16.
+void Antialiaser::ApplyYUY2(BYTE* buf, int pitch, MaskMode maskMode) {
   if (dirty) {
     GetAlphaRect();
     xl &= -2; xr |= 1;
   }
-  const uint16_t* row_ptr = soa_buf + yb * 4 * w_stride;
+  const int uv_width = w >> 1;
+  const int xl_uv = xl >> 1;
+  const int xr_uv = xr >> 1;
+  const int soa_row_pitch = 4 * w_stride;
+  const uint16_t* row_ptr = soa_buf + yb * soa_row_pitch;
   buf += pitch * yb;
 
   for (int y = yb; y <= yt; ++y) {
-    const uint16_t* ba_row = row_ptr;
-    const uint16_t* ry_row = row_ptr + w_stride;
-    const uint16_t* u_row  = row_ptr + 2 * w_stride;
-    const uint16_t* v_row  = row_ptr + 3 * w_stride;
-    for (int x = xl; x <= xr; x += 2) {
-      const int ba0  = ba_row[x];
-      const int ba1  = ba_row[x + 1];
-      const int baUV = ba0 + ba1;
-
-      if (baUV != 512) {
-        buf[x*2+0] = BYTE((buf[x*2+0] * ba0 + ry_row[x])     >> 8);
-        buf[x*2+2] = BYTE((buf[x*2+2] * ba1 + ry_row[x + 1]) >> 8);
-
-        const int au = u_row[x] + u_row[x + 1];
-        buf[x*2+1] = BYTE((buf[x*2+1] * baUV + au) >> 9);
-
-        const int av = v_row[x] + v_row[x + 1];
-        buf[x*2+3] = BYTE((buf[x*2+3] * baUV + av) >> 9);
+    const uint16_t* ba_y = row_ptr;
+    const uint16_t* ry_y = row_ptr + w_stride;
+    for (int x = xl; x <= xr; ++x) {
+      const int ba = ba_y[x];
+      if (ba != 256)
+        buf[x * 2] = BYTE((buf[x * 2] * ba + ry_y[x]) >> 8);
+    }
+    const uint16_t* ba_row = rowprep_fns[maskMode](row_ptr,                soa_row_pitch, uv_width, uv_buf_ba, 0, 0, {});
+    const uint16_t* u_row  = rowprep_fns[maskMode](row_ptr + 2 * w_stride, soa_row_pitch, uv_width, uv_buf_u,  0, 0, {});
+    const uint16_t* v_row  = rowprep_fns[maskMode](row_ptr + 3 * w_stride, soa_row_pitch, uv_width, uv_buf_v,  0, 0, {});
+    for (int xs = xl_uv; xs <= xr_uv; ++xs) {
+      const int ba = ba_row[xs];
+      if (ba != 256) {
+        buf[xs * 4 + 1] = BYTE((buf[xs * 4 + 1] * ba + u_row[xs]) >> 8);
+        buf[xs * 4 + 3] = BYTE((buf[xs * 4 + 3] * ba + v_row[xs]) >> 8);
       }
     }
     buf     += pitch;
-    row_ptr += 4 * w_stride;
+    row_ptr += soa_row_pitch;
   }
 }
 
@@ -1320,11 +1324,8 @@ Subtitle::Subtitle( PClip _child, const char _text[], int _x, int _y, int _first
   align(_align), spc(_spc),
   fontname(_fontname), text(_text), font_filename(_font_filename), utf8(_utf8),
   bold(_bold), italic(_italic), noaa(_noaa),
-  // only three types supported
-  chromaplacement(
-    _chromaplacement == ChromaLocation_e::AVS_CHROMA_CENTER ||
-    _chromaplacement == ChromaLocation_e::AVS_CHROMA_LEFT ||
-    _chromaplacement == ChromaLocation_e::AVS_CHROMA_TOP_LEFT ? _chromaplacement : ChromaLocation_e::AVS_CHROMA_LEFT),
+  // here we allow any chroma location; the Antialiaser maps it to its implemented mask kernels
+  chromaplacement(_chromaplacement),
   antialiaser(nullptr)
 {
   if (*font_filename) {
@@ -1406,21 +1407,10 @@ AVSValue __cdecl Subtitle::Create(AVSValue args, void*, IScriptEnvironment* env)
     if (!gdi)
       return SimpleText::Create(args, nullptr, env);
 
-    VideoInfo vi = clip->GetVideoInfo();
-    int ChromaLocation_In = -1;
-    if (vi.Is411() || vi.Is420() || vi.Is422() || vi.Is440() || vi.Is410() || vi.IsYUY2()) {
-      auto frame0 = clip->GetFrame(0, env);
-      const AVSMap* props = env->getFramePropsRO(frame0);
-      // For 4:1:1/4:4:0/4:1:0 (no standard siting convention) Antialiaser::Apply only
-      // distinguishes CENTER from everything else (collapsed to point-sample TOPLEFT),
-      // same as Overlay/Layer's own `placement` handling for these formats. Default
-      // matches convert_planar.cpp's chromaloc_default: 'left' for 411, 'top' for 440,
-      // 'top_left' for 410, 'left' otherwise (420/422/YUY2).
-      const int chromaloc_default = vi.Is440() ? ChromaLocation_e::AVS_CHROMA_TOP
-        : vi.Is410() ? ChromaLocation_e::AVS_CHROMA_TOP_LEFT
-        : ChromaLocation_e::AVS_CHROMA_LEFT;
-      chromaloc_parse_merge_with_props(vi, placement_name, props, ChromaLocation_In, chromaloc_default, env);
-    }
+    // `placement`: same syntax, precedence and default as ConvertToYUV4xx's ChromaInPlacement
+    // (explicit -> _ChromaLocation -> format default).
+    // The Antialiaser maps it to the nearest implemented mask kernel, same as Overlay/Layer.
+    const int ChromaLocation_In = ResolveChromaLocation(clip, placement_name, env);
 
     if ((align < 1) || (align > 9))
      env->ThrowError("Subtitle: Align values are 1 - 9 mapped to your numeric pad");
@@ -1842,24 +1832,11 @@ AVSValue __cdecl SimpleText::Create(AVSValue args, void*, IScriptEnvironment* en
   if (!isYdefined && y_center)
     real_y = (clip->GetVideoInfo().height >> 1) /* * 8 */; // no mul 8 like in SubTitle
 
-  // anyway, we accept any chroma location here.
-  // "Text" filter will ignore invalid/not used definitions and use its defaults
-  int ChromaLocation_In = -1; // invalid
-
-  if (vi.Is411() || vi.Is420() || vi.Is422() || vi.Is440() || vi.Is410() || vi.IsYUY2()) {
-    // placement parameter is valid + input frame properties.
-    // For 4:1:1/4:4:0/4:1:0 (no standard siting convention) Antialiaser::Apply only
-    // distinguishes CENTER from everything else (collapsed to point-sample TOPLEFT),
-    // same as Overlay/Layer's own `placement` handling for these formats. Default
-    // matches convert_planar.cpp's chromaloc_default: 'left' for 411, 'top' for 440,
-    // 'top_left' for 410, 'left' otherwise (420/422/YUY2).
-    auto frame0 = clip->GetFrame(0, env);
-    const AVSMap* props = env->getFramePropsRO(frame0);
-    const int chromaloc_default = vi.Is440() ? ChromaLocation_e::AVS_CHROMA_TOP
-      : vi.Is410() ? ChromaLocation_e::AVS_CHROMA_TOP_LEFT
-      : ChromaLocation_e::AVS_CHROMA_LEFT;
-    chromaloc_parse_merge_with_props(vi, placement_name, props, /* ref*/ChromaLocation_In, chromaloc_default, env);
-  }
+  // `placement`: same syntax, precedence and default as ConvertToYUV4xx's ChromaInPlacement
+  // (explicit -> _ChromaLocation -> format default).
+  // The bitmap font renderer maps it to its implemented chroma kernels, same table as
+  // Overlay/Layer/Subtitle (see DrawString_internal).
+  const int ChromaLocation_In = ResolveChromaLocation(clip, placement_name, env);
 
   return new SimpleText(clip, text, real_x, real_y, first_frame, last_frame, font, size, text_color,
     halo_color, align, spc, multiline, lsp, font_width, font_angle, interlaced, font_filename, utf8, bold, ChromaLocation_In, env);

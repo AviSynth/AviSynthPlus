@@ -221,7 +221,7 @@ AVS_FORCEINLINE static MaskMode resolveChromaMaskMode(int placement, const TVide
     return (placement == PLACEMENT_MPEG1) ? MASK410 : MASK410_TOPLEFT;
   if (vi.Is420())
     return (placement == PLACEMENT_MPEG1) ? MASK420 : (placement == PLACEMENT_TOPLEFT) ? MASK420_TOPLEFT : MASK420_MPEG2;
-  if (vi.Is422())
+  if (vi.Is422() || vi.IsYUY2()) // YUY2: packed 4:2:2
     return (placement == PLACEMENT_MPEG1) ? MASK422 : (placement == PLACEMENT_TOPLEFT) ? MASK422_TOPLEFT : MASK422_MPEG2;
   return MASK444; // Is444() / IsY() / RGB
 }

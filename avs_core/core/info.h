@@ -57,8 +57,15 @@ enum ChromaLocationMode {
   CENTER_440,
   TOPLEFT_440, // point sample, co-sited top (440 has no horizontal subsampling)
   CENTER_410,
-  TOPLEFT_410  // point sample, co-sited top-left
+  TOPLEFT_410, // point sample, co-sited top-left
+  TOPLEFT_420, // point sample, co-sited top-left
+  TOPLEFT_422  // point sample, co-sited left (422 has no vertical subsampling)
 };
+
+// point-sample (top-left) modes: a single luma/outline bit of the block, weight 1
+constexpr bool isPointSampleMode(ChromaLocationMode m) {
+  return m == TOPLEFT_411 || m == TOPLEFT_440 || m == TOPLEFT_410 || m == TOPLEFT_420 || m == TOPLEFT_422;
+}
 
 typedef struct BBX {
   uint8_t width; // e.g. 8
