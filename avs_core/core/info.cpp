@@ -56,6 +56,7 @@
 #include <locale>
 #include <cstdio>
 #include <cassert>
+#include <type_traits>
 #include "fonts/fixedfonts.h"
 #include "strings.h"
 #include "../convert/convert_helper.h"
@@ -772,7 +773,9 @@ void AVS_FORCEINLINE LightOnePixelPackedRGB(const bool lightIt, BYTE* _dp, int v
   }
 }
 
-template<typename pixel_t, bool fadeBackground, bool isRGB>
+// isChroma: U or V plane of a non-subsampled (4:4:4) format; its background fades toward
+// the chroma center, not toward the luma black level
+template<typename pixel_t, bool fadeBackground, bool isRGB, bool isChroma = false>
 void AVS_FORCEINLINE LightOnePixel(const bool lightIt, pixel_t* dstp, int j, pixel_t& val_color, int bits_per_pixel)
 {
   // some optimization hint
@@ -797,6 +800,19 @@ void AVS_FORCEINLINE LightOnePixel(const bool lightIt, pixel_t* dstp, int j, pix
         else {
           constexpr float factor = 7.0f / 8;
           dstp[j] = (pixel_t)(dstp[j] * factor);
+        }
+      }
+      else if constexpr (isChroma) {
+        // same as LightOneUVPixel for the subsampled formats:
+        // (((U - range_half) * 7) >> 3) + range_half = ((U * 7) >> 3) + n
+        if constexpr (sizeof(pixel_t) != 4) {
+          const int range_half = 1 << (bits_per_pixel - 1);
+          const int n = range_half - ((range_half * 7) >> 3);
+          dstp[j] = (pixel_t)(((dstp[j] * 7) >> 3) + n);
+        }
+        else {
+          constexpr float chroma_center = 0.0f;
+          dstp[j] = (pixel_t)(((dstp[j] - chroma_center) * 7 / 8) + chroma_center);
         }
       }
       else {
@@ -1399,30 +1415,41 @@ void Render1by1Planes(int bits_per_pixel, int color, int halocolor, int* pitches
     const int pitch = pitches[p];
     BYTE* dstp = dstps[p] + pre.x * sizeof(pixel_t) + pre.y * pitch;
 
-    // Start rendering
-    for (int ty = pre.ystart; ty < pre.yend; ty++) {
-      pixel_t* _dstp = reinterpret_cast<pixel_t*>(dstp);
-      uint8_t* fontline_ptr = pre.stringbitmap[ty].data();
-      [[maybe_unused]] uint8_t* fontoutline_ptr;
-      if constexpr(useHalocolor)
-        fontoutline_ptr = pre.stringbitmap_outline[ty].data();
-      int j = 0;
-      const int shifted_xstart = pre.safety_bits_x_left + pre.xstart;
-      for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width; tx++)
-      {
-        const bool lightIt = 0 != get_bit(fontline_ptr, tx);
-        LightOnePixel<pixel_t, fadeBackground, isRGB>(lightIt, _dstp, j, val_color, bits_per_pixel);
-        if constexpr(useHalocolor) {
-          if (!lightIt)
-          {
-            const bool lightIt_outline = 0 != get_bit(fontoutline_ptr, tx);
-            LightOnePixel<pixel_t, fadeBackground, isRGB>(lightIt_outline, _dstp, j, val_color_outline, bits_per_pixel);
+    // Start rendering. isChroma (4:4:4 U/V) is decided once per plane: it selects the
+    // background fade toward the chroma center instead of the luma black level.
+    // Trick: a runtime bool cannot be a template argument, but a type can do the task.
+    // Lambda's 'auto' parameter makes it a template; decltype(tag)::value is a
+    // compile time constant.
+    auto render_plane = [&](auto isChromaTag) {
+      constexpr bool isChroma = decltype(isChromaTag)::value;
+      for (int ty = pre.ystart; ty < pre.yend; ty++) {
+        pixel_t* _dstp = reinterpret_cast<pixel_t*>(dstp);
+        uint8_t* fontline_ptr = pre.stringbitmap[ty].data();
+        [[maybe_unused]] uint8_t* fontoutline_ptr;
+        if constexpr(useHalocolor)
+          fontoutline_ptr = pre.stringbitmap_outline[ty].data();
+        int j = 0;
+        const int shifted_xstart = pre.safety_bits_x_left + pre.xstart;
+        for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width; tx++)
+        {
+          const bool lightIt = 0 != get_bit(fontline_ptr, tx);
+          LightOnePixel<pixel_t, fadeBackground, isRGB, isChroma>(lightIt, _dstp, j, val_color, bits_per_pixel);
+          if constexpr(useHalocolor) {
+            if (!lightIt)
+            {
+              const bool lightIt_outline = 0 != get_bit(fontoutline_ptr, tx);
+              LightOnePixel<pixel_t, fadeBackground, isRGB, isChroma>(lightIt_outline, _dstp, j, val_color_outline, bits_per_pixel);
+            }
           }
+          j += 1;
         }
-        j += 1;
+        dstp += pitch;
       }
-      dstp += pitch;
-    }
+    };
+    if (!isRGB && (plane == PLANAR_U || plane == PLANAR_V))
+      render_plane(std::true_type{});
+    else
+      render_plane(std::false_type{});
   }
 }
 
