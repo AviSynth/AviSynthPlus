@@ -926,6 +926,15 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
 
   VideoInfo vi_src = clips[0]->GetVideoInfo();
 
+  // The frame properties come from a source clip. A target without subsampled chroma
+  // (Y, YA, 4:4:4, RGB) must not keep a _ChromaLocation inherited from a subsampled source.
+  // YUY2 (packed 4:2:2) is subsampled as well, though not a CombinePlanes target at present.
+  const bool dropChromaLocation = !(IsSubsampledYUV(vi) || vi.IsYUY2());
+  auto fixProps = [&](PVideoFrame& frame) {
+    if (dropChromaLocation)
+      env->propDeleteKey(env->getFramePropsRW(frame), "_ChromaLocation");
+  };
+
   // check if fast Subframe magic can replace BitBlt
   if (!clips[1] && vi.NumComponents() <= vi_src.NumComponents()) // YUV<->RGB, YUVA<->RGBA YUV->Y
   {
@@ -1008,6 +1017,7 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
 
     // RGB(A)<->YUV(A) color space conversion can't be caught by Subframe...()
     dst->AmendPixelType(vi.pixel_type);
+    fixProps(dst); // safe to modify props after a subframe
 
     return dst;
   }
@@ -1051,6 +1061,7 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
         }
       }
 
+      fixProps(src);
       return src;
     }
   }
@@ -1087,6 +1098,7 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
           src->GetReadPtr(source_plane), src->GetPitch(source_plane), src->GetRowSize(source_plane), src->GetHeight(source_plane));
 
         env->copyFrameProps(src, src1);
+        fixProps(src1);
 
         return src1;
       }
@@ -1118,5 +1130,6 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
       src->GetReadPtr(source_plane), src->GetPitch(source_plane), src->GetRowSize(source_plane), src->GetHeight(source_plane));
   }
 
+  fixProps(dst);
   return dst;
 }
