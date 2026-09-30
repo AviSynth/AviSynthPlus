@@ -399,6 +399,116 @@ void chromaloc_parse_merge_with_props(VideoInfo& vi, const char* chromaloc_name,
   }
 }
 
+// See convert_helper.h
+bool GetChromaSitingOffsets(int chromaloc, bool planeV, int xs, int ys, ChromaSitingOffsets& o) {
+  enum { SITE_START, SITE_CENTER, SITE_END }; // H/V agnostic
+  int h, v;
+  // get per-axis siting for the chromaloc, then convert to offsets
+  switch (chromaloc) {
+  case ChromaLocation_e::AVS_CHROMA_LEFT:        h = SITE_START; v = SITE_CENTER; break;
+  case ChromaLocation_e::AVS_CHROMA_CENTER:      h = SITE_CENTER; v = SITE_CENTER; break;
+  case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:    h = SITE_START; v = SITE_START; break;
+  case ChromaLocation_e::AVS_CHROMA_TOP:         h = SITE_CENTER; v = SITE_START; break;
+  case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT: h = SITE_START; v = SITE_END; break;
+  case ChromaLocation_e::AVS_CHROMA_BOTTOM:      h = SITE_CENTER; v = SITE_END; break;
+  case ChromaLocation_e::AVS_CHROMA_DV:          h = SITE_START; v = planeV ? SITE_START : SITE_END; break;
+  default: return false;
+  }
+  auto pos = [](int where, int s) {
+    return where == SITE_START ? 0.0f : where == SITE_CENTER ? (s - 1) * 0.5f : (float)(s - 1);
+  };
+  // xs and ys are the subsampling divisor: 1 (no ss), 2 or 4.
+  o.x = pos(h, xs);
+  o.y = pos(v, ys);
+  if (ys == 2 && chromaloc != ChromaLocation_e::AVS_CHROMA_DV) {
+    // Interlaced vertical 2x subsampling: in a 4-row frame group, top-field chroma sits at frame
+    // row y (between field rows 0 and 1), bottom-field chroma at frame row 2+y (between field
+    // rows 0 and 1 of the bottom field, which starts at frame row 1).
+    // E.g. mpeg2: 0.25 and 0.75.
+    o.ty = o.y * 0.5f;
+    o.by = o.y * 0.5f + 0.5f;
+  }
+  else {
+    // ys == 1: no vertical subsampling, 0.
+    // ys == 4 (4:1:0): a 4-row chroma group can't be split to a single offset per field;
+    //       left flat (no known use case either)
+    o.ty = o.by = o.y;
+  }
+  return true;
+}
+
+// See convert_helper.h
+bool IsSameChromaSiting(int chromaloc1, int chromaloc2, int xs, int ys) {
+  if (chromaloc1 == chromaloc2)
+    return true;
+  for (int planeV = 0; planeV <= 1; planeV++) {
+    ChromaSitingOffsets o1, o2;
+    if (!GetChromaSitingOffsets(chromaloc1, planeV != 0, xs, ys, o1) || !GetChromaSitingOffsets(chromaloc2, planeV != 0, xs, ys, o2))
+      return false;
+    if (o1.x != o2.x || o1.y != o2.y || o1.ty != o2.ty || o1.by != o2.by)
+      return false;
+  }
+  return true;
+}
+
+// See convert_helper.h
+const char* GetChromaLocationName(int chromaloc) {
+  switch (chromaloc) {
+  case ChromaLocation_e::AVS_CHROMA_LEFT:        return "left";
+  case ChromaLocation_e::AVS_CHROMA_CENTER:      return "center";
+  case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:    return "top_left";
+  case ChromaLocation_e::AVS_CHROMA_TOP:         return "top";
+  case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT: return "bottom_left";
+  case ChromaLocation_e::AVS_CHROMA_BOTTOM:      return "bottom";
+  case ChromaLocation_e::AVS_CHROMA_DV:          return "dv";
+  default: return nullptr;
+  }
+}
+
+// See convert_helper.h
+bool IsSubsampledYUV(const VideoInfo& vi) {
+  // note: planar only
+  return vi.Is420() || vi.Is422() || vi.Is411() || vi.Is440() || vi.Is410();
+}
+
+// See convert_helper.h
+bool GetChromaLocationFromProps(PClip clip, IScriptEnvironment* env, int& out_chromaloc) {
+  const VideoInfo& vi = clip->GetVideoInfo();
+  if (!IsSubsampledYUV(vi) && !vi.IsYUY2()) // YUY2: packed 4:2:2
+    return false;
+  auto frame0 = clip->GetFrame(0, env);
+  const AVSMap* props = env->getFramePropsRO(frame0);
+  if (env->propNumElements(props, "_ChromaLocation") <= 0)
+    return false;
+  const int chromaloc = (int)env->propGetIntSaturated(props, "_ChromaLocation", 0, nullptr);
+  if (GetChromaLocationName(chromaloc) == nullptr)
+    return false;
+  out_chromaloc = chromaloc;
+  return true;
+}
+
+// See convert_helper.h
+int GetDefaultChromaLocation(const VideoInfo& vi) {
+  // For some formats 'left' is not meaningful or not used
+  return vi.Is440() ? ChromaLocation_e::AVS_CHROMA_TOP
+    : vi.Is410() ? ChromaLocation_e::AVS_CHROMA_TOP_LEFT
+    : ChromaLocation_e::AVS_CHROMA_LEFT;
+}
+
+// See convert_helper.h
+int ResolveChromaLocation(PClip clip, const char* placement_name, IScriptEnvironment* env, bool* out_defined) {
+  VideoInfo vi = clip->GetVideoInfo();
+  if (out_defined)
+    *out_defined = IsSubsampledYUV(vi) || vi.IsYUY2() || (!is_paramstring_empty_or_auto(placement_name) && *placement_name);
+  // frame prop, if valid, else the format default; an explicit name overrides both
+  int chromaloc_default;
+  if (!GetChromaLocationFromProps(clip, env, chromaloc_default))
+    chromaloc_default = GetDefaultChromaLocation(vi);
+  int chromaloc = chromaloc_default;
+  chromaloc_parse_merge_with_props(vi, placement_name, nullptr /* props: already merged */, chromaloc, chromaloc_default, env);
+  return chromaloc;
+}
+
 void export_frame_props(VideoInfo& vi, AVSMap* props, int _Matrix, int _ColorRange, IScriptEnvironment* env) {
   // fixme: what to do with the special "AVERAGE" non standard matrix? Solution 1: delete entry
   if (_Matrix == Matrix_e::AVS_MATRIX_AVERAGE)

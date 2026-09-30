@@ -40,6 +40,57 @@
 #include <cstring>
 #include "frame_prop_enums.h"
 
+
+// Helper struct and offset calculator for resamplers.
+// Chroma sample position of a subsampled chroma plane, in luma pixel units, relative to the
+// top-left luma sample of the xs*ys luma block the chroma sample belongs to.
+// x, y: progressive; ty, by: top and bottom field (in field luma rows), for interlaced use.
+struct ChromaSitingOffsets { float x, y, ty, by; };
+
+// Siting is defined per axis (as in H.273 / ffmpeg's chroma location positions):
+// - horizontal: co-sited (0) for left, top_left, bottom_left
+//               centered ((xs-1)/2) for center, top, bottom
+// - vertical:   top (0) for top_left, top
+//               centered ((ys-1)/2) for left, center
+//               bottom (ys-1) for bottom_left, bottom
+// On a non-subsampled axis (s=1) all of them give 0, so e.g. 4:4:0 'left' equals 'center'
+// and 4:1:1 'top' equals 'center'.
+// "dv" (DV-PAL 4:2:0, Avisynth special): Cb and Cr on alternate lines, both horizontally
+// co-sited: U = bottom_left, V = top_left (Cr on the top row, see e.g. libvpx y4minput.c
+// '420paldv'). Field positions are not split for it.
+// Returns false for an unknown chromaloc.
+bool GetChromaSitingOffsets(int chromaloc, bool planeV, int xs, int ys, ChromaSitingOffsets& o);
+
+// True if both chroma locations give the same siting for both chroma planes of an xs*ys
+// subsampled format (e.g. 'top' and 'center' for 4:2:2).
+bool IsSameChromaSiting(int chromaloc1, int chromaloc2, int xs, int ys);
+
+// ChromaInPlacement/ChromaOutPlacement name of a ChromaLocation_e value,
+// nullptr for AVS_CHROMA_UNUSED or an unknown value.
+const char* GetChromaLocationName(int chromaloc);
+
+// True for chroma subsampled planar YUV(A): 4:2:0, 4:2:2, 4:1:1, 4:4:0, 4:1:0.
+bool IsSubsampledYUV(const VideoInfo& vi);
+
+// Frame 0's _ChromaLocation of a subsampled YUV clip (planar or YUY2). Returns false if the
+// clip is not subsampled YUV, or has no (or an invalid) such frame prop.
+bool GetChromaLocationFromProps(PClip clip, IScriptEnvironment* env, int& out_chromaloc);
+
+// Per-format default chroma location (ConvertToYUV4xx's):
+// - 'top' for 4:4:0 (1x2)
+// - 'top_left' for 4:1:0 (no standard siting, ffmpeg parity) (4x4)
+// - 'left' otherwise (incl. non-subsampled formats)
+int GetDefaultChromaLocation(const VideoInfo& vi);
+
+// Unified helper for ConvertToXXX, Overlay, Layer, SubTitle, etc.
+// Resolves a filter's chroma placement parameter for `clip` based on ConvertToYUV4xx method.
+// - explicit name (any ConvertToYUV4xx placement name; nullptr, empty or "auto" works like not given)
+// - Frame 0's _ChromaLocation (subsampled formats only)
+// - GetDefaultChromaLocation. An invalid frame prop value gives the default.
+// *out_defined (optional): false if the clip is not subsampled and no name was given, i.e.
+// the result is only a fallback.
+int ResolveChromaLocation(PClip clip, const char* placement_name, IScriptEnvironment* env, bool* out_defined = nullptr);
+
 void matrix_parse_merge_with_props(bool rgb_in, bool rgb_out, const char* matrix_name, const AVSMap* props, int& _Matrix, int& _ColorRange, int& ColorRange_Out, IScriptEnvironment* env);
 void matrix_parse_merge_with_props_def(bool rgb_in, bool rgb_out, const char* matrix_name, const AVSMap* props, int& _Matrix, int& _ColorRange, int& ColorRange_Out, int _Matrix_Default, int _ColorRange_Default, IScriptEnvironment* env);
 void chromaloc_parse_merge_with_props(VideoInfo& vi, const char* chromaloc_name, const AVSMap* props, int& _ChromaLocation, int _ChromaLocation_Default, IScriptEnvironment* env);
