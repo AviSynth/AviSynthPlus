@@ -1412,136 +1412,20 @@ ConvertToPlanarGeneric::ConvertToPlanarGeneric(
   float xdInV = 0.0f, txdInV = 0.0f, bxdInV = 0.0f;
   float ydInV = 0.0f, tydInV = 0.0f, bydInV = 0.0f;
 
-  /*
-    "mpeg1", "center"
-      - 1-1 averaging kernel (4:2:0, 4:2:2 (horizontal only))
-    "mpeg2", "left" (4:2:0, 4:2:2)
-      - top-field samples are sited 1/4 sample below the luma samples (4:2:0)
-      - bottom-field samples are sited 1/4 sample above the luma samples (4:2:0)
-      - horizontal 1-2-1 kernel 
-    "dv": (4:2:0)
-      Chroma samples are sited on top of luma samples, but CB and CR samples are sited on alternate lines.
-      - top: V
-      - bottom: U
-    "top_left" (4:2:0)
-      - horizontal 1-2-1 vertical 1-2-1
-  */
+  // Any chroma location is valid for any subsampled format, see GetChromaSitingOffsets.
+  const int xsIn = 1 << vi.GetPlaneWidthSubsampling(PLANAR_U);
+  const int ysIn = 1 << vi.GetPlaneHeightSubsampling(PLANAR_U);
 
-  if (Is420(vi.pixel_type)) {
-    switch (ChromaLocation_In) {
-      case ChromaLocation_e::AVS_CHROMA_DV: // spec. avisynth
-        xdInU = 0.0f; ydInU = 1.0f; txdInU = 0.0f; tydInU = 1.0f; bxdInU = 0.0f; bydInU = 1.0f; // Cb
-        xdInV = 0.0f; ydInV = 0.0f; txdInV = 0.0f; tydInV = 0.0f; bxdInV = 0.0f; bydInV = 0.0f; // Cr
-        break;
-      case ChromaLocation_e::AVS_CHROMA_TOP:
-        xdInU = 0.5f, ydInU = 0.0f; txdInU = 0.5f; tydInU = 0.0f; bxdInU = 0.5f; bydInU = 0.5f;
-        xdInV = 0.5f, ydInV = 0.0f; txdInV = 0.5f; tydInV = 0.0f; bxdInV = 0.5f; bydInV = 0.5f;
-        break;
-      case ChromaLocation_e::AVS_CHROMA_CENTER: // mpeg1, center
-        xdInU = 0.5f, ydInU = 0.5f; txdInU = 0.5f; tydInU = 0.25f; bxdInU = 0.5f; bydInU = 0.75f;
-        xdInV = 0.5f, ydInV = 0.5f; txdInV = 0.5f; tydInV = 0.25f; bxdInV = 0.5f; bydInV = 0.75f;
-        break;
-      case ChromaLocation_e::AVS_CHROMA_BOTTOM:
-        xdInU = 0.5f, ydInU = 1.0f; txdInU = 0.5f; tydInU = 0.5f; bxdInU = 0.5f; bydInU = 1.0f;
-        xdInV = 0.5f, ydInV = 1.0f; txdInV = 0.5f; tydInV = 0.5f; bxdInV = 0.5f; bydInV = 1.0f;
-        break;
-      case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:
-        xdInU = 0.0f; ydInU = 0.0f; txdInU = 0.0f; tydInU = 0.0f; bxdInU = 0.0f; bydInU = 0.5f;
-        xdInV = 0.0f; ydInV = 0.0f; txdInV = 0.0f; tydInV = 0.0f; bxdInV = 0.0f; bydInV = 0.5f;
-        break;
-      case ChromaLocation_e::AVS_CHROMA_LEFT: // left, mpeg2
-        xdInU = 0.0f; ydInU = 0.5f; txdInU = 0.0f; tydInU = 0.25f; bxdInU = 0.0f; bydInU = 0.75f;
-        xdInV = 0.0f; ydInV = 0.5f; txdInV = 0.0f; tydInV = 0.25f; bxdInV = 0.0f; bydInV = 0.75f;
-        break;
-      case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT:
-        xdInU = 0.0f; ydInU = 1.0f; txdInU = 0.0f; tydInU = 0.5f; bxdInU = 0.0f; bydInU = 1.0f;
-        xdInV = 0.0f; ydInV = 1.0f; txdInV = 0.0f; tydInV = 0.5f; bxdInV = 0.0f; bydInV = 1.0f;
-        break;
-      default:
-        env->ThrowError("Convert: unsupported ChromaPlacement for 4:2:0 input.");
-    }
-  }
-  else if (vi.Is422()) {
-    switch (ChromaLocation_In) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER: // center
-      xdInU = 0.5f, ydInU = 0.0f; txdInU = 0.5f; tydInU = 0.0f; bxdInU = 0.5f; bydInU = 0.0f;
-      xdInV = 0.5f, ydInV = 0.0f; txdInV = 0.5f; tydInV = 0.0f; bxdInV = 0.5f; bydInV = 0.0f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP_LEFT: // treated as left
-    case ChromaLocation_e::AVS_CHROMA_LEFT: // left, mpeg2
-    case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT: // treated as left
-      xdInU = 0.0f; ydInU = 0.0f; txdInU = 0.0f; tydInU = 0.0f; bxdInU = 0.0f; bydInU = 0.0f;
-      xdInV = 0.0f; ydInV = 0.0f; txdInV = 0.0f; tydInV = 0.0f; bxdInV = 0.0f; bydInV = 0.0f;
-      break;
-    default:
-      env->ThrowError("Convert: unsupported ChromaPlacement for 4:2:2 input.");
-    }
-  }
-  else if (vi.Is411()) {
-    switch (ChromaLocation_In) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER:
-      xdInU = 1.5f; ydInU = 0.0f; txdInU = 1.5f; tydInU = 0.0f; bxdInU = 1.5f; bydInU = 0.0f;
-      xdInV = 1.5f; ydInV = 0.0f; txdInV = 1.5f; tydInV = 0.0f; bxdInV = 1.5f; bydInV = 0.0f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:
-    case ChromaLocation_e::AVS_CHROMA_LEFT:
-    case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT:
-      xdInU = 0.0f; ydInU = 0.0f; txdInU = 0.0f; tydInU = 0.0f; bxdInU = 0.0f; bydInU = 0.0f;
-      xdInV = 0.0f; ydInV = 0.0f; txdInV = 0.0f; tydInV = 0.0f; bxdInV = 0.0f; bydInV = 0.0f;
-      break;
-    default:
-      env->ThrowError("Convert: unsupported ChromaPlacement for 4:1:1 input.");
-    }
-  }
-  else if (vi.Is440()) {
-    // has no standard chroma siting HxV= 1x2
-    switch (ChromaLocation_In) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER:
-      xdInU = 0.0f; ydInU = 0.5f; txdInU = 0.0f; tydInU = 0.25f; bxdInU = 0.0f; bydInU = 0.75f;
-      xdInV = 0.0f; ydInV = 0.5f; txdInV = 0.0f; tydInV = 0.25f; bxdInV = 0.0f; bydInV = 0.75f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP:
-      // single point top (=top left, no H-subsampling here).
-      // Matches ffmpeg's swscale default
-      xdInU = 0.0f; ydInU = 0.0f; txdInU = 0.0f; tydInU = 0.0f; bxdInU = 0.0f; bydInU = 0.5f;
-      xdInV = 0.0f; ydInV = 0.0f; txdInV = 0.0f; tydInV = 0.0f; bxdInV = 0.0f; bydInV = 0.5f;
-      break;
-    default:
-      env->ThrowError("Convert: 4:4:0 has no standard chroma siting; only 'center' or 'top' is accepted for ChromaInPlacement.");
-    }
-  }
-  else if (vi.Is410()) {
-    // 410 has no standard chroma siting
-    // Field interlaced use: tyd/byd left flat (no top/bottom) since 410's 4 row chroma
-    // group can't be represented properly (not a single offset per field).
-    // This case _can_ occur in 420<->410 interlaced=true, since interlaced is set to false
-    // only if no 420 is involved. Nevertheless, it can't be correct.
-    switch (ChromaLocation_In) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER:
-      // Center of a 4x4 luma block: 1.5 luma pixels shift like in 411 x-pos.
-      xdInU = 1.5f; ydInU = 1.5f; txdInU = 1.5f; tydInU = 1.5f; bxdInU = 1.5f; bydInU = 1.5f;
-      xdInV = 1.5f; ydInV = 1.5f; txdInV = 1.5f; tydInV = 1.5f; bxdInV = 1.5f; bydInV = 1.5f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:
-    case ChromaLocation_e::AVS_CHROMA_TOP:
-    case ChromaLocation_e::AVS_CHROMA_LEFT:
-      // No standard convention on either axis for a 4x4 block, so unlike 420 there's no
-      // independently different "top-only" or "left-only" siting
-      // We treat "uncentered" names as top-left.
-      // Matches ffmpeg's swscale default.
-      // Field top/bottom kept flat, as with CENTER above.
-      xdInU = 0.0f; ydInU = 0.0f; txdInU = 0.0f; tydInU = 0.0f; bxdInU = 0.0f; bydInU = 0.0f;
-      xdInV = 0.0f; ydInV = 0.0f; txdInV = 0.0f; tydInV = 0.0f; bxdInV = 0.0f; bydInV = 0.0f;
-      break;
-    default:
-      env->ThrowError("Convert: 4:1:0 has no standard chroma siting; only 'center' or 'top_left' (also accepted as 'top'/'left') is accepted for ChromaInPlacement.");
-    }
+  if (xsIn > 1 || ysIn > 1) {
+    ChromaSitingOffsets u, v;
+    if (!GetChromaSitingOffsets(ChromaLocation_In, false, xsIn, ysIn, u) ||
+      !GetChromaSitingOffsets(ChromaLocation_In, true, xsIn, ysIn, v))
+      env->ThrowError("Convert: unsupported ChromaPlacement for input.");
+    xdInU = txdInU = bxdInU = u.x; ydInU = u.y; tydInU = u.ty; bydInU = u.by;
+    xdInV = txdInV = bxdInV = v.x; ydInV = v.y; tydInV = v.ty; bydInV = v.by;
   }
   else if (ChromaLocation_In >= 0)
     env->ThrowError("Convert: Input ChromaPlacement is invalid for this format.");
-
-  const int xsIn = 1 << vi.GetPlaneWidthSubsampling(PLANAR_U);
-  const int ysIn = 1 << vi.GetPlaneHeightSubsampling(PLANAR_U);
 
   // change vi to the output format
   vi.pixel_type = dst_space;
@@ -1555,117 +1439,25 @@ ConvertToPlanarGeneric::ConvertToPlanarGeneric(
   float xdOutV = 0.0f, txdOutV = 0.0f, bxdOutV = 0.0f;
   float ydOutV = 0.0f, tydOutV = 0.0f, bydOutV = 0.0f;
 
-  if (Is420(vi.pixel_type)) {
-    switch (ChromaLocation_Out) {
-    case ChromaLocation_e::AVS_CHROMA_DV:
-      xdOutU = 0.0f; ydOutU = 1.0f; txdOutU = 0.0f; tydOutU = 1.0f; bxdOutU = 0.0f; bydOutU = 1.0f; // Cb
-      xdOutV = 0.0f; ydOutV = 0.0f; txdOutV = 0.0f; tydOutV = 0.0f; bxdOutV = 0.0f; bydOutV = 0.0f; // Cr
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP:
-      xdOutU = 0.5f, ydOutU = 0.0f; txdOutU = 0.5f; tydOutU = 0.0f; bxdOutU = 0.5f; bydOutU = 0.5f;
-      xdOutV = 0.5f, ydOutV = 0.0f; txdOutV = 0.5f; tydOutV = 0.0f; bxdOutV = 0.5f; bydOutV = 0.5f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_CENTER: // mpeg1, center
-      xdOutU = 0.5f, ydOutU = 0.5f; txdOutU = 0.5f; tydOutU = 0.25f; bxdOutU = 0.5f; bydOutU = 0.75f;
-      xdOutV = 0.5f, ydOutV = 0.5f; txdOutV = 0.5f; tydOutV = 0.25f; bxdOutV = 0.5f; bydOutV = 0.75f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_BOTTOM:
-      xdOutU = 0.5f, ydOutU = 1.0f; txdOutU = 0.5f; tydOutU = 0.5f; bxdOutU = 0.5f; bydOutU = 1.0f;
-      xdOutV = 0.5f, ydOutV = 1.0f; txdOutV = 0.5f; tydOutV = 0.5f; bxdOutV = 0.5f; bydOutV = 1.0f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:
-      xdOutU = 0.0f; ydOutU = 0.0f; txdOutU = 0.0f; tydOutU = 0.0f; bxdOutU = 0.0f; bydOutU = 0.5f;
-      xdOutV = 0.0f; ydOutV = 0.0f; txdOutV = 0.0f; tydOutV = 0.0f; bxdOutV = 0.0f; bydOutV = 0.5f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_LEFT: // left, mpeg2
-      xdOutU = 0.0f; ydOutU = 0.5f; txdOutU = 0.0f; tydOutU = 0.25f; bxdOutU = 0.0f; bydOutU = 0.75f;
-      xdOutV = 0.0f; ydOutV = 0.5f; txdOutV = 0.0f; tydOutV = 0.25f; bxdOutV = 0.0f; bydOutV = 0.75f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT:
-      xdOutU = 0.0f; ydOutU = 1.0f; txdOutU = 0.0f; tydOutU = 0.5f; bxdOutU = 0.0f; bydOutU = 1.0f;
-      xdOutV = 0.0f; ydOutV = 1.0f; txdOutV = 0.0f; tydOutV = 0.5f; bxdOutV = 0.0f; bydOutV = 1.0f;
-      break;
-    default:
-      env->ThrowError("Convert: unsupported ChromaPlacement for 4:2:0 output.");
-    }
-  }
-  else if (vi.Is422()) {
-    switch (ChromaLocation_Out) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER: // mpeg1, center
-      xdOutU = 0.5f, ydOutU = 0.0f; txdOutU = 0.5f; tydOutU = 0.0f; bxdOutU = 0.5f; bydOutU = 0.0f;
-      xdOutV = 0.5f, ydOutV = 0.0f; txdOutV = 0.5f; tydOutV = 0.0f; bxdOutV = 0.5f; bydOutV = 0.0f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP_LEFT: // treated as left
-    case ChromaLocation_e::AVS_CHROMA_LEFT: // left, mpeg2
-    case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT: // treated as left
-      xdOutU = 0.0f; ydOutU = 0.0f; txdOutU = 0.0f; tydOutU = 0.0f; bxdOutU = 0.0f; bydOutU = 0.0f;
-      xdOutV = 0.0f; ydOutV = 0.0f; txdOutV = 0.0f; tydOutV = 0.0f; bxdOutV = 0.0f; bydOutV = 0.0f;
-      break;
-    default:
-      env->ThrowError("Convert: unsupported ChromaPlacement for 4:2:2 output.");
-    }
-  }
-  else if (vi.Is411()) {
-    switch (ChromaLocation_Out) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER:
-      // Midpoint of 4 luma pixels = 1.5 luma pixels shift
-      xdOutU = 1.5f; ydOutU = 0.0f; txdOutU = 1.5f; tydOutU = 0.0f; bxdOutU = 1.5f; bydOutU = 0.0f;
-      xdOutV = 1.5f; ydOutV = 0.0f; txdOutV = 1.5f; tydOutV = 0.0f; bxdOutV = 1.5f; bydOutV = 0.0f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:
-    case ChromaLocation_e::AVS_CHROMA_LEFT:
-    case ChromaLocation_e::AVS_CHROMA_BOTTOM_LEFT:
-      xdOutU = 0.0f; ydOutU = 0.0f; txdOutU = 0.0f; tydOutU = 0.0f; bxdOutU = 0.0f; bydOutU = 0.0f;
-      xdOutV = 0.0f; ydOutV = 0.0f; txdOutV = 0.0f; tydOutV = 0.0f; bxdOutV = 0.0f; bydOutV = 0.0f;
-      break;
-    default:
-      env->ThrowError("Convert: unsupported ChromaPlacement for 4:1:1 output.");
-    }
-  }
-  else if (vi.Is440()) {
-    // top/bottom field split as 420, since 440 shares 420's Sub_Height_2 factor).
-    switch (ChromaLocation_Out) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER:
-      xdOutU = 0.0f; ydOutU = 0.5f; txdOutU = 0.0f; tydOutU = 0.25f; bxdOutU = 0.0f; bydOutU = 0.75f;
-      xdOutV = 0.0f; ydOutV = 0.5f; txdOutV = 0.0f; tydOutV = 0.25f; bxdOutV = 0.0f; bydOutV = 0.75f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP:
-      // Matches ffmpeg's swscale default
-      xdOutU = 0.0f; ydOutU = 0.0f; txdOutU = 0.0f; tydOutU = 0.0f; bxdOutU = 0.0f; bydOutU = 0.5f;
-      xdOutV = 0.0f; ydOutV = 0.0f; txdOutV = 0.0f; tydOutV = 0.0f; bxdOutV = 0.0f; bydOutV = 0.5f;
-      break;
-    default:
-      env->ThrowError("Convert: 4:4:0 has no standard chroma siting; only 'center' or 'top' is accepted for ChromaOutPlacement.");
-    }
-  }
-  else if (vi.Is410()) {
-    // see the Is410() input placement comments above.
-    switch (ChromaLocation_Out) {
-    case ChromaLocation_e::AVS_CHROMA_CENTER:
-      xdOutU = 1.5f; ydOutU = 1.5f; txdOutU = 1.5f; tydOutU = 1.5f; bxdOutU = 1.5f; bydOutU = 1.5f;
-      xdOutV = 1.5f; ydOutV = 1.5f; txdOutV = 1.5f; tydOutV = 1.5f; bxdOutV = 1.5f; bydOutV = 1.5f;
-      break;
-    case ChromaLocation_e::AVS_CHROMA_TOP_LEFT:
-    case ChromaLocation_e::AVS_CHROMA_TOP:
-    case ChromaLocation_e::AVS_CHROMA_LEFT:
-      // Matches ffmpeg's swscale default
-      xdOutU = 0.0f; ydOutU = 0.0f; txdOutU = 0.0f; tydOutU = 0.0f; bxdOutU = 0.0f; bydOutU = 0.0f;
-      xdOutV = 0.0f; ydOutV = 0.0f; txdOutV = 0.0f; tydOutV = 0.0f; bxdOutV = 0.0f; bydOutV = 0.0f;
-      break;
-    default:
-      env->ThrowError("Convert: 4:1:0 has no standard chroma siting; only 'center' or 'top_left' (also accepted as 'top'/'left') is accepted for ChromaOutPlacement.");
-    }
+  const int xsOut = 1 << vi.GetPlaneWidthSubsampling(PLANAR_U);
+  const int ysOut = 1 << vi.GetPlaneHeightSubsampling(PLANAR_U);
+
+  if (xsOut > 1 || ysOut > 1) {
+    ChromaSitingOffsets u, v;
+    if (!GetChromaSitingOffsets(ChromaLocation_Out, false, xsOut, ysOut, u) ||
+      !GetChromaSitingOffsets(ChromaLocation_Out, true, xsOut, ysOut, v))
+      env->ThrowError("Convert: unsupported ChromaPlacement for output.");
+    xdOutU = txdOutU = bxdOutU = u.x; ydOutU = u.y; tydOutU = u.ty; bydOutU = u.by;
+    xdOutV = txdOutV = bxdOutV = v.x; ydOutV = v.y; tydOutV = v.ty; bydOutV = v.by;
   }
   else if (ChromaLocation_Out >= 0) {
     env->ThrowError("Convert: Output ChromaPlacement is invalid for this format.");
   }
 
-  const int xsOut = 1 << vi.GetPlaneWidthSubsampling(PLANAR_U);
   const int xmask = xsOut - 1;
   if (vi.width & xmask)
     env->ThrowError("Convert: Cannot convert if width isn't mod%d!", xsOut);
 
-  const int ysOut = 1 << vi.GetPlaneHeightSubsampling(PLANAR_U);
   const int ymask = ysOut - 1;
   if (vi.height & ymask)
     env->ThrowError("Convert: Cannot convert if height isn't mod%d!", ysOut);
