@@ -87,7 +87,7 @@ Should I correct anything when processing my content?
 -----------------------------------------------------
 
 Yes, you should correct for it in some cases. It depends on your end format
-and how it is played back. In general, it is save to assume that Rec.601 is
+and how it is played back. In general, it is safe to assume that Rec.601 is
 used for Standard Definition content and Rec.709 for High Definition content
 upon playback. That means that often any specific header information
 regarding colorimetry will be ignored. It will be assumed here that you are
@@ -127,7 +127,7 @@ back) depends on how your content is being played back. If you use a software
 player you need to check whether it has an option to correct it. If you use a
 directshow based player (such as WMP or MPC) there are different
 possibilities which are explained below. If the renderer does the YCbCr->RGB
-conversion, you should keep in mind that (as found are out in this
+conversion, you should keep in mind that (as found out in this
 `thread`_):
 
 -   Windowed/renderless VMR7 and VMR9 use BT.601 for video < 720p (720
@@ -144,7 +144,7 @@ Have a look `at this thread <http://forum.doom9.org/showthread.php?t=134735>`_ f
 Method #1: Adjusting graphics driver settings
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-I'm not sure whether this is possible. I need to ask someone ...
+It might be possible to specify the behavior in the drivers depending on which GPU and driver you're using, but it's not always possible to do that.
 
 
 Method #2: Convert to RGB32 with ffdshow
@@ -208,10 +208,8 @@ the header.
 DVD/MPEG-2
 ~~~~~~~~~~
 
-The DVD specs are not publicly available for free, and I don't know people
-who have read those specs. The DVD specs should be a subset of the MPEG-2
-specs (yes I know, that's a big assumption), and the latter is available for
-free. It says the following:
+The DVD specs are not publicly available for free. The DVD specs should be a subset of the MPEG-2
+specs, and the latter is available for free. It says the following:
 
 *The older 1995 MPEG-2 spec (ISO/IEC 13818-2: 1995 (E)) says*
 
@@ -271,6 +269,32 @@ MPEG-4/AVC
 matrix_coefficients shall be inferred to be equal to 2. That is: Image
 characteristics are unknown or are determined by the application." The matrix
 coefficients are described in "Table E-5 - Matrix coefficients".
+
+
+H.265/HEVC
+~~~~~~~~~~
+
+*ITU-T Rec. H.265 (2013)/Amd (01/2026) says*
+
+"When the matrix_coeffs syntax element is not present, the value of 
+matrix_coeffs is inferred to be equal to 2 (unspecified)."
+
+and, in Table E.5 – Matrix coefficients interpretation using the matrix_coeffs syntax element,
+it states the following:
+
+"value 2: Unspecified - Image characteristics are unknown or are determined by the application.
+
+
+H.266/VVC
+~~~~~~~~~~
+
+*ITU-T Rec. H.266 (2020)/Amd (01/2026) says*
+
+"When the SPS does not contain a vui_payload( ) syntax structure (i.e sps_vui_parameters_present_flag is equal to 0), 
+the video usability information is inferred as follows unless determined by the application by external means:
+
+The value of vui_matrix_coeffs is inferred to be equal to 2 (unknown or unspecified or specified by external means)"
+
 
 
 Application defaults
