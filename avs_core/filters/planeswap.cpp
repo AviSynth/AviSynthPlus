@@ -912,12 +912,38 @@ CombinePlanes::CombinePlanes(PClip _child, PClip _clip2, PClip _clip3, PClip _cl
       case 'V': current_source_plane = PLANAR_V; break;
       }
       source_planes[i] = current_source_plane;
+      // Detect the possible origin of the chroma siting information for the target U/V planes.
+      // The source planes must be the U or V planes of a subsampled YUV clip with the same subsampling
+      // as the target.
+      // Source clip index is saved for later use, for copying its _ChromaLocation property to target.
+      if ((current_target_plane == PLANAR_U || current_target_plane == PLANAR_V) &&
+        (current_source_plane == PLANAR_U || current_source_plane == PLANAR_V) &&
+        IsSubsampledYUV(src_vi) && IsSubsampledYUV(vi_default) && // YUY2 was already converted to planar YV16
+        src_vi.GetPlaneWidthSubsampling(PLANAR_U) == vi_default.GetPlaneWidthSubsampling(PLANAR_U) &&
+        src_vi.GetPlaneHeightSubsampling(PLANAR_U) == vi_default.GetPlaneHeightSubsampling(PLANAR_U))
+        chroma_source_clip[current_target_plane == PLANAR_U ? 0 : 1] = last_clip_index;
       // check dimensions
       int source_plane_width = src_vi.width >> src_vi.GetPlaneWidthSubsampling(current_source_plane);
       int source_plane_height = src_vi.height >> src_vi.GetPlaneHeightSubsampling(current_source_plane);
       if(source_plane_width != target_plane_width || source_plane_height != target_plane_height)
         env->ThrowError("CombinePlanes: source and target plane dimensions are different");
     }
+  }
+
+  // Case: target U or V is not listed in 'planes'.
+  // We keep the first clip's U/V plane as siting source,
+  // if it has the same chroma subsampling as the target.
+  const VideoInfo& vi_first = clips[0]->GetVideoInfo();
+  if (IsSubsampledYUV(vi_default) && IsSubsampledYUV(vi_first) &&
+    vi_first.GetPlaneWidthSubsampling(PLANAR_U) == vi_default.GetPlaneWidthSubsampling(PLANAR_U) &&
+    vi_first.GetPlaneHeightSubsampling(PLANAR_U) == vi_default.GetPlaneHeightSubsampling(PLANAR_U)) {
+    bool listedU = false, listedV = false;
+    for (int i = 0; i < target_plane_count; i++) {
+      if (target_planes[i] == PLANAR_U) listedU = true;
+      if (target_planes[i] == PLANAR_V) listedV = true;
+    }
+    if (!listedU) chroma_source_clip[0] = 0;
+    if (!listedV) chroma_source_clip[1] = 0;
   }
 }
 
@@ -926,13 +952,56 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
 
   VideoInfo vi_src = clips[0]->GetVideoInfo();
 
-  // The frame properties come from a source clip. A target without subsampled chroma
-  // (Y, YA, 4:4:4, RGB) must not keep a _ChromaLocation inherited from a subsampled source.
-  // YUY2 (packed 4:2:2) is subsampled as well, though not a CombinePlanes target at present.
-  const bool dropChromaLocation = !(IsSubsampledYUV(vi) || vi.IsYUY2());
+  // Frame properties come from the first clip; _ChromaLocation follows the U/V source clips:
+  // - target not subsampled (Y, YA, 4:4:4, RGB): removed
+  // - U/V from a U/V plane of a same-subsampled clip: that clip's value (or removed if none)
+  // - U and V sources disagree: removed
+  // - unlisted U/V plane: taken from the first clip
+  // - no sited U/V source (e.g. from Y planes): first clip's value kept
+  const bool targetHasSiting = IsSubsampledYUV(vi) || vi.IsYUY2();
+
+  const int clipU = chroma_source_clip[0]; // indexes, -1 if none
+  const int clipV = chroma_source_clip[1];
+
+  // _ChromaLocation of the U and V source frames, noted when the frames are fetched anyway.
+  // Values are kept instead of frame references: an extra reference would make
+  // the reused source frames non-writable (see the IsWritable() shortcuts below).
+  bool notedU = false, notedV = false;
+  bool hasChromaLocationSpecifiedByU = false;
+  bool hasChromaLocationSpecifiedByV = false;
+  int ChromaLocationSpecifiedByU = 0;
+  int ChromaLocationSpecifiedByV = 0;
+
+  auto readChromaLocation = [&](const PVideoFrame& f, bool& has, int& loc) {
+    const AVSMap* props = env->getFramePropsRO(f);
+    has = env->propNumElements(props, "_ChromaLocation") > 0;
+    if (has)
+      loc = (int)env->propGetIntSaturated(props, "_ChromaLocation", 0, nullptr);
+  };
+  auto noteChromaLocation = [&](int clip_index, const PVideoFrame& frame) {
+    if (!targetHasSiting || !frame)
+      return;
+    if (clip_index == clipU && !notedU) { readChromaLocation(frame, /*ref*/hasChromaLocationSpecifiedByU, /*ref*/ChromaLocationSpecifiedByU); notedU = true; }
+    if (clip_index == clipV && !notedV) { readChromaLocation(frame, /*ref*/hasChromaLocationSpecifiedByV, /*ref*/ChromaLocationSpecifiedByV); notedV = true; }
+  };
+
+  // useful lambda to set or remove _ChromaLocation in the target frame's properties
   auto fixProps = [&](PVideoFrame& frame) {
-    if (dropChromaLocation)
+    if (!targetHasSiting) {
       env->propDeleteKey(env->getFramePropsRW(frame), "_ChromaLocation");
+      return;
+    }
+    if (clipU < 0 && clipV < 0)
+      return; // no siting info in the U/V sources: keep the first clip's
+    // values were noted right after the frames' GetFrame (every path fetches all clips it uses)
+    const bool disagree = clipU >= 0 && clipV >= 0 && (hasChromaLocationSpecifiedByU != hasChromaLocationSpecifiedByV || (hasChromaLocationSpecifiedByU && ChromaLocationSpecifiedByU != ChromaLocationSpecifiedByV));
+    const bool hasChromaLocationSpecified = clipU >= 0 ? hasChromaLocationSpecifiedByU : hasChromaLocationSpecifiedByV;
+    const int actualChromaLocation = clipU >= 0 ? ChromaLocationSpecifiedByU : ChromaLocationSpecifiedByV;
+    AVSMap* props = env->getFramePropsRW(frame);
+    if (disagree || !hasChromaLocationSpecified)
+      env->propDeleteKey(props, "_ChromaLocation");
+    else
+      env->propSetInt(props, "_ChromaLocation", actualChromaLocation, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
   };
 
   // check if fast Subframe magic can replace BitBlt
@@ -940,6 +1009,7 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
   {
     // we have only one clip, plane shuffle is valid if target has less plane that defined in source
     PVideoFrame src = clips[0]->GetFrame(n, env);
+    noteChromaLocation(0, src); // clip index 0: source clip
 
     int planes_y[4]  = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
     int planes_r[4]  = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
@@ -1021,10 +1091,13 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
 
     return dst;
   }
+  // end of SubFrame optimization
 
   // check if first clip could be used as the target clip
   PVideoFrame src = clips[0]->GetFrame(n, env);
   PVideoFrame src1 = clips[1] ? clips[1]->GetFrame(n, env) : nullptr;
+  noteChromaLocation(0, src);
+  noteChromaLocation(1, src1); // handles nullptr frame
 
   // case 1: when Y is kept from the original clip and other planes may be merged
   if (vi_src.IsSameColorspace(vi) && target_planes[0] == source_planes[0]) {
@@ -1050,7 +1123,10 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
           if (i == 1)
             src_other = src1; // already requested
           else
+          {
             src_other = clips[i]->GetFrame(n, env); // last defined clip is used for the others
+            noteChromaLocation(i, src_other);
+          }
         }
 
         if (src_other) {
@@ -1114,7 +1190,10 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
         if (i == 1) // clip #1 was already requested
           src = src1;
         else
+        {
           src = clips[i]->GetFrame(n, env); // last defined clip is used for the others
+          noteChromaLocation(i, src);
+        }
       }
   
       if (!propCopied) {
