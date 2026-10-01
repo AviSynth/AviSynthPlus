@@ -1104,30 +1104,30 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
     const bool targetHasA = vi.IsYUVA() || vi.IsPlanarRGBA();
     if ((!targetHasPlanes12 || NewPitches[1] == NewPitches[2]) && (!targetHasA || NewPitches[3] == NewPitches[0]))
     {
-    PVideoFrame dst;
-    if (vi.NumComponents() == 4) {
-      dst = env->SubframePlanarA(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight(),
-        RelOffsets[1], RelOffsets[2], NewPitches[1], RelOffsets[3]);
-    }
-    else if (vi.NumComponents() == 3) {
-      dst = env->SubframePlanar(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight(),
-        RelOffsets[1], RelOffsets[2], NewPitches[1]);
-    }
-    else if (vi.IsYA()) {
-      // dummy 0 offset/pitch for the unused U/V args.
-      dst = env->SubframePlanarA(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight(),
-        0, 0, 0, RelOffsets[3]);
-    }
-    else {
-      dst = env->Subframe(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight());
-    }
+      PVideoFrame dst;
+      if (vi.NumComponents() == 4) {
+        dst = env->SubframePlanarA(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight(),
+          RelOffsets[1], RelOffsets[2], NewPitches[1], RelOffsets[3]);
+      }
+      else if (vi.NumComponents() == 3) {
+        dst = env->SubframePlanar(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight(),
+          RelOffsets[1], RelOffsets[2], NewPitches[1]);
+      }
+      else if (vi.IsYA()) {
+        // dummy 0 offset/pitch for the unused U/V args.
+        dst = env->SubframePlanarA(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight(),
+          0, 0, 0, RelOffsets[3]);
+      }
+      else {
+        dst = env->Subframe(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight());
+      }
 
-    // RGB(A)<->YUV(A) color space conversion can't be caught by Subframe...()
-    dst->AmendPixelType(vi.pixel_type);
-    fixProps(dst); // safe to modify props after a subframe
+      // RGB(A)<->YUV(A) color space conversion can't be caught by Subframe...()
+      dst->AmendPixelType(vi.pixel_type);
+      fixProps(dst); // safe to modify props after a subframe
 
-    return dst;
-  }
+      return dst;
+    }
   }
   // end of SubFrame optimization
 
@@ -1224,20 +1224,30 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
   PVideoFrame dst = env->NewVideoFrame(vi);
   bool propCopied = false;
 
-  // Target planes not listed in 'planes' : copy from first clip
-  // Let'd do it like in the in-place paths (SubFrame, IsWriteable keeps it).
-  // 1st clip has no such plane (plus check: same size): filled with neutral value
+  // Target planes not listed in 'planes': copy from the first clip, like the in-place paths
+  // (Subframe, writable first frame) keep them, matched by plane slot (Y/G, U/B, V/R, A).
+  // If the first clip has no plane of the same size at that slot, it is filled with a neutral value.
   {
     const int planes_yuv[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
     const int planes_rgb[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
     const int planes_ya[2] = { PLANAR_Y, PLANAR_A };
     const int* all_planes = vi.IsYA() ? planes_ya : vi.IsRGB() ? planes_rgb : planes_yuv;
-    auto hasPlane = [](const VideoInfo& v, int plane) {
-      if (v.IsRGB())
-        return plane != PLANAR_A ? (plane == PLANAR_R || plane == PLANAR_G || plane == PLANAR_B) : v.IsPlanarRGBA();
-      if (plane == PLANAR_Y) return true;
-      if (plane == PLANAR_A) return v.IsYUVA(); // IsYUVA() includes YA
-      return (plane == PLANAR_U || plane == PLANAR_V) && !v.IsY() && !v.IsYA();
+    auto slotOf = [](int plane) {
+      switch (plane) {
+      case PLANAR_Y: case PLANAR_G: return 0;
+      case PLANAR_U: case PLANAR_B: return 1;
+      case PLANAR_V: case PLANAR_R: return 2;
+      default: return 3; // PLANAR_A
+      }
+    };
+    // the plane of format v at a slot, 0 if it has none
+    auto planeAtSlot = [](const VideoInfo& v, int slot) -> int {
+      const bool hasA = v.IsYUVA() || v.IsPlanarRGBA(); // IsYUVA() includes YA
+      if (slot == 3) return hasA ? PLANAR_A : 0;
+      if (v.IsRGB()) return slot == 0 ? PLANAR_G : slot == 1 ? PLANAR_B : PLANAR_R;
+      if (slot == 0) return PLANAR_Y;
+      if (v.IsY() || v.IsYA()) return 0;
+      return slot == 1 ? PLANAR_U : PLANAR_V;
     };
     for (int k = 0; k < vi.NumComponents(); k++) {
       const int plane = all_planes[k];
@@ -1251,14 +1261,17 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
       const int dst_pitch = dst->GetPitch(plane);
       const int rowsize = dst->GetRowSize(plane);
       const int height = dst->GetHeight(plane);
-      if (hasPlane(vi_src, plane) && src->GetRowSize(plane) == rowsize && src->GetHeight(plane) == height) {
-        env->BitBlt(dstp, dst_pitch, src->GetReadPtr(plane), src->GetPitch(plane), rowsize, height);
+      // Same family: the slot gives the same plane. YUV <-> RGB: it gives the plane the
+      // Subframe path takes (e.g. B from U), so the result does not depend on the path taken.
+      const int src_plane = planeAtSlot(vi_src, slotOf(plane));
+      if (src_plane && src->GetRowSize(src_plane) == rowsize && src->GetHeight(src_plane) == height) {
+        env->BitBlt(dstp, dst_pitch, src->GetReadPtr(src_plane), src->GetPitch(src_plane), rowsize, height);
         continue;
       }
       const bool isChroma = plane == PLANAR_U || plane == PLANAR_V;
       const bool isAlpha = plane == PLANAR_A;
       // neutral: half for U/V, opaque for A, black for the rest (Y,R,G,B).
-      // Black is per-frame _ColorRange dependant. (0 or 16d)
+      // Black is per-frame _ColorRange dependent. (0 or 16d)
       bool fullRange;
       {
         const AVSMap* props = env->getFramePropsRO(src);
