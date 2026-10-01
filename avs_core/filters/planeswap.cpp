@@ -1155,7 +1155,9 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
     // clip #0 format does not match with the output, maybe it is a single plane
     // let's try with the second (clip #1) if it can be used
     // Optimization trick is intentionally not extended to Y+A (IsYA(), NumComponents()==2)
-    if (clips[1]->GetVideoInfo().IsSameColorspace(vi) &&
+    // All target planes must be listed: target_planes[] is filled only up to planecount, and an
+    // unlisted plane must not keep clip #1's content (it is the first clip's, see below).
+    if (clips[1]->GetVideoInfo().IsSameColorspace(vi) && planecount == vi.NumComponents() &&
       // the rest plane IDs are matching between source and target
       vi.NumComponents() >= 3 && target_planes[1] == source_planes[1] && target_planes[2] == source_planes[2] &&
       (vi.NumComponents() < 4 || (vi.NumComponents() == 4 && target_planes[3] == source_planes[3])))
@@ -1183,6 +1185,61 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
 
   PVideoFrame dst = env->NewVideoFrame(vi);
   bool propCopied = false;
+
+  // Target planes not listed in 'planes' : copy from first clip
+  // Let'd do it like in the in-place paths (SubFrame, IsWriteable keeps it).
+  // 1st clip has no such plane (plus check: same size): filled with neutral value
+  {
+    const int planes_yuv[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+    const int planes_rgb[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
+    const int planes_ya[2] = { PLANAR_Y, PLANAR_A };
+    const int* all_planes = vi.IsYA() ? planes_ya : vi.IsRGB() ? planes_rgb : planes_yuv;
+    auto hasPlane = [](const VideoInfo& v, int plane) {
+      if (v.IsRGB())
+        return plane != PLANAR_A ? (plane == PLANAR_R || plane == PLANAR_G || plane == PLANAR_B) : v.IsPlanarRGBA();
+      if (plane == PLANAR_Y) return true;
+      if (plane == PLANAR_A) return v.IsYUVA(); // IsYUVA() includes YA
+      return (plane == PLANAR_U || plane == PLANAR_V) && !v.IsY() && !v.IsYA();
+    };
+    for (int k = 0; k < vi.NumComponents(); k++) {
+      const int plane = all_planes[k];
+      bool listed = false;
+      for (int i = 0; i < planecount; i++)
+        if (target_planes[i] == plane) listed = true;
+      if (listed)
+        continue;
+      // unlisted! Either copy from the first clip or fill with neutral value
+      BYTE* dstp = dst->GetWritePtr(plane);
+      const int dst_pitch = dst->GetPitch(plane);
+      const int rowsize = dst->GetRowSize(plane);
+      const int height = dst->GetHeight(plane);
+      if (hasPlane(vi_src, plane) && src->GetRowSize(plane) == rowsize && src->GetHeight(plane) == height) {
+        env->BitBlt(dstp, dst_pitch, src->GetReadPtr(plane), src->GetPitch(plane), rowsize, height);
+        continue;
+      }
+      const bool isChroma = plane == PLANAR_U || plane == PLANAR_V;
+      const bool isAlpha = plane == PLANAR_A;
+      // neutral: half for U/V, opaque for A, black for the rest (Y,R,G,B).
+      // Black is per-frame _ColorRange dependant. (0 or 16d)
+      bool fullRange;
+      {
+        const AVSMap* props = env->getFramePropsRO(src);
+        if (env->propNumElements(props, "_ColorRange") > 0)
+          fullRange = env->propGetIntSaturated(props, "_ColorRange", 0, nullptr) == ColorRange_Compat_e::AVS_COLORRANGE_FULL;
+        else
+          fullRange = vi.IsRGB(); // YUV default false, RGB true
+      }
+      if (pixelsize == 1)
+        fill_plane<uint8_t>(dstp, height, rowsize, dst_pitch,
+          (uint8_t)(isChroma ? 128 : isAlpha ? 255 : fullRange ? 0 : 16));
+      else if (pixelsize == 2)
+        fill_plane<uint16_t>(dstp, height, rowsize, dst_pitch,
+          (uint16_t)(isChroma ? (1 << (bits_per_pixel - 1)) : isAlpha ? ((1 << bits_per_pixel) - 1) : fullRange ? 0 : (16 << (bits_per_pixel - 8))));
+      else
+        fill_plane<float>(dstp, height, rowsize, dst_pitch,
+          isChroma ? 0.0f : isAlpha ? 1.0f : fullRange ? 0.0f : 16.0f / 255);
+    }
+  }
 
   for (int i = 0; i < planecount; i++) {
     if (clips[i]) { // source clips can be less than defined planes
