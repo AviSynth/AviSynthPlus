@@ -799,14 +799,21 @@ CombinePlanes::CombinePlanes(PClip _child, PClip _clip2, PClip _clip3, PClip _cl
       // special case. Figure out RGB(A) or YUV(A) or Y
       bool allIsYUV = true;
       bool allIsRGB = true;
+      bool hasY = false, hasA = false;
       for (int i = 0; i < target_plane_count; i++) {
         char ch = toupper(_target_planes_str[i]);
         if (ch == 'R' || ch == 'G' || ch == 'B') allIsYUV = false;
         if (ch == 'Y' || ch == 'U' || ch == 'V') allIsRGB = false;
+        if (ch == 'Y') hasY = true;
+        if (ch == 'A') hasA = true;
       }
+      // exactly Y and A: Y+alpha
+      const bool isYA = target_plane_count == 2 && hasY && hasA;
       if (allIsYUV || allIsRGB) {
         int new_pixel_type;
-        if (allIsRGB)
+        if (isYA)
+          new_pixel_type = VideoInfo::CS_GENERIC_YA;
+        else if (allIsRGB)
           new_pixel_type = target_plane_count == 4 ? VideoInfo::CS_GENERIC_RGBAP : VideoInfo::CS_GENERIC_RGBP;
         else // if (allIsYUV)
           new_pixel_type = target_plane_count == 4 ? VideoInfo::CS_GENERIC_YUVA444 : VideoInfo::CS_GENERIC_YUV444;
@@ -840,7 +847,8 @@ CombinePlanes::CombinePlanes(PClip _child, PClip _clip2, PClip _clip3, PClip _cl
 
   // if source plane is given, use it otherwise assume these
   const char * rgb_source_planes_str_def = "RGBA";
-  const char * yuv_source_planes_str_def = allIsGrey ? "YYYY" : "YUVA";
+  // YA target: plane #1 is alpha
+  const char * yuv_source_planes_str_def = allIsGrey ? "YYYY" : vi_default.IsYA() ? "YA" : "YUVA";
 
   int last_clip_index = 0;
   for (int i = 0; i < target_plane_count; i++) {
