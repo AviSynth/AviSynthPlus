@@ -953,6 +953,29 @@ CombinePlanes::CombinePlanes(PClip _child, PClip _clip2, PClip _clip3, PClip _cl
     if (!listedU) chroma_source_clip[0] = 0;
     if (!listedV) chroma_source_clip[1] = 0;
   }
+
+  // Decide is Subframe-magic zero-copy shortcut can be used.
+  // (subframe: framebuffer is kept, but target frame plane pointers are shuffled from the source's ones)
+  // It can be used only if the target has the source's dimensions and U/V geometry, and the source has
+  // alpha when the target has.
+  // The pitch conditions are checked per frame.
+  {
+    // planes #1 and #2: U and V (YUV) or B and R (planar RGB); not present in Y and YA
+    const bool targetHasPlanes12 = vi_default.NumComponents() >= 3;
+    const bool sourceHasPlanes12 = vi_first.NumComponents() >= 3;
+    const bool targetHasA = vi_default.IsYUVA() || vi_default.IsPlanarRGBA(); // IsYUVA() includes YA
+    const bool sourceHasA = vi_first.IsYUVA() || vi_first.IsPlanarRGBA();
+    // planes #1/#2 subsampling; 0 for RGB, and for Y/YA (no such planes, safe to call)
+    auto chromaSubsamplingW = [](const VideoInfo& v) { return (v.IsRGB() || v.NumComponents() < 3) ? 0 : v.GetPlaneWidthSubsampling(PLANAR_U); };
+    auto chromaSubsamplingH = [](const VideoInfo& v) { return (v.IsRGB() || v.NumComponents() < 3) ? 0 : v.GetPlaneHeightSubsampling(PLANAR_U); };
+    subframe_possible = !clips[1] &&
+      vi_default.NumComponents() <= vi_first.NumComponents() &&
+      vi_default.width == vi_first.width && vi_default.height == vi_first.height &&
+      (!targetHasPlanes12 || (sourceHasPlanes12 &&
+        chromaSubsamplingW(vi_default) == chromaSubsamplingW(vi_first) &&
+        chromaSubsamplingH(vi_default) == chromaSubsamplingH(vi_first))) &&
+      (!targetHasA || sourceHasA);
+  }
 }
 
 
@@ -1013,16 +1036,16 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
   };
 
   // check if fast Subframe magic can replace BitBlt
-  if (!clips[1] && vi.NumComponents() <= vi_src.NumComponents()) // YUV<->RGB, YUVA<->RGBA YUV->Y
+  if (subframe_possible) // single clip; YUV<->RGB, YUVA<->RGBA, YUV->Y, plane shuffles
   {
     // we have only one clip, plane shuffle is valid if target has less plane that defined in source
     PVideoFrame src = clips[0]->GetFrame(n, env);
     noteChromaLocation(0, src); // clip index 0: source clip
 
-    int planes_y[4]  = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
-    int planes_r[4]  = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
+    int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+    int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
     int planes_ya[2] = { PLANAR_Y, PLANAR_A };
-    int *planes = vi_src.IsYA() ? planes_ya : (vi_src.IsYUV() || vi_src.IsYUVA()) ? planes_y : planes_r;
+    int* planes = vi_src.IsYA() ? planes_ya : (vi_src.IsYUV() || vi_src.IsYUVA()) ? planes_y : planes_r;
 
     int Offsets[4] = {};
     int Pitches[4] = {}, NewPitches[4] = {};
@@ -1075,6 +1098,12 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
       //  3010       2010        1010       10      new offsets inside
     }
 
+    // planes #1/#2 (U/V or B/R) share one pitch, alpha gets the Y pitch: if the chosen source planes do not
+    // match that, fall through to the copying paths below.
+    const bool targetHasPlanes12 = vi.NumComponents() >= 3; // U/V or B/R
+    const bool targetHasA = vi.IsYUVA() || vi.IsPlanarRGBA();
+    if ((!targetHasPlanes12 || NewPitches[1] == NewPitches[2]) && (!targetHasA || NewPitches[3] == NewPitches[0]))
+    {
     PVideoFrame dst;
     if (vi.NumComponents() == 4) {
       dst = env->SubframePlanarA(src, RelOffsets[0], NewPitches[0], NewRowSizes[0], src->GetHeight(),
@@ -1098,6 +1127,7 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
     fixProps(dst); // safe to modify props after a subframe
 
     return dst;
+  }
   }
   // end of SubFrame optimization
 
