@@ -138,42 +138,46 @@ void af_vertical_sse2_float(BYTE* line_buf, BYTE* dstp, const int height, const 
 }
 
 
-static AVS_FORCEINLINE __m128i af_blend_sse2(__m128i &upper, __m128i &center, __m128i &lower, __m128i &center_weight, __m128i &outer_weight, __m128i &round_mask) {
-  __m128i outer_tmp = _mm_add_epi16(upper, lower);
-  __m128i center_tmp = _mm_mullo_epi16(center, center_weight);
+// Kernel for all integer paths, see af_outer_weight_q15: center + mulhrs(upper + lower - 2*center, outer_weight_15)
 
-  outer_tmp = _mm_mullo_epi16(outer_tmp, outer_weight);
+// 8 bit, 16 bit lanes.
 
-  __m128i result = _mm_adds_epi16(center_tmp, outer_tmp);
-  result = _mm_adds_epi16(result, center_tmp);
-  result = _mm_adds_epi16(result, round_mask);
-  return _mm_srai_epi16(result, 7);
+// SSE2 has no SSSE3 quick pmulhrsw: emulation by madd
+// (d, 1) pairs with (outer_weight_15, 0x4000):
+// d*outer_weight_15 + 1*0x4000 (rounder), >> 15
+static AVS_FORCEINLINE __m128i af_blend_sse2(__m128i &upper, __m128i &center, __m128i &lower, __m128i &weights) {
+  const __m128i one = _mm_set1_epi16(1);
+  const __m128i d = _mm_sub_epi16(_mm_add_epi16(upper, lower), _mm_add_epi16(center, center)); // -510..510
+  const __m128i m_lo = _mm_srai_epi32(_mm_madd_epi16(_mm_unpacklo_epi16(d, one), weights), 15);
+  const __m128i m_hi = _mm_srai_epi32(_mm_madd_epi16(_mm_unpackhi_epi16(d, one), weights), 15);
+  return _mm_add_epi16(center, _mm_packs_epi32(m_lo, m_hi));
 }
 
-static AVS_FORCEINLINE __m128i af_blend_uint16_t_sse2(__m128i &upper, __m128i &center, __m128i &lower, __m128i &center_weight, __m128i &outer_weight, __m128i &round_mask) {
-  __m128i outer_tmp = _mm_add_epi32(upper, lower);
-  __m128i center_tmp = _MM_MULLO_EPI32(center, center_weight); // sse2: mullo simulation
-  outer_tmp = _MM_MULLO_EPI32(outer_tmp, outer_weight);
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("ssse3")))
+#endif
+static AVS_FORCEINLINE __m128i af_blend_ssse3(__m128i &upper, __m128i &center, __m128i &lower, __m128i &outer_weight_15) {
+  const __m128i d = _mm_sub_epi16(_mm_add_epi16(upper, lower), _mm_add_epi16(center, center)); // -510..510
+  return _mm_add_epi16(center, _mm_mulhrs_epi16(d, outer_weight_15));
+}
 
-  __m128i result = _mm_add_epi32(center_tmp, outer_tmp);
-  result = _mm_add_epi32(result, center_tmp);
-  result = _mm_add_epi32(result, round_mask);
-  return _mm_srai_epi32(result, 7);
+static AVS_FORCEINLINE __m128i af_blend_uint16_t_sse2(__m128i &upper, __m128i &center, __m128i &lower, __m128i &outer_weight_15)
+{
+  // 10-16 bit, 32 bit lanes: center + ((upper + lower - 2*center) * outer_weight_15 + 0x4000) >> 15
+  const __m128i d = _mm_sub_epi32(_mm_add_epi32(upper, lower), _mm_add_epi32(center, center));
+  const __m128i m = _mm_srai_epi32(_mm_add_epi32(_MM_MULLO_EPI32(d, outer_weight_15), _mm_set1_epi32(0x4000)), 15); // 0x4000: rounder
+  return _mm_add_epi32(center, m);
 }
 
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-static AVS_FORCEINLINE __m128i af_blend_uint16_t_sse41(__m128i &upper, __m128i &center, __m128i &lower, __m128i &center_weight, __m128i &outer_weight, __m128i &round_mask)
+static AVS_FORCEINLINE __m128i af_blend_uint16_t_sse41(__m128i &upper, __m128i &center, __m128i &lower, __m128i &outer_weight_15)
 {
-  __m128i outer_tmp = _mm_add_epi32(upper, lower);
-  __m128i center_tmp = _mm_mullo_epi32(center, center_weight);
-  outer_tmp = _mm_mullo_epi32(outer_tmp, outer_weight);
-
-  __m128i result = _mm_add_epi32(center_tmp, outer_tmp);
-  result = _mm_add_epi32(result, center_tmp);
-  result = _mm_add_epi32(result, round_mask);
-  return _mm_srai_epi32(result, 7);
+  // 10-16 bit, 32 bit lanes: center + ((upper + lower - 2*center) * outer_weight_15 + 0x4000) >> 15
+  const __m128i d = _mm_sub_epi32(_mm_add_epi32(upper, lower), _mm_add_epi32(center, center));
+  const __m128i m = _mm_srai_epi32(_mm_add_epi32(_mm_mullo_epi32(d, outer_weight_15), _mm_set1_epi32(0x4000)), 15); // 0x4000: rounder
+  return _mm_add_epi32(center, m);
 }
 
 static AVS_FORCEINLINE __m128 af_blend_float_sse2(__m128 &upper, __m128 &center, __m128 &lower, __m128 &center_weight, __m128 &outer_weight) {
@@ -183,7 +187,7 @@ static AVS_FORCEINLINE __m128 af_blend_float_sse2(__m128 &upper, __m128 &center,
 }
 
 
-static AVS_FORCEINLINE __m128i af_unpack_blend_sse2(__m128i &left, __m128i &center, __m128i &right, __m128i &center_weight, __m128i &outer_weight, __m128i &round_mask, __m128i &zero) {
+static AVS_FORCEINLINE __m128i af_unpack_blend_sse2(__m128i &left, __m128i &center, __m128i &right, __m128i &weights, __m128i &zero) {
   __m128i left_lo = _mm_unpacklo_epi8(left, zero);
   __m128i left_hi = _mm_unpackhi_epi8(left, zero);
   __m128i center_lo = _mm_unpacklo_epi8(center, zero);
@@ -191,13 +195,32 @@ static AVS_FORCEINLINE __m128i af_unpack_blend_sse2(__m128i &left, __m128i &cent
   __m128i right_lo = _mm_unpacklo_epi8(right, zero);
   __m128i right_hi = _mm_unpackhi_epi8(right, zero);
 
-  __m128i result_lo = af_blend_sse2(left_lo, center_lo, right_lo, center_weight, outer_weight, round_mask);
-  __m128i result_hi = af_blend_sse2(left_hi, center_hi, right_hi, center_weight, outer_weight, round_mask);
+  __m128i result_lo = af_blend_sse2(left_lo, center_lo, right_lo, weights);
+  __m128i result_hi = af_blend_sse2(left_hi, center_hi, right_hi, weights);
 
   return _mm_packus_epi16(result_lo, result_hi);
 }
 
-static AVS_FORCEINLINE __m128i af_unpack_blend_uint16_t_sse2(__m128i &left, __m128i &center, __m128i &right, __m128i &center_weight, __m128i &outer_weight, __m128i &round_mask, __m128i &zero) {
+
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("ssse3")))
+#endif
+static AVS_FORCEINLINE __m128i af_unpack_blend_ssse3(__m128i &left, __m128i &center, __m128i &right, __m128i &weights, __m128i &zero) {
+  __m128i left_lo = _mm_unpacklo_epi8(left, zero);
+  __m128i left_hi = _mm_unpackhi_epi8(left, zero);
+  __m128i center_lo = _mm_unpacklo_epi8(center, zero);
+  __m128i center_hi = _mm_unpackhi_epi8(center, zero);
+  __m128i right_lo = _mm_unpacklo_epi8(right, zero);
+  __m128i right_hi = _mm_unpackhi_epi8(right, zero);
+
+  __m128i result_lo = af_blend_ssse3(left_lo, center_lo, right_lo, weights);
+  __m128i result_hi = af_blend_ssse3(left_hi, center_hi, right_hi, weights);
+
+  return _mm_packus_epi16(result_lo, result_hi);
+}
+
+
+static AVS_FORCEINLINE __m128i af_unpack_blend_uint16_t_sse2(__m128i &left, __m128i &center, __m128i &right, __m128i &weights, __m128i &zero) {
   __m128i left_lo = _mm_unpacklo_epi16(left, zero);
   __m128i left_hi = _mm_unpackhi_epi16(left, zero);
   __m128i center_lo = _mm_unpacklo_epi16(center, zero);
@@ -205,15 +228,16 @@ static AVS_FORCEINLINE __m128i af_unpack_blend_uint16_t_sse2(__m128i &left, __m1
   __m128i right_lo = _mm_unpacklo_epi16(right, zero);
   __m128i right_hi = _mm_unpackhi_epi16(right, zero);
 
-  __m128i result_lo = af_blend_uint16_t_sse2(left_lo, center_lo, right_lo, center_weight, outer_weight, round_mask);
-  __m128i result_hi = af_blend_uint16_t_sse2(left_hi, center_hi, right_hi, center_weight, outer_weight, round_mask);
+  __m128i result_lo = af_blend_uint16_t_sse2(left_lo, center_lo, right_lo, weights);
+  __m128i result_hi = af_blend_uint16_t_sse2(left_hi, center_hi, right_hi, weights);
   return _MM_PACKUS_EPI32(result_lo, result_hi); // sse4.1 simul
 }
+
 
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-static AVS_FORCEINLINE __m128i af_unpack_blend_uint16_t_sse41(__m128i &left, __m128i &center, __m128i &right, __m128i &center_weight, __m128i &outer_weight, __m128i &round_mask, __m128i &zero)
+static AVS_FORCEINLINE __m128i af_unpack_blend_uint16_t_sse41(__m128i &left, __m128i &center, __m128i &right, __m128i &weights, __m128i &zero)
 {
   __m128i left_lo = _mm_unpacklo_epi16(left, zero);
   __m128i left_hi = _mm_unpackhi_epi16(left, zero);
@@ -222,19 +246,16 @@ static AVS_FORCEINLINE __m128i af_unpack_blend_uint16_t_sse41(__m128i &left, __m
   __m128i right_lo = _mm_unpacklo_epi16(right, zero);
   __m128i right_hi = _mm_unpackhi_epi16(right, zero);
 
-  __m128i result_lo = af_blend_uint16_t_sse41(left_lo, center_lo, right_lo, center_weight, outer_weight, round_mask);
-  __m128i result_hi = af_blend_uint16_t_sse41(left_hi, center_hi, right_hi, center_weight, outer_weight, round_mask);
+  __m128i result_lo = af_blend_uint16_t_sse41(left_lo, center_lo, right_lo, weights);
+  __m128i result_hi = af_blend_uint16_t_sse41(left_hi, center_hi, right_hi, weights);
   return _mm_packus_epi32(result_lo, result_hi);
 }
 
 
 void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount, int bits_per_pixel) {
-  // amount was: half_amount (32768). Full: 65536 (2**16)
-  // now it becomes 2**(16-9)=2**7 scale
+  // amount: half_amount = 32768 * 2^x (x: -Blur or Sharpen parameter); weight with 15 fractional bits, see af_outer_weight_q15
+  __m128i weights = _mm_set1_epi32(af_outer_weight_q15(amount)); // outer_weight_15
   const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
-  __m128i center_weight = _mm_set1_epi32(t);
-  __m128i outer_weight = _mm_set1_epi32(64 - t);
-  __m128i round_mask = _mm_set1_epi32(0x40);
   __m128i zero = _mm_setzero_si128();
 
   for (int y = 0; y < height - 1; ++y) {
@@ -251,8 +272,8 @@ void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch
       __m128i lower_lo = _mm_unpacklo_epi16(lower, zero);
       __m128i lower_hi = _mm_unpackhi_epi16(lower, zero);
 
-      __m128i result_lo = af_blend_uint16_t_sse2(upper_lo, center_lo, lower_lo, center_weight, outer_weight, round_mask);
-      __m128i result_hi = af_blend_uint16_t_sse2(upper_hi, center_hi, lower_hi, center_weight, outer_weight, round_mask);
+      __m128i result_lo = af_blend_uint16_t_sse2(upper_lo, center_lo, lower_lo, weights);
+      __m128i result_hi = af_blend_uint16_t_sse2(upper_hi, center_hi, lower_hi, weights);
 
       __m128i result = _MM_PACKUS_EPI32(result_lo, result_hi); // sse4.1 simul
       result = _MM_MIN_EPU16(result, limit);
@@ -272,8 +293,8 @@ void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch
     __m128i center_lo = _mm_unpacklo_epi16(center, zero);
     __m128i center_hi = _mm_unpackhi_epi16(center, zero);
 
-    __m128i result_lo = af_blend_uint16_t_sse2(upper_lo, center_lo, center_lo, center_weight, outer_weight, round_mask);
-    __m128i result_hi = af_blend_uint16_t_sse2(upper_hi, center_hi, center_hi, center_weight, outer_weight, round_mask);
+    __m128i result_lo = af_blend_uint16_t_sse2(upper_lo, center_lo, center_lo, weights);
+    __m128i result_hi = af_blend_uint16_t_sse2(upper_hi, center_hi, center_hi, weights);
 
     __m128i result = _MM_PACKUS_EPI32(result_lo, result_hi); // sse4.1 simul
     result = _MM_MIN_EPU16(result, limit);
@@ -287,12 +308,9 @@ __attribute__((__target__("sse4.1")))
 #endif
 void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount, int bits_per_pixel)
 {
-  // amount was: half_amount (32768). Full: 65536 (2**16)
-  // now it becomes 2**(16-9)=2**7 scale
+  // amount: half_amount = 32768 * 2^x (x: -Blur or Sharpen parameter); weight with 15 fractional bits, see af_outer_weight_q15
+  __m128i weights = _mm_set1_epi32(af_outer_weight_q15(amount)); // outer_weight_15
   const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
-  __m128i center_weight = _mm_set1_epi32(t);
-  __m128i outer_weight = _mm_set1_epi32(64 - t);
-  __m128i round_mask = _mm_set1_epi32(0x40);
   __m128i zero = _mm_setzero_si128();
 
   for (int y = 0; y < height - 1; ++y) {
@@ -309,8 +327,8 @@ void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitc
       __m128i lower_lo = _mm_unpacklo_epi16(lower, zero);
       __m128i lower_hi = _mm_unpackhi_epi16(lower, zero);
 
-      __m128i result_lo = af_blend_uint16_t_sse41(upper_lo, center_lo, lower_lo, center_weight, outer_weight, round_mask);
-      __m128i result_hi = af_blend_uint16_t_sse41(upper_hi, center_hi, lower_hi, center_weight, outer_weight, round_mask);
+      __m128i result_lo = af_blend_uint16_t_sse41(upper_lo, center_lo, lower_lo, weights);
+      __m128i result_hi = af_blend_uint16_t_sse41(upper_hi, center_hi, lower_hi, weights);
 
       __m128i result = _mm_packus_epi32(result_lo, result_hi);
       result = _mm_min_epu16(result, limit);
@@ -330,8 +348,8 @@ void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitc
     __m128i center_lo = _mm_unpacklo_epi16(center, zero);
     __m128i center_hi = _mm_unpackhi_epi16(center, zero);
 
-    __m128i result_lo = af_blend_uint16_t_sse41(upper_lo, center_lo, center_lo, center_weight, outer_weight, round_mask);
-    __m128i result_hi = af_blend_uint16_t_sse41(upper_hi, center_hi, center_hi, center_weight, outer_weight, round_mask);
+    __m128i result_lo = af_blend_uint16_t_sse41(upper_lo, center_lo, center_lo, weights);
+    __m128i result_hi = af_blend_uint16_t_sse41(upper_hi, center_hi, center_hi, weights);
 
     __m128i result = _mm_packus_epi32(result_lo, result_hi);
     result = _mm_min_epu16(result, limit);
@@ -341,10 +359,8 @@ void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitc
 }
 
 void af_vertical_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount) {
-  short t = (amount + 256) >> 9;
-  __m128i center_weight = _mm_set1_epi16(t);
-  __m128i outer_weight = _mm_set1_epi16(64 - t);
-  __m128i round_mask = _mm_set1_epi16(0x40);
+  const int outer_weight_15 = af_outer_weight_q15(amount);
+  __m128i weights = _mm_set1_epi32((0x4000 << 16) | (outer_weight_15 & 0xFFFF)); // madd pairs (d, 1) . (outer_weight_15, 0x4000), 0x4000: rounder
   __m128i zero = _mm_setzero_si128();
 
   for (int y = 0; y < height-1; ++y) {
@@ -361,8 +377,8 @@ void af_vertical_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int wid
       __m128i lower_lo = _mm_unpacklo_epi8(lower, zero);
       __m128i lower_hi = _mm_unpackhi_epi8(lower, zero);
 
-      __m128i result_lo = af_blend_sse2(upper_lo, center_lo, lower_lo, center_weight, outer_weight, round_mask);
-      __m128i result_hi = af_blend_sse2(upper_hi, center_hi, lower_hi, center_weight, outer_weight, round_mask);
+      __m128i result_lo = af_blend_sse2(upper_lo, center_lo, lower_lo, weights);
+      __m128i result_hi = af_blend_sse2(upper_hi, center_hi, lower_hi, weights);
 
       __m128i result = _mm_packus_epi16(result_lo, result_hi);
 
@@ -381,8 +397,8 @@ void af_vertical_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int wid
     __m128i center_lo = _mm_unpacklo_epi8(center, zero);
     __m128i center_hi = _mm_unpackhi_epi8(center, zero);
 
-    __m128i result_lo = af_blend_sse2(upper_lo, center_lo, center_lo, center_weight, outer_weight, round_mask);
-    __m128i result_hi = af_blend_sse2(upper_hi, center_hi, center_hi, center_weight, outer_weight, round_mask);
+    __m128i result_lo = af_blend_sse2(upper_lo, center_lo, center_lo, weights);
+    __m128i result_hi = af_blend_sse2(upper_hi, center_hi, center_hi, weights);
 
     __m128i result = _mm_packus_epi16(result_lo, result_hi);
 
@@ -390,76 +406,56 @@ void af_vertical_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int wid
   }
 }
 
-#ifdef X86_32
-
-static AVS_FORCEINLINE __m64 af_blend_mmx(__m64 &upper, __m64 &center, __m64 &lower, __m64 &center_weight, __m64 &outer_weight, __m64 &round_mask) {
-  __m64 outer_tmp = _mm_add_pi16(upper, lower);
-  __m64 center_tmp = _mm_mullo_pi16(center, center_weight);
-
-  outer_tmp = _mm_mullo_pi16(outer_tmp, outer_weight);
-
-  __m64 result = _mm_adds_pi16(center_tmp, outer_tmp);
-  result = _mm_adds_pi16(result, center_tmp);
-  result = _mm_adds_pi16(result, round_mask);
-  return _mm_srai_pi16(result, 7);
-}
-
-static AVS_FORCEINLINE __m64 af_unpack_blend_mmx(__m64 &left, __m64 &center, __m64 &right, __m64 &center_weight, __m64 &outer_weight, __m64 &round_mask, __m64 &zero) {
-  __m64 left_lo = _mm_unpacklo_pi8(left, zero);
-  __m64 left_hi = _mm_unpackhi_pi8(left, zero);
-  __m64 center_lo = _mm_unpacklo_pi8(center, zero);
-  __m64 center_hi = _mm_unpackhi_pi8(center, zero);
-  __m64 right_lo = _mm_unpacklo_pi8(right, zero);
-  __m64 right_hi = _mm_unpackhi_pi8(right, zero);
-
-  __m64 result_lo = af_blend_mmx(left_lo, center_lo, right_lo, center_weight, outer_weight, round_mask);
-  __m64 result_hi = af_blend_mmx(left_hi, center_hi, right_hi, center_weight, outer_weight, round_mask);
-
-  return _mm_packs_pu16(result_lo, result_hi);
-}
-
-void af_vertical_mmx(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount) {
-  short t = (amount + 256) >> 9;
-  __m64 center_weight = _mm_set1_pi16(t);
-  __m64 outer_weight = _mm_set1_pi16(64 - t);
-  __m64 round_mask = _mm_set1_pi16(0x40);
-  __m64 zero = _mm_setzero_si64();
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("ssse3")))
+#endif
+void af_vertical_ssse3(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount) {
+  __m128i weights = _mm_set1_epi16((short)af_outer_weight_q15(amount)); // outer_weight_15
+  __m128i zero = _mm_setzero_si128();
 
   for (int y = 0; y < height-1; ++y) {
-    for (int x = 0; x < width; x+= 8) {
-      __m64 upper = *reinterpret_cast<const __m64*>(line_buf+x);
-      __m64 center = *reinterpret_cast<const __m64*>(dstp+x);
-      __m64 lower = *reinterpret_cast<const __m64*>(dstp+pitch+x);
-      *reinterpret_cast<__m64*>(line_buf+x) = center;
+    for (int x = 0; x < width; x+= 16) {
+      __m128i upper = _mm_load_si128(reinterpret_cast<const __m128i*>(line_buf+x));
+      __m128i center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp+x));
+      __m128i lower = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp+pitch+x));
+      _mm_store_si128(reinterpret_cast<__m128i*>(line_buf+x), center);
 
-      __m64 result = af_unpack_blend_mmx(upper, center, lower, center_weight, outer_weight, round_mask, zero);
+      __m128i upper_lo = _mm_unpacklo_epi8(upper, zero);
+      __m128i upper_hi = _mm_unpackhi_epi8(upper, zero);
+      __m128i center_lo = _mm_unpacklo_epi8(center, zero);
+      __m128i center_hi = _mm_unpackhi_epi8(center, zero);
+      __m128i lower_lo = _mm_unpacklo_epi8(lower, zero);
+      __m128i lower_hi = _mm_unpackhi_epi8(lower, zero);
 
-      *reinterpret_cast<__m64*>(dstp+x) = result;
+      __m128i result_lo = af_blend_ssse3(upper_lo, center_lo, lower_lo, weights);
+      __m128i result_hi = af_blend_ssse3(upper_hi, center_hi, lower_hi, weights);
+
+      __m128i result = _mm_packus_epi16(result_lo, result_hi);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp+x), result);
     }
     dstp += pitch;
   }
 
   //last line
-  for (int x = 0; x < width; x+= 8) {
-    __m64 upper = *reinterpret_cast<const __m64*>(line_buf+x);
-    __m64 center = *reinterpret_cast<const __m64*>(dstp+x);
+  for (int x = 0; x < width; x+= 16) {
+    __m128i upper = _mm_load_si128(reinterpret_cast<const __m128i*>(line_buf+x));
+    __m128i center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp+x));
 
-    __m64 upper_lo = _mm_unpacklo_pi8(upper, zero);
-    __m64 upper_hi = _mm_unpackhi_pi8(upper, zero);
-    __m64 center_lo = _mm_unpacklo_pi8(center, zero);
-    __m64 center_hi = _mm_unpackhi_pi8(center, zero);
+    __m128i upper_lo = _mm_unpacklo_epi8(upper, zero);
+    __m128i upper_hi = _mm_unpackhi_epi8(upper, zero);
+    __m128i center_lo = _mm_unpacklo_epi8(center, zero);
+    __m128i center_hi = _mm_unpackhi_epi8(center, zero);
 
-    __m64 result_lo = af_blend_mmx(upper_lo, center_lo, center_lo, center_weight, outer_weight, round_mask);
-    __m64 result_hi = af_blend_mmx(upper_hi, center_hi, center_hi, center_weight, outer_weight, round_mask);
+    __m128i result_lo = af_blend_ssse3(upper_lo, center_lo, center_lo, weights);
+    __m128i result_hi = af_blend_ssse3(upper_hi, center_hi, center_hi, weights);
 
-    __m64 result = _mm_packs_pu16(result_lo, result_hi);
+    __m128i result = _mm_packus_epi16(result_lo, result_hi);
 
-    *reinterpret_cast<__m64*>(dstp+x) = result;
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp+x), result);
   }
-  _mm_empty();
 }
 
-#endif
 
 
 // --------------------------------------
@@ -469,13 +465,8 @@ void af_vertical_mmx(BYTE* line_buf, BYTE* dstp, int height, int pitch, int widt
 void af_horizontal_rgb32_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount) {
   size_t width_bytes = width * 4;
   size_t loop_limit = width_bytes - 16;
-  //int center_weight_c = int(amount*2);
-  //int outer_weight_c = int(32768-amount);
-
-  short t = short((amount + 256) >> 9);
-  __m128i center_weight = _mm_set1_epi16(t);
-  __m128i outer_weight = _mm_set1_epi16(64 - t);
-  __m128i round_mask = _mm_set1_epi16(0x40);
+  const int outer_weight_15 = af_outer_weight_q15(amount);
+  __m128i weights = _mm_set1_epi32((0x4000 << 16) | (outer_weight_15 & 0xFFFF)); // madd pairs (d, 1) . (outer_weight_15, 0x4000), 0x4000: rounder
   __m128i zero = _mm_setzero_si128();
   __m128i left_mask = _mm_set_epi32(0, 0, 0, 0xFFFFFFFF);
   __m128i right_mask = _mm_set_epi32(0xFFFFFFFF, 0, 0, 0);
@@ -487,7 +478,7 @@ void af_horizontal_rgb32_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, si
     right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + 4));
     left = _mm_or_si128(_mm_and_si128(center, left_mask), _mm_slli_si128(center, 4));
 
-    result = af_unpack_blend_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = af_unpack_blend_sse2(left, center, right, weights, zero);
 
     _mm_store_si128(reinterpret_cast< __m128i*>(dstp), result);
 
@@ -496,7 +487,7 @@ void af_horizontal_rgb32_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, si
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(srcp + x));
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + x + 4));
 
-      result = af_unpack_blend_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_sse2(left, center, right, weights, zero);
 
       _mm_store_si128(reinterpret_cast< __m128i*>(dstp+x), result);
     }
@@ -505,7 +496,7 @@ void af_horizontal_rgb32_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, si
     center = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + loop_limit));
     right = _mm_or_si128(_mm_and_si128(center, right_mask), _mm_srli_si128(center, 4));
 
-    result = af_unpack_blend_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = af_unpack_blend_sse2(left, center, right, weights, zero);
 
     _mm_storeu_si128(reinterpret_cast< __m128i*>(dstp + loop_limit), result);
 
@@ -520,10 +511,7 @@ void af_horizontal_rgb64_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, si
   size_t width_bytes = width * 4 * sizeof(uint16_t);
   size_t loop_limit = width_bytes - 16;
 
-  short t = short((amount + 256) >> 9);
-  __m128i center_weight = _mm_set1_epi32(t);
-  __m128i outer_weight = _mm_set1_epi32(64 - t);
-  __m128i round_mask = _mm_set1_epi32(0x40);
+  __m128i weights = _mm_set1_epi32(af_outer_weight_q15(amount)); // outer_weight_15
   __m128i zero = _mm_setzero_si128();
   __m128i left_mask = _mm_set_epi32(0, 0, 0xFFFFFFFF, 0xFFFFFFFF);
   __m128i right_mask = _mm_set_epi32(0xFFFFFFFF, 0xFFFFFFFF, 0, 0);
@@ -535,7 +523,7 @@ void af_horizontal_rgb64_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, si
     right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + 4*sizeof(uint16_t))); // move right by one 4*uint16_t pixelblock
     left = _mm_or_si128(_mm_and_si128(center, left_mask), _mm_slli_si128(center, 8));
 
-    result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = af_unpack_blend_uint16_t_sse2(left, center, right, weights, zero);
 
     _mm_store_si128(reinterpret_cast< __m128i*>(dstp), result);
 
@@ -544,7 +532,7 @@ void af_horizontal_rgb64_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, si
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(srcp + x));
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + x + 4 * sizeof(uint16_t)));
 
-      result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_uint16_t_sse2(left, center, right, weights, zero);
 
       _mm_store_si128(reinterpret_cast< __m128i*>(dstp + x), result);
     }
@@ -553,7 +541,7 @@ void af_horizontal_rgb64_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, si
     center = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + loop_limit));
     right = _mm_or_si128(_mm_and_si128(center, right_mask), _mm_srli_si128(center, 4 * sizeof(uint16_t)));
 
-    result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = af_unpack_blend_uint16_t_sse2(left, center, right, weights, zero);
 
     _mm_storeu_si128(reinterpret_cast< __m128i*>(dstp + loop_limit), result);
 
@@ -572,10 +560,7 @@ void af_horizontal_rgb64_sse41(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, s
   size_t width_bytes = width * 4 * sizeof(uint16_t);
   size_t loop_limit = width_bytes - 16;
 
-  short t = short((amount + 256) >> 9);
-  __m128i center_weight = _mm_set1_epi32(t);
-  __m128i outer_weight = _mm_set1_epi32(64 - t);
-  __m128i round_mask = _mm_set1_epi32(0x40);
+  __m128i weights = _mm_set1_epi32(af_outer_weight_q15(amount)); // outer_weight_15
   __m128i zero = _mm_setzero_si128();
   __m128i left_mask = _mm_set_epi32(0, 0, 0xFFFFFFFF, 0xFFFFFFFF);
   __m128i right_mask = _mm_set_epi32(0xFFFFFFFF, 0xFFFFFFFF, 0, 0);
@@ -587,7 +572,7 @@ void af_horizontal_rgb64_sse41(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, s
     right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + 4 * sizeof(uint16_t))); // move right by one 4*uint16_t pixelblock
     left = _mm_or_si128(_mm_and_si128(center, left_mask), _mm_slli_si128(center, 8));
 
-    result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = af_unpack_blend_uint16_t_sse41(left, center, right, weights, zero);
 
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp), result);
 
@@ -596,7 +581,7 @@ void af_horizontal_rgb64_sse41(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, s
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(srcp + x));
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + x + 4 * sizeof(uint16_t)));
 
-      result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_uint16_t_sse41(left, center, right, weights, zero);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x), result);
     }
@@ -605,7 +590,7 @@ void af_horizontal_rgb64_sse41(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, s
     center = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + loop_limit));
     right = _mm_or_si128(_mm_and_si128(center, right_mask), _mm_srli_si128(center, 4 * sizeof(uint16_t)));
 
-    result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = af_unpack_blend_uint16_t_sse41(left, center, right, weights, zero);
 
     _mm_storeu_si128(reinterpret_cast<__m128i*>(dstp + loop_limit), result);
 
@@ -615,63 +600,11 @@ void af_horizontal_rgb64_sse41(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, s
   }
 }
 
-#ifdef X86_32
-
-void af_horizontal_rgb32_mmx(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount) {
-  size_t width_bytes = width * 4;
-  size_t loop_limit = width_bytes - 8;
-  int center_weight_c = amount*2;
-  int outer_weight_c = 32768-amount;
-
-  short t = short((amount + 256) >> 9);
-  __m64 center_weight = _mm_set1_pi16(t);
-  __m64 outer_weight = _mm_set1_pi16(64 - t);
-  __m64 round_mask = _mm_set1_pi16(0x40);
-  __m64 zero = _mm_setzero_si64();
-  __m64 left_mask = _mm_set_pi32(0, 0xFFFFFFFF);
-  __m64 right_mask = _mm_set_pi32(0xFFFFFFFF, 0);
-
-  __m64 center, right, left, result;
-
-  for (size_t y = 0; y < height; ++y) {
-    center = *reinterpret_cast<const __m64*>(srcp);
-    right = *reinterpret_cast<const __m64*>(srcp + 4);
-    left = _mm_or_si64(_mm_and_si64(center, left_mask), _mm_slli_si64(center, 32));
-
-    result = af_unpack_blend_mmx(left, center, right, center_weight, outer_weight, round_mask, zero);
-
-    *reinterpret_cast< __m64*>(dstp) = result;
-
-    for (size_t x = 8; x < loop_limit; x+=8) {
-      left = *reinterpret_cast<const __m64*>(srcp + x - 4);
-      center = *reinterpret_cast<const __m64*>(srcp + x);
-      right = *reinterpret_cast<const __m64*>(srcp + x + 4);
-
-      result = af_unpack_blend_mmx(left, center, right, center_weight, outer_weight, round_mask, zero);
-
-      *reinterpret_cast< __m64*>(dstp+x) = result;
-    }
-
-    left = *reinterpret_cast<const __m64*>(srcp + loop_limit - 4);
-    center = *reinterpret_cast<const __m64*>(srcp + loop_limit);
-    right = _mm_or_si64(_mm_and_si64(center, right_mask), _mm_srli_si64(center, 32));
-
-    result = af_unpack_blend_mmx(left, center, right, center_weight, outer_weight, round_mask, zero);
-
-    *reinterpret_cast< __m64*>(dstp + loop_limit) = result;
-
-    dstp += dst_pitch;
-    srcp += src_pitch;
-  }
-  _mm_empty();
-}
-
-#endif
 
 
 
 static AVS_FORCEINLINE __m128i af_blend_yuy2_sse2(__m128i &left, __m128i &center, __m128i &right, __m128i &luma_mask,
-                                             __m128i &center_weight, __m128i &outer_weight, __m128i &round_mask) {
+                                             __m128i &weights) {
   __m128i left_luma = _mm_and_si128(left, luma_mask); //0 Y5 0 Y4 0 Y3 0 Y2 0 Y1 0 Y0 0 Y-1 0 Y-2
   __m128i center_luma = _mm_and_si128(center, luma_mask); //0 Y7 0 Y6 0 Y5 0 Y4 0 Y3 0 Y2 0 Y1 0 Y0
   __m128i right_luma = _mm_and_si128(right, luma_mask); //0 Y9 0 Y8 0 Y7 0 Y6 0 Y5 0 Y4 0 Y3 0 Y2
@@ -686,13 +619,13 @@ static AVS_FORCEINLINE __m128i af_blend_yuy2_sse2(__m128i &left, __m128i &center
     _mm_slli_si128(right_luma, 2)  //0 Y8 0 Y7 0 Y6 0 Y5 0 Y4 0 Y3 0 Y2 0 0
     ); // Y8..Y1
 
-  __m128i result_luma = af_blend_sse2(left_luma, center_luma, right_luma, center_weight, outer_weight, round_mask);
+  __m128i result_luma = af_blend_sse2(left_luma, center_luma, right_luma, weights);
 
   __m128i left_chroma = _mm_srli_epi16(left, 8); //0 V 0 U 0 V 0 U
   __m128i center_chroma = _mm_srli_epi16(center, 8); //0 V 0 U 0 V 0 U
   __m128i right_chroma = _mm_srli_epi16(right, 8); //0 V 0 U 0 V 0 U
 
-  __m128i result_chroma = af_blend_sse2(left_chroma, center_chroma, right_chroma, center_weight, outer_weight, round_mask);
+  __m128i result_chroma = af_blend_sse2(left_chroma, center_chroma, right_chroma, weights);
 
   __m128i lo_lu_hi_co = _mm_packus_epi16(result_luma, result_chroma); // U3 V3 U2 V2 U1 V1 U0 V0 Y7 Y6 Y5 Y4 Y3 Y2 Y1 Y0
   __m128i result = _mm_unpacklo_epi8(lo_lu_hi_co, _mm_srli_si128(lo_lu_hi_co, 8)); // U3 Y7 V3 Y6 U2 Y5 V2 Y4 U1 Y3 V1 Y2 U0 Y1 V0 Y0
@@ -704,10 +637,8 @@ void af_horizontal_yuy2_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, siz
   size_t width_bytes = width * 2;
   size_t loop_limit = width_bytes - 16;
 
-  short t = short((amount + 256) >> 9);
-  __m128i center_weight = _mm_set1_epi16(t);
-  __m128i outer_weight = _mm_set1_epi16(64 - t);
-  __m128i round_mask = _mm_set1_epi16(0x40);
+  const int outer_weight_15 = af_outer_weight_q15(amount);
+  __m128i weights = _mm_set1_epi32((0x4000 << 16) | (outer_weight_15 & 0xFFFF)); // madd pairs (d, 1) . (outer_weight_15, 0x4000), 0x4000: rounder
   __m128i left_mask = _mm_set_epi32(0, 0, 0, 0xFFFFFFFF);
   __m128i right_mask = _mm_set_epi32(0xFFFFFFFF, 0, 0, 0);
   __m128i left_mask_small = _mm_set_epi16(0, 0, 0, 0, 0, 0, 0x00FF, 0);
@@ -730,7 +661,7 @@ void af_horizontal_yuy2_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, siz
       _mm_and_si128(_mm_slli_si128(center, 2), left_mask_small)
       );//V0 Y1 U0 Y0 V0 Y0 U0 Y0
 
-    result = af_blend_yuy2_sse2(left, center, right, luma_mask, center_weight, outer_weight, round_mask);
+    result = af_blend_yuy2_sse2(left, center, right, luma_mask, weights);
 
     _mm_store_si128(reinterpret_cast< __m128i*>(dstp), result);
 
@@ -739,7 +670,7 @@ void af_horizontal_yuy2_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, siz
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(srcp + x)); //V1 Y3 U1 Y2 V0 Y1 U0 Y0
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(srcp + x + 4));//V2 Y5 U2 Y4 V1 Y3 U1 Y2
 
-      result = af_blend_yuy2_sse2(left, center, right, luma_mask, center_weight, outer_weight, round_mask);
+      result = af_blend_yuy2_sse2(left, center, right, luma_mask, weights);
 
       _mm_store_si128(reinterpret_cast< __m128i*>(dstp+x), result);
     }
@@ -758,7 +689,7 @@ void af_horizontal_yuy2_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, siz
       _mm_and_si128(_mm_srli_si128(center, 2), right_mask_small)
       );//V1 Y3 U1 Y3 V1 Y3 U1 Y2
 
-    result = af_blend_yuy2_sse2(left, center, right, luma_mask, center_weight, outer_weight, round_mask);
+    result = af_blend_yuy2_sse2(left, center, right, luma_mask, weights);
 
     _mm_storeu_si128(reinterpret_cast< __m128i*>(dstp + loop_limit), result);
 
@@ -769,122 +700,16 @@ void af_horizontal_yuy2_sse2(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, siz
 
 
 
-#ifdef X86_32
-// -------------------------------------
-// Blur/Sharpen Horizontal YUY2 MMX Code
-// -------------------------------------
-//
-static AVS_FORCEINLINE __m64 af_blend_yuy2_mmx(__m64 &left, __m64 &center, __m64 &right, __m64 &luma_mask,
-                           __m64 &center_weight, __m64 &outer_weight, __m64 &round_mask) {
-  __m64 left_luma = _mm_and_si64(left, luma_mask); //0 Y1 0 Y0 0 Y-1 0 Y-2
-  __m64 center_luma = _mm_and_si64(center, luma_mask); //0 Y3 0 Y2 0 Y1 0 Y0
-  __m64 right_luma = _mm_and_si64(right, luma_mask); //0 Y5 0 Y4 0 Y3 0 Y2
-
-  left_luma = _mm_or_si64(
-    _mm_srli_si64(left_luma, 16), // 0 0 0 Y1 0 Y0 0 Y-1
-    _mm_slli_si64(right_luma, 48) // 0 Y2 0 0 0 0 0 0
-    );
-
-  right_luma = _mm_or_si64(
-    _mm_srli_si64(center_luma, 16),//0 0 0 Y3 0 Y2 0 Y1
-    _mm_slli_si64(right_luma, 16)//0 Y4 0 Y3 0 Y2 0 0
-    );
-
-  __m64 result_luma = af_blend_mmx(left_luma, center_luma, right_luma, center_weight, outer_weight, round_mask);
-
-  __m64 left_chroma = _mm_srli_pi16(left, 8); //0 V 0 U 0 V 0 U
-  __m64 center_chroma = _mm_srli_pi16(center, 8); //0 V 0 U 0 V 0 U
-  __m64 right_chroma = _mm_srli_pi16(right, 8); //0 V 0 U 0 V 0 U
-
-  __m64 result_chroma = af_blend_mmx(left_chroma, center_chroma, right_chroma, center_weight, outer_weight, round_mask);
-
-  __m64 lo_lu_hi_co = _m_packuswb(result_luma, result_chroma); // U1 V1 U0 V0 Y3 Y2 Y1 Y0
-  __m64 result = _mm_unpacklo_pi8(lo_lu_hi_co, _mm_srli_si64(lo_lu_hi_co, 32)); // U1 Y3 V1 Y2 U0 Y1 V0 Y0
-  return result;
-}
-
-
-void af_horizontal_yuy2_mmx(BYTE* dstp, const BYTE* srcp, size_t dst_pitch, size_t src_pitch, size_t height, size_t width, size_t amount) {
-  size_t width_bytes = width * 2;
-  size_t loop_limit = width_bytes - 8;
-
-  short t = short((amount + 256) >> 9);
-  __m64 center_weight = _mm_set1_pi16(t);
-  __m64 outer_weight = _mm_set1_pi16(64 - t);
-  __m64 round_mask = _mm_set1_pi16(0x40);
-  __m64 left_mask = _mm_set_pi32(0, 0xFFFFFFFF);
-  __m64 right_mask = _mm_set_pi32(0xFFFFFFFF, 0);
-  __m64 left_mask_small = _mm_set_pi16(0, 0, 0x00FF, 0);
-  __m64 right_mask_small = _mm_set_pi16(0, 0x00FF, 0, 0);
-  __m64 luma_mask = _mm_set1_pi16(0xFF);
-
-  __m64 center, right, left, result;
-
-  for (size_t y = 0; y < height; ++y) {
-    center = *reinterpret_cast<const __m64*>(srcp);//V1 Y3 U1 Y2 V0 Y1 U0 Y0
-    right = *reinterpret_cast<const __m64*>(srcp + 4);//V2 Y5 U2 Y4 V1 Y3 U1 Y2
-
-    //todo: now this is dumb
-    left = _mm_or_si64(
-      _mm_and_si64(center, left_mask),
-      _mm_slli_si64(center, 32)
-      );//V0 Y1 U0 Y0 V0 Y1 U0 Y0
-    left = _mm_or_si64(
-      _mm_andnot_si64(left_mask_small, left),
-      _mm_and_si64(_mm_slli_si64(center, 16), left_mask_small)
-      );//V0 Y1 U0 Y0 V0 Y0 U0 Y0
-
-    result = af_blend_yuy2_mmx(left, center, right, luma_mask, center_weight, outer_weight, round_mask);
-
-    *reinterpret_cast< __m64*>(dstp) = result;
-
-    for (size_t x = 8; x < loop_limit; x+=8) {
-      left = *reinterpret_cast<const __m64*>(srcp + x - 4);//V0 Y1 U0 Y0 V-1 Y-1 U-1 Y-2
-      center = *reinterpret_cast<const __m64*>(srcp + x); //V1 Y3 U1 Y2 V0 Y1 U0 Y0
-      right = *reinterpret_cast<const __m64*>(srcp + x + 4);//V2 Y5 U2 Y4 V1 Y3 U1 Y2
-
-      __m64 result = af_blend_yuy2_mmx(left, center, right, luma_mask, center_weight, outer_weight, round_mask);
-
-      *reinterpret_cast< __m64*>(dstp+x) = result;
-    }
-
-    left = *reinterpret_cast<const __m64*>(srcp + loop_limit - 4);
-    center = *reinterpret_cast<const __m64*>(srcp + loop_limit);  //V1 Y3 U1 Y2 V0 Y1 U0 Y0
-
-    //todo: now this is dumb2
-    right = _mm_or_si64(
-      _mm_and_si64(center, right_mask),
-      _mm_srli_si64(center, 32)
-      );//V1 Y3 U1 Y2 V1 Y3 U1 Y2
-    right = _mm_or_si64(
-      _mm_andnot_si64(right_mask_small, right),
-      _mm_and_si64(_mm_srli_si64(center, 16), right_mask_small)
-      );//V1 Y3 U1 Y3 V1 Y3 U1 Y2
-
-    result = af_blend_yuy2_mmx(left, center, right, luma_mask, center_weight, outer_weight, round_mask);
-
-    *reinterpret_cast< __m64*>(dstp + loop_limit) = result;
-
-    dstp += dst_pitch;
-    srcp += src_pitch;
-  }
-  _mm_empty();
-}
-
-
-#endif
 
 
 void af_horizontal_planar_sse2(BYTE* dstp, size_t height, size_t pitch, size_t width, size_t amount) {
   size_t mod16_width = (width / 16) * 16;
   size_t sse_loop_limit = width == mod16_width ? mod16_width - 16 : mod16_width;
-  int center_weight_c = int(amount*2);
-  int outer_weight_c = int(32768-amount);
+  int center_weight_c = af_center_weight_int(amount); // C tail: same arithmetic as SIMD, see af_outer_weight_q15
+  int outer_weight_c = af_outer_weight_int(amount);
 
-  short t = short((amount + 256) >> 9);
-  __m128i center_weight = _mm_set1_epi16(t);
-  __m128i outer_weight = _mm_set1_epi16(64 - t);
-  __m128i round_mask = _mm_set1_epi16(0x40);
+  const int outer_weight_15 = af_outer_weight_q15(amount);
+  __m128i weights = _mm_set1_epi32((0x4000 << 16) | (outer_weight_15 & 0xFFFF)); // madd pairs (d, 1) . (outer_weight_15, 0x4000), 0x4000: rounder
   __m128i zero = _mm_setzero_si128();
   __m128i left_mask = _mm_set_epi32(0, 0, 0, 0xFF);
   __m128i right_mask = _mm_set_epi8((char)0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
@@ -897,7 +722,7 @@ void af_horizontal_planar_sse2(BYTE* dstp, size_t height, size_t pitch, size_t w
     __m128i right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+1));
     left = _mm_or_si128(_mm_and_si128(center, left_mask),  _mm_slli_si128(center, 1));
 
-    __m128i result = af_unpack_blend_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    __m128i result = af_unpack_blend_sse2(left, center, right, weights, zero);
     left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+15));
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp), result);
 
@@ -906,7 +731,7 @@ void af_horizontal_planar_sse2(BYTE* dstp, size_t height, size_t pitch, size_t w
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp+x));
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+x+1));
 
-      result = af_unpack_blend_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_sse2(left, center, right, weights, zero);
 
       left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+x+15));
 
@@ -914,11 +739,67 @@ void af_horizontal_planar_sse2(BYTE* dstp, size_t height, size_t pitch, size_t w
     }
 
     //right border
-    if(mod16_width == width) { //width is mod8, process with mmx
+    if(mod16_width == width) { //width is mod16, process with sse2
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp+mod16_width-16));
       right = _mm_or_si128(_mm_and_si128(center, right_mask),  _mm_srli_si128(center, 1));
 
-      result = af_unpack_blend_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_sse2(left, center, right, weights, zero);
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp+mod16_width-16), result);
+    } else { //some stuff left
+      BYTE l = _mm_cvtsi128_si32(left) & 0xFF;
+      af_horizontal_planar_process_line_c<uint8_t>(l, dstp+mod16_width, width-mod16_width, center_weight_c, outer_weight_c);
+
+    }
+
+    dstp += pitch;
+  }
+}
+
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("ssse3")))
+#endif
+void af_horizontal_planar_ssse3(BYTE* dstp, size_t height, size_t pitch, size_t width, size_t amount) {
+  size_t mod16_width = (width / 16) * 16;
+  size_t sse_loop_limit = width == mod16_width ? mod16_width - 16 : mod16_width;
+  int center_weight_c = af_center_weight_int(amount); // C tail: same arithmetic as SIMD, see af_outer_weight_q15
+  int outer_weight_c = af_outer_weight_int(amount);
+
+  __m128i weights = _mm_set1_epi16((short)af_outer_weight_q15(amount)); // outer_weight_15
+  __m128i zero = _mm_setzero_si128();
+  __m128i left_mask = _mm_set_epi32(0, 0, 0, 0xFF);
+  __m128i right_mask = _mm_set_epi8((char)0xFF, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0);
+
+  __m128i left;
+
+  for (size_t y = 0; y < height; ++y) {
+    //left border
+    __m128i center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp));
+    __m128i right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+1));
+    left = _mm_or_si128(_mm_and_si128(center, left_mask),  _mm_slli_si128(center, 1));
+
+    __m128i result = af_unpack_blend_ssse3(left, center, right, weights, zero);
+    left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+15));
+    _mm_store_si128(reinterpret_cast<__m128i*>(dstp), result);
+
+    //main processing loop
+    for (size_t x = 16; x < sse_loop_limit; x+= 16) {
+      center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp+x));
+      right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+x+1));
+
+      result = af_unpack_blend_ssse3(left, center, right, weights, zero);
+
+      left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp+x+15));
+
+      _mm_store_si128(reinterpret_cast<__m128i*>(dstp+x), result);
+    }
+
+    //right border
+    if(mod16_width == width) { //width is mod16, process with sse2
+      center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp+mod16_width-16));
+      right = _mm_or_si128(_mm_and_si128(center, right_mask),  _mm_srli_si128(center, 1));
+
+      result = af_unpack_blend_ssse3(left, center, right, weights, zero);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp+mod16_width-16), result);
     } else { //some stuff left
@@ -934,13 +815,11 @@ void af_horizontal_planar_sse2(BYTE* dstp, size_t height, size_t pitch, size_t w
 void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch, size_t row_size, size_t amount, int bits_per_pixel) {
   size_t mod16_width = (row_size / 16) * 16;
   size_t sse_loop_limit = row_size == mod16_width ? mod16_width - 16 : mod16_width;
-  int center_weight_c = int(amount * 2);
-  int outer_weight_c = int(32768 - amount);
+  int center_weight_c = af_center_weight_int(amount); // C tail: same arithmetic as SIMD, see af_outer_weight_q15
+  int outer_weight_c = af_outer_weight_int(amount);
 
-  int t = int((amount + 256) >> 9);
+  __m128i weights = _mm_set1_epi32(af_outer_weight_q15(amount)); // outer_weight_15
   const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
-  __m128i outer_weight = _mm_set1_epi32(64 - t);
-  __m128i round_mask = _mm_set1_epi32(0x40);
   __m128i zero = _mm_setzero_si128();
   __m128i left_mask = _mm_set_epi16(0, 0, 0, 0, 0, 0, 0, (short)0xFFFF); // 0, 0, 0, 0, 0, 0, 0, FFFF
   __m128i right_mask = _mm_set_epi16((short)0xFFFF, 0, 0, 0, 0, 0, 0, 0);
@@ -953,7 +832,7 @@ void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch,
     __m128i right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + 2));
     left = _mm_or_si128(_mm_and_si128(center, left_mask), _mm_slli_si128(center, 2));
 
-    __m128i result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    __m128i result = af_unpack_blend_uint16_t_sse2(left, center, right, weights, zero);
     result = _MM_MIN_EPU16(result, limit);
     left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + (16 - 2)));
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp), result);
@@ -963,7 +842,7 @@ void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch,
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp + x));
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + 2));
 
-      result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_uint16_t_sse2(left, center, right, weights, zero);
       result = _MM_MIN_EPU16(result, limit);
 
       left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + (16 - 2)));
@@ -976,7 +855,7 @@ void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch,
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp + mod16_width - 16));
       right = _mm_or_si128(_mm_and_si128(center, right_mask), _mm_srli_si128(center, 2));
 
-      result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_uint16_t_sse2(left, center, right, weights, zero);
       result = _MM_MIN_EPU16(result, limit);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp + mod16_width - 16), result);
@@ -997,13 +876,11 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
 {
   size_t mod16_width = (row_size / 16) * 16;
   size_t sse_loop_limit = row_size == mod16_width ? mod16_width - 16 : mod16_width;
-  int center_weight_c = int(amount * 2);
-  int outer_weight_c = int(32768 - amount);
+  int center_weight_c = af_center_weight_int(amount); // C tail: same arithmetic as SIMD, see af_outer_weight_q15
+  int outer_weight_c = af_outer_weight_int(amount);
 
-  int t = int((amount + 256) >> 9);
+  __m128i weights = _mm_set1_epi32(af_outer_weight_q15(amount)); // outer_weight_15
   const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
-  __m128i outer_weight = _mm_set1_epi32(64 - t);
-  __m128i round_mask = _mm_set1_epi32(0x40);
   __m128i zero = _mm_setzero_si128();
   __m128i left_mask = _mm_set_epi16(0, 0, 0, 0, 0, 0, 0, (short)0xFFFF); // 0, 0, 0, 0, 0, 0, 0, FFFF
   __m128i right_mask = _mm_set_epi16((short)0xFFFF, 0, 0, 0, 0, 0, 0, 0);
@@ -1016,7 +893,7 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
     __m128i right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + 2));
     left = _mm_or_si128(_mm_and_si128(center, left_mask), _mm_slli_si128(center, 2));
 
-    __m128i result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+    __m128i result = af_unpack_blend_uint16_t_sse41(left, center, right, weights, zero);
     result = _mm_min_epu16(result, limit);
     left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + (16 - 2)));
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp), result);
@@ -1026,7 +903,7 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp + x));
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + 2));
 
-      result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_uint16_t_sse41(left, center, right, weights, zero);
       result = _mm_min_epu16(result, limit);
 
       left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + (16 - 2)));
@@ -1039,7 +916,7 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
       center = _mm_load_si128(reinterpret_cast<const __m128i*>(dstp + mod16_width - 16));
       right = _mm_or_si128(_mm_and_si128(center, right_mask), _mm_srli_si128(center, 2));
 
-      result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = af_unpack_blend_uint16_t_sse41(left, center, right, weights, zero);
       result = _mm_min_epu16(result, limit);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp + mod16_width - 16), result);
@@ -1109,65 +986,6 @@ void af_horizontal_planar_float_sse2(BYTE* dstp, size_t height, size_t pitch, si
 }
 
 
-#ifdef X86_32
-
-void af_horizontal_planar_mmx(BYTE* dstp, size_t height, size_t pitch, size_t width, size_t amount) {
-  size_t mod8_width = (width / 8) * 8;
-  size_t mmx_loop_limit = width == mod8_width ? mod8_width - 8 : mod8_width;
-  int center_weight_c = amount*2;
-  int outer_weight_c = 32768-amount;
-
-  short t = short((amount + 256) >> 9);
-  __m64 center_weight = _mm_set1_pi16(t);
-  __m64 outer_weight = _mm_set1_pi16(64 - t);
-  __m64 round_mask = _mm_set1_pi16(0x40);
-  __m64 zero = _mm_setzero_si64();
-  __m64 left_mask = _mm_set_pi8(0, 0, 0, 0, 0, 0, 0, (char)0xFF);
-  __m64 right_mask = _mm_set_pi8((char)0xFF, 0, 0, 0, 0, 0, 0, 0);
-
-  __m64 left;
-
-  for (size_t y = 0; y < height; ++y) {
-    //left border
-    __m64 center = *reinterpret_cast<const __m64*>(dstp);
-    __m64 right = *reinterpret_cast<const __m64*>(dstp+1);
-    left = _mm_or_si64(_mm_and_si64(center, left_mask),  _mm_slli_si64(center, 8));
-
-    __m64 result = af_unpack_blend_mmx(left, center, right, center_weight, outer_weight, round_mask, zero);
-    left = *reinterpret_cast<const __m64*>(dstp+7);
-    *reinterpret_cast<__m64*>(dstp) = result;
-
-    //main processing loop
-    for (size_t x = 8; x < mmx_loop_limit; x+= 8) {
-      center = *reinterpret_cast<const __m64*>(dstp+x);
-      right = *reinterpret_cast<const __m64*>(dstp+x+1);
-
-      result = af_unpack_blend_mmx(left, center, right, center_weight, outer_weight, round_mask, zero);
-      left = *reinterpret_cast<const __m64*>(dstp+x+7);
-
-      *reinterpret_cast<__m64*>(dstp+x) = result;
-    }
-
-    //right border
-    if(mod8_width == width) { //width is mod8, process with mmx
-      center = *reinterpret_cast<const __m64*>(dstp+mod8_width-8);
-      right = _mm_or_si64(_mm_and_si64(center, right_mask),  _mm_srli_si64(center, 8));
-
-      result = af_unpack_blend_mmx(left, center, right, center_weight, outer_weight, round_mask, zero);
-
-      *reinterpret_cast<__m64*>(dstp+mod8_width-8) = result;
-    } else { //some stuff left
-      BYTE l = _mm_cvtsi64_si32(left) & 0xFF;
-      af_horizontal_planar_process_line_c<uint8_t>(l, dstp+mod8_width, width-mod8_width, center_weight_c, outer_weight_c);
-    }
-
-    dstp += pitch;
-  }
-  _mm_empty();
-}
-
-
-#endif
 
 
 

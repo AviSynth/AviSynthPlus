@@ -37,6 +37,22 @@
 
 #include <avisynth.h>
 
+// Blur/Sharpen kernel, identical in C and all SIMD paths.
+//   3-tap kernel [wo, wc, wo] (left/upper, center, right/lower), wo: outer weight, wc: center weight
+//   wc = amountd = 2^x (x: Sharpen parameter or -Blur parameter, half_amount = 32768 * amountd)
+//   The kernel sums to 1: wc = 1 - 2*wo, wo = (1 - amountd)/2, so only wo is needed ("pivot" form,
+//   the center pixel is the pivot, only its difference to the neighbours is weighted):
+//     wc*center + wo*(left + right) = center + wo*(left + right - 2*center)
+//   wo: 15 fractional bits (Q15: value = integer / 32768): outer_weight_15 = af_outer_weight_q15(half_amount)
+//     result = center + (((left + right - 2*center) * outer_weight_15 + 0x4000) >> 15)   (0x4000: rounder; SIMD: pmulhrsw)
+// amountd is 1/3..2 (Blur 1.58 .. Sharpen 1.0), so outer_weight_15 is -16384..10923: fits int16, and for
+// 16 bit pixels |left + right - 2*center| * |outer_weight_15| + 0x4000 < int32_max (2^31).
+static inline int af_outer_weight_q15(int64_t half_amount) { return (int)((32768 - half_amount + 1) >> 1); }
+// The same as a linear kernel in the 16 bit fixed point used with ScaledPixelClip/Ex:
+// (center * (65536 - 4*outer_weight_15) + (left + right) * 2*outer_weight_15 + 32768) >> 16 == the pivot form above, exactly
+static inline int af_center_weight_int(int64_t half_amount) { return 65536 - 4 * af_outer_weight_q15(half_amount); }
+static inline int af_outer_weight_int(int64_t half_amount) { return 2 * af_outer_weight_q15(half_amount); }
+
 template<typename pixel_t, bool packedRGB3264>
 int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
 
