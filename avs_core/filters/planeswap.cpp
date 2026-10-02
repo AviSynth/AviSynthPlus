@@ -256,6 +256,10 @@ SwapUVToY::SwapUVToY(PClip _child, int _mode, IScriptEnvironment* env)
   if (vi.NumComponents() == 1 && mode != YToY8)
     env->ThrowError("PlaneToY: channel cannot be extracted from a greyscale clip!");
 
+  // YA: only Y and A are valid
+  if (vi.IsYA() && mode != YToY8 && mode != AToY8)
+    env->ThrowError("PlaneToY: channel cannot be extracted from a YA clip!");
+
   if(YUVmode && (mode!=YToY8)){
     vi.height >>= vi.GetPlaneHeightSubsampling(PLANAR_U);
     vi.width  >>= vi.GetPlaneWidthSubsampling(PLANAR_U);
@@ -536,7 +540,7 @@ SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScr
   if (!clipY) {
     if (vi.IsYUY2())
       vi.width *= 2;
-    else if (vi.IsY()) {
+    else if (vi.IsY() || vi.IsYA()) { // only the Y plane is used
       switch(vi.BitsPerComponent()) {
       case 8: vi.pixel_type = VideoInfo::CS_YV24; break;
       case 10: vi.pixel_type = VideoInfo::CS_YUV444P10; break;
