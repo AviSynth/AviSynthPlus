@@ -593,7 +593,7 @@ AVSValue __cdecl Create_Sharpen(AVSValue args, void*, IScriptEnvironment* env)
 {
   const double amountH = args[1].AsFloat(), amountV = args[2].AsDblDef(amountH);
 
-  if (amountH < -1.5849625 || amountH > 1.0 || amountV < -1.5849625 || amountV > 1.0) // log2(3)
+  if (std::isnan(amountH) || std::isnan(amountV) ||
     env->ThrowError("Sharpen: arguments must be in the range -1.58 to 1.0");
 
   if (fabs(amountH) < 0.00002201361136) { // log2(1+1/65536)
@@ -618,7 +618,8 @@ AVSValue __cdecl Create_Blur(AVSValue args, void*, IScriptEnvironment* env)
 {
   const double amountH = args[1].AsFloat(), amountV = args[2].AsDblDef(amountH);
 
-  if (amountH < -1.0 || amountH > 1.5849625 || amountV < -1.0 || amountV > 1.5849625) // log2(3)
+  if (std::isnan(amountH) || std::isnan(amountV) ||
+      amountH < -1.0 || amountH > 1.5849625 || amountV < -1.0 || amountV > 1.5849625) // log2(3)
     env->ThrowError("Blur: arguments must be in the range -1.0 to 1.58");
 
   if (fabs(amountH) < 0.00002201361136) { // log2(1+1/65536)
