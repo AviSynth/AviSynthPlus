@@ -100,6 +100,7 @@ __attribute__((__target__("sse4.1")))
 void accumulate_line_16_sse41(BYTE* c_plane, const BYTE** planeP, int planes, size_t rowsize, int threshold, int div, int bits_per_pixel);
 
 #ifdef X86_32
+template<bool packedRGB32>
 int64_t calculate_sad_isse(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
 #endif
 template<typename pixel_t, bool packedRGB3264>

@@ -943,7 +943,7 @@ static int64_t calculate_sad(const BYTE* cur_ptr, const BYTE* other_ptr, int cur
   }
 #ifdef X86_32
   if ((pixelsize ==1 ) && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && rowsize >= 8) {
-    return calculate_sad_isse(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
+    return calculate_sad_isse<false>(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
   }
 #endif
   // sse2 uint16_t

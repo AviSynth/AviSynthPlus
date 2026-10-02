@@ -1605,22 +1605,40 @@ template int64_t calculate_sad_8_or_16_sse2<uint16_t, true>(const BYTE* cur_ptr,
 
 
 #ifdef X86_32
+// also used from conditionalfunctions
+// packed rgb template masks out alpha plane for RGB32
+template<bool packedRGB32>
 int64_t calculate_sad_isse(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height)
 {
   size_t mod8_width = rowsize / 8 * 8;
   int64_t result = 0; // fullframe SAD exceeds int32 for large frames
+  __m64 rgb_mask;
+  if constexpr (packedRGB32)
+    rgb_mask = _mm_set1_pi32(0x00FFFFFF);
   for (size_t y = 0; y < height; ++y) {
-  __m64 sum = _mm_setzero_si64();
+    __m64 sum = _mm_setzero_si64(); // for one row even int32 is enough
     for (size_t x = 0; x < mod8_width; x+=8) {
       __m64 cur = *reinterpret_cast<const __m64*>(cur_ptr + x);
       __m64 other = *reinterpret_cast<const __m64*>(other_ptr + x);
+      if constexpr (packedRGB32) {
+        cur = _mm_and_si64(cur, rgb_mask); // mask out A channel
+        other = _mm_and_si64(other, rgb_mask);
+      }
       __m64 sad = _mm_sad_pu8(cur, other);
       sum = _mm_add_pi32(sum, sad);
     }
     if (mod8_width != rowsize) {
-      for (size_t x = mod8_width; x < rowsize; ++x) {
-        result += std::abs(cur_ptr[x] - other_ptr[x]);
-      }
+      if constexpr (packedRGB32)
+        for (size_t x = mod8_width; x < rowsize; x += 4) { // x: byte offset of a BGRA pixel
+          result += std::abs(cur_ptr[x + 0] - other_ptr[x + 0]) +
+            std::abs(cur_ptr[x + 1] - other_ptr[x + 1]) +
+            std::abs(cur_ptr[x + 2] - other_ptr[x + 2]);
+          // no alpha
+        }
+      else
+        for (size_t x = mod8_width; x < rowsize; ++x) {
+          result += std::abs(cur_ptr[x] - other_ptr[x]);
+        }
     }
     result += _mm_cvtsi64_si32(sum);
 
@@ -1630,6 +1648,10 @@ int64_t calculate_sad_isse(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_p
   _mm_empty();
   return result;
 }
+
+// instantiate
+template int64_t calculate_sad_isse<false>(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
+template int64_t calculate_sad_isse<true>(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
 #endif
 
 
