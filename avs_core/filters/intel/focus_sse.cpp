@@ -1513,59 +1513,6 @@ void accumulate_line_mmx(BYTE* c_plane, const BYTE** planeP, int planes, size_t 
 
 
 
-// may also used from conditionalfunctions
-// packed rgb template masks out alpha plane for RGB32
-template<bool packedRGB3264>
-int calculate_sad_sse2(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height)
-{
-  size_t mod16_width = rowsize / 16 * 16;
-  int result = 0;
-  __m128i sum = _mm_setzero_si128();
-
-  __m128i rgb_mask;
-  if (packedRGB3264) {
-    rgb_mask = _mm_set1_epi32(0x00FFFFFF);
-  }
-
-  for (size_t y = 0; y < height; ++y) {
-    for (size_t x = 0; x < mod16_width; x+=16) {
-      __m128i cur = _mm_load_si128(reinterpret_cast<const __m128i*>(cur_ptr + x));
-      __m128i other = _mm_load_si128(reinterpret_cast<const __m128i*>(other_ptr + x));
-      if (packedRGB3264) {
-        cur = _mm_and_si128(cur, rgb_mask);  // mask out A channel
-        other = _mm_and_si128(other, rgb_mask);
-      }
-      __m128i sad = _mm_sad_epu8(cur, other);
-      sum = _mm_add_epi32(sum, sad);
-    }
-    if (mod16_width != rowsize) {
-      if (packedRGB3264)
-        for (size_t x = mod16_width / 4; x < rowsize / 4; x += 4) {
-          result += std::abs(cur_ptr[x*4+0] - other_ptr[x*4+0]) +
-            std::abs(cur_ptr[x*4+1] - other_ptr[x*4+1]) +
-            std::abs(cur_ptr[x*4+2] - other_ptr[x*4+2]);
-          // no alpha
-        }
-      else
-        for (size_t x = mod16_width; x < rowsize; ++x) {
-          result += std::abs(cur_ptr[x] - other_ptr[x]);
-        }
-    }
-    cur_ptr += cur_pitch;
-    other_ptr += other_pitch;
-  }
-  __m128i upper = _mm_castps_si128(_mm_movehl_ps(_mm_setzero_ps(), _mm_castsi128_ps(sum)));
-  sum = _mm_add_epi32(sum, upper);
-  result += _mm_cvtsi128_si32(sum);
-  return result;
-}
-
-// instantiate
-template int calculate_sad_sse2<false>(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
-template int calculate_sad_sse2<true>(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
-
-
-// works for uint8_t, but there is a specific, bit faster function above
 // also used from conditionalfunctions
 // packed rgb template masks out alpha plane for RGB32/RGB64
 template<typename pixel_t, bool packedRGB3264>
@@ -1597,7 +1544,6 @@ int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, const BYTE* other_ptr, i
         src2 = _mm_and_si128(src2, rgb_mask);
       }
       if constexpr(sizeof(pixel_t) == 1) {
-        // this is uint_16 specific, but leave here for sample
         sum = _mm_add_epi32(sum, _mm_sad_epu8(src1, src2)); // sum0_32, 0, sum1_32, 0
       }
       else if constexpr(sizeof(pixel_t) == 2) {
@@ -1659,12 +1605,12 @@ template int64_t calculate_sad_8_or_16_sse2<uint16_t, true>(const BYTE* cur_ptr,
 
 
 #ifdef X86_32
-int calculate_sad_isse(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height)
+int64_t calculate_sad_isse(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height)
 {
   size_t mod8_width = rowsize / 8 * 8;
-  int result = 0;
-  __m64 sum = _mm_setzero_si64();
+  int64_t result = 0; // fullframe SAD exceeds int32 for large frames
   for (size_t y = 0; y < height; ++y) {
+  __m64 sum = _mm_setzero_si64();
     for (size_t x = 0; x < mod8_width; x+=8) {
       __m64 cur = *reinterpret_cast<const __m64*>(cur_ptr + x);
       __m64 other = *reinterpret_cast<const __m64*>(other_ptr + x);
@@ -1676,11 +1622,11 @@ int calculate_sad_isse(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch
         result += std::abs(cur_ptr[x] - other_ptr[x]);
       }
     }
+    result += _mm_cvtsi64_si32(sum);
 
     cur_ptr += cur_pitch;
     other_ptr += other_pitch;
   }
-  result += _mm_cvtsi64_si32(sum);
   _mm_empty();
   return result;
 }

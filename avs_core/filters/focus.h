@@ -37,8 +37,6 @@
 
 #include <avisynth.h>
 
-template<bool packedRGB3264>
-int calculate_sad_sse2(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
 template<typename pixel_t, bool packedRGB3264>
 int64_t calculate_sad_8_or_16_sse2(const BYTE* cur_ptr, const BYTE* other_ptr, int cur_pitch, int other_pitch, size_t rowsize, size_t height);
 
@@ -109,7 +107,7 @@ private:
     } planeInfo;
     planeInfo planes[4];
     int plane_count; // number of valid planes[] entries, 0: nothing to process
-    int scenechange;
+    int64_t scenechange; // full-frame SAD threshold ~8K needs int64
     int pixelsize;
     int bits_per_pixel;
 

@@ -689,7 +689,7 @@ TemporalSoften::TemporalSoften( PClip _child, unsigned radius, unsigned luma_thr
   // 3.7.6: removed (width/32)*32. The original (2002) ISSE SAD summed only the first
   // (rowsize/32)*32 bytes of each row
   // Current SAD routines include the leftover columns since ages.
-  scenechange *= (vi.width * vi.height * factor);
+  scenechange *= (int64_t)vi.width * vi.height * factor; // 64 bit: exceeds int32 e.g. at 8K
 
 
   int c = 0;
@@ -939,11 +939,11 @@ static int64_t calculate_sad(const BYTE* cur_ptr, const BYTE* other_ptr, int cur
 #ifdef INTEL_INTRINSICS
   // todo: sse for float
   if ((pixelsize == 1) && (env->GetCPUFlags() & CPUF_SSE2) && rowsize >= 16) {
-    return (int64_t)calculate_sad_sse2<false>(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
+    return calculate_sad_8_or_16_sse2<uint8_t, false>(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
   }
 #ifdef X86_32
   if ((pixelsize ==1 ) && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && rowsize >= 8) {
-    return (int64_t)calculate_sad_isse(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
+    return calculate_sad_isse(cur_ptr, other_ptr, cur_pitch, other_pitch, rowsize, height);
   }
 #endif
   // sse2 uint16_t
@@ -1025,7 +1025,7 @@ PVideoFrame TemporalSoften::GetFrame(int n, IScriptEnvironment* env)
       bool skiprest = false;
       for (int i = radius-1; i>=0; i--) { // Check frames backwards
         if ((!skiprest) && (!planeDisabled[i])) {
-          int sad = (int)calculate_sad(c_plane, planeP[i], pitch, planePitch[i], CenterFrame->GetRowSize(planes[c].planeId), h, pixelsize, bits_per_pixel, env);
+          int64_t sad = calculate_sad(c_plane, planeP[i], pitch, planePitch[i], CenterFrame->GetRowSize(planes[c].planeId), h, pixelsize, bits_per_pixel, env);
           if (sad < scenechange) {
             planePitch2[d2] = planePitch[i];
             planeP2[d2++] = planeP[i];
@@ -1040,7 +1040,7 @@ PVideoFrame TemporalSoften::GetFrame(int n, IScriptEnvironment* env)
       skiprest = false;
       for (int i = radius; i < 2*radius; i++) { // Check forward frames
         if ((!skiprest)  && (!planeDisabled[i])) {   // Disable this frame on next plane (so that Y can affect UV)
-          int sad = (int)calculate_sad(c_plane, planeP[i], pitch, planePitch[i], CenterFrame->GetRowSize(planes[c].planeId), h, pixelsize, bits_per_pixel, env);
+          int64_t sad = calculate_sad(c_plane, planeP[i], pitch, planePitch[i], CenterFrame->GetRowSize(planes[c].planeId), h, pixelsize, bits_per_pixel, env);
           if (sad < scenechange) {
             planePitch2[d2] = planePitch[i];
             planeP2[d2++] = planeP[i];
