@@ -1694,7 +1694,9 @@ static void DrawModeColor_PlotHistogram_inner(
     auto row = reinterpret_cast<pixel_t*>(panel_y);
     const int* histRow = histUV + y * show_size;
     for (int x = 0; x < show_size; x++) {
-      int disp_val = (histRow[x] * scale) / maxval;
+      // 64 bit: count * scale overflows int when one color fills a large area at high bit depth.
+      // Capped at luma235, the limit of 'out' anyway
+      int disp_val = (int)std::min<int64_t>((int64_t)histRow[x] * scale / maxval, luma235);
       // x danger check: compile-time eliminated when chroma_danger==false
       if constexpr (chroma_danger) {
         if (ylimited || x < limit16 || x > limit240)
