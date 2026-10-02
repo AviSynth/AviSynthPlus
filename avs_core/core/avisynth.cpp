@@ -4296,11 +4296,15 @@ PVideoFrame ScriptEnvironment::NewPlanarVideoFrame(int row_size, int height, int
     pitchUV = AlignNumber(row_sizeUV, align);
   }
 
-  size_t sizeY = AlignNumber(pitchY * height, plane_align);
-  size_t sizeUV = AlignNumber(pitchUV * heightUV, plane_align);
-  size_t size = sizeY + 2 * sizeUV + (alpha ? sizeY : 0);
+  // 64 bit calculation: int pitch * height could wrap for huge frames to a small size.
+  // uint64_t: size_t is only 32 bit on x86 and would wrap as well.
+  const uint64_t sizeY = AlignNumber((uint64_t)pitchY * height, (uint64_t)plane_align);
+  const uint64_t sizeUV = AlignNumber((uint64_t)pitchUV * heightUV, (uint64_t)plane_align);
+  const uint64_t size = sizeY + 2 * sizeUV + (alpha ? sizeY : 0);
+  if (size > (uint64_t)std::numeric_limits<int>::max())
+    throw AvisynthError(threadEnv->Sprintf("Requested buffer size of %" PRIu64 " is too large", size));
 
-  VideoFrame *res = GetNewFrame(size, align - 1, device);
+  VideoFrame *res = GetNewFrame((size_t)size, align - 1, device);
 
   int  offsetU, offsetV, offsetA;
   const int offsetY = (int)(AlignPointer(res->vfb->GetWritePtr(), align) - res->vfb->GetWritePtr()); // first line offset for proper alignment
@@ -4347,9 +4351,13 @@ PVideoFrame ScriptEnvironment::NewVideoFrameOnDevice(int row_size, int height, i
   align = max(align, frame_align);
 
   const int pitch = AlignNumber(row_size, align);
-  size_t size = pitch * height;
+  // 64 bit calculation: int pitch * height could wrap for huge frames to a small size.
+  // uint64_t: size_t is only 32 bit on x86 and would wrap as well.
+  const uint64_t size = (uint64_t)pitch * height;
+  if (size > (uint64_t)std::numeric_limits<int>::max())
+    throw AvisynthError(threadEnv->Sprintf("Requested buffer size of %" PRIu64 " is too large", size));
 
-  VideoFrame *res = GetNewFrame(size, align - 1, device);
+  VideoFrame *res = GetNewFrame((size_t)size, align - 1, device);
 
   const int offset = (int)(AlignPointer(res->vfb->GetWritePtr(), align) - res->vfb->GetWritePtr()); // first line offset for proper alignment
 
