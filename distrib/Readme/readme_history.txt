@@ -9,7 +9,98 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
-20260928 3.7.5.rXXXX (pre 3.7.6)
+20261002 3.7.5.rXXXX (pre 3.7.6)
+--------------------------------
+- Fix: TemporalSoften scenechange threshold now is calculated from the full frame width. It was rounded
+  down to mod 32, a leftover from the 2002 ISSE SAD code which skipped the right-edge bytes; current
+  SAD routines sum the whole row, so for non-mod32 widths scene changes were detected slightly too easily.
+- Fix: TemporalSoften scenechange on frames over ~8.4 m pixels (e.g. 8K): the frame SAD and the
+  threshold overflowed 32 bits, so scene changes were missed and frames were probably blended across the cut.
+  Both are now 64-bit.
+- Fix: RGBDifference, RGBDifferenceFromPrevious, RGBDifferenceToNext on RGB32 (SSE2): when the width
+  was 2 or 3 more than a multiple of 4, only the first of the leftover pixels at the right edge of each
+  row was counted. RGB64 was not affected.
+- Fix: NewVideoFrame: frame buffer size was calculated as int pitch*height, which wrapped for frames over
+  2 GiB (signed integer 32 max)
+  A wrapped size could pass the buffer size limit check with an undersized buffer, e.g.
+  BlankClip(width=16384, height=32768, pixel_type="RGB64") (4 GiB) wrapped to 0 and got a 64-byte buffer.
+  Such frames now give the error "Requested buffer size of 4294967296 is too large".
+- Fix: Histogram(mode="color") at 10-16 bit: the plotted brightness overflowed when one color filled a
+  large area (count * 2^(bits-8) over int32, e.g. a flat 4096x2160 16-bit clip), drawing a dark dot
+  instead of a white one. 8 bit was not affected.
+- Fix: Blur/Sharpen 10-14 bit: the SIMD paths (SSE2, SSE4.1, AVX2) did not clamp to the bit depth
+  maximum, e.g. 10-bit Sharpen(1.0) gave values up to 2035.
+- Blur/Sharpen: more precise integer kernel, identical in all paths (C, SSE2, SSSE3, SSE4.1, AVX2).
+  The SIMD paths used 7 bit weights (8 bit: max error up to 2, e.g. Blur(1.58)), the C path (RGB24/48 and
+  the right edge of non-mod16/32 widths) 15 bit ones. Now all use a weight with 15 fractional bits in
+  the form center + (left + right - 2*center) * w (pmulhrsw), max error 0.5. Output changes slightly for amounts
+  other than +/-1.0. New SSSE3 path for 8 bit; the 8 bit SSE2 path (CPUs without SSSE3) is about 20%
+  slower. MMX paths removed (x86, CPUs without SSE2).
+- Fix: Blur/Sharpen accepted NaN as amount (e.g. Sharpen(0.0/0.0)), giving garbage weights and output;
+  now rejected by the range check.
+- Optimize: AverageLuma, AverageChromaU/V, AverageR/G/B/A: new SSE2 path for 10-16 bit
+  (1.3-1.9x vs. C); 8 bit SSE2/ISSE sums are 64-bit, so frames over ~8.4 million pixels (e.g. 8K) no
+  longer fall back to C (about 2.5x faster there).
+- Optimize: LumaDifference, RGBDifference and the other xxDifference functions on x86 without SSE2:
+  ISSE SAD is now shared with TemporalSoften (RGB32 variant added), 64-bit sum, so large frames no
+  longer fall back to C. Its RGB32 path no longer counts the alpha of the last pixel
+  for odd widths.
+- Optimize: TemporalSoften AVX2 path for 8 and 10-16 bit: 1.1-1.3x in average mode (threshold 255),
+  1.3-1.5x with thresholds (1080p, radius 1-3). (i7-11700)
+- TemporalSoften 10-16 bit: the average is rounded half up in all paths (C, SSE2, SSE4.1, AVX2), they
+  give identical results and no longer depend on the CPU rounding mode (MXCSR). Was round to nearest
+  even; the result differs (by 1) only on exact 0.5 averages, which occur only when scenechange left an
+  even number of frames.
+- Fix #524: Overlay crashed (access violation) with use444=false when the base and overlay clips were
+  4:1:1, 4:4:0 or 4:1:0 and differed only in having an alpha plane (e.g. YUVA440P8 base, YUV440P8
+  overlay, or the other way round). The overlay frame was not fetched for these working formats.
+  Test version regression (YUVA 4:1:1, 4:4:0 and 4:1:0 formats are new in 3.7.6).
+- Fix: "Text" (and "Subtitle" gdi=false) on 4:4:4 formats with a fading halo (halo_color=$FFxxxxxx,
+  shaded background box): the U and V planes of the background were faded toward 16 (the luma black
+  level) instead of the chroma center, shifting the box's hue. Now it fades like the subsampled
+  formats do (7/8 toward 128, or 0.0 for float). Regression since 3.7.3 (text rendering rewrite).
+- Fix: CombinePlanes: _ChromaLocation now follows the clips the target U and V planes come from
+  (it was always copied from the first clip, e.g. also when luma came from a Y clip and chroma from
+  another one). U/V from the U/V planes of differently sited clips: removed. U/V from greyscale clips
+  (e.g. ExtractU/ExtractV output): the first clip's is kept. Targets without subsampled chroma
+  (Y, YA, 4:4:4, RGB): removed.
+- Fix: CombinePlanes with a single clip and a target of different chroma subsampling (e.g. YV12 to
+  YV24, planes="Y"): the zero-copy path returned a malformed frame (chroma planes of the source size).
+  Existed since r2487 (2017).
+- CombinePlanes YA support finished: greyscale clips with planes="YA" (no pixel_type) give a YA clip;
+  the default source planes for a YA target are "YA".
+- YA support in UToY8/VToY8, UToY/VToY, ExtractU/ExtractV, PlaneToY("U"/"V") and YToUV:
+  U/V extraction from a YA clip reports that it has no such plane; YToUV accepts YA clips
+  (their Y plane is used, as for Y clips: YUV 4:4:4 output when no Y clip is given).
+- CombinePlanes: target planes not listed in "planes" keep the first clip's plane at the same
+  position (Y/G, U/B, V/R, A), or, when the first clip has no such plane, are filled with a neutral
+  value (U/V chroma center, alpha opaque, Y/R/G/B black: 0 or 16 depending on the _ColorRange of
+  the first clip's frame).
+  They were undefined before (e.g. a transparent alpha), unless the first clip's frame could be
+  reused in place.
+- Chroma placement unified: ConvertToXXXX, resizers, Overlay, Layer, Subtitle and Text use the same
+  placement names and default (explicit -> _ChromaLocation -> format default) and the same per-axis
+  siting, valid for every subsampled format (e.g. 4:4:0 "left" = "center").
+  - ConvertToYUV4xx: siting offsets are calculated per axis instead of per-format tables; every placement
+    is accepted for every subsampled format (4:2:2/4:1:1 "top"/"bottom"/"dv" no longer throw).
+    4:1:0 "left"/"top" are sited as named (were treated as "top_left").
+  - Resizers: same siting calculation. Fixed "dv" (both planes were sited on the top row, U belongs to
+    the bottom one) and the ignored 4:1:0 vertical siting.
+  - Fix #525, Overlay: "placement" is the base clip's siting. The overlay clip and a color mask keep
+    their own (_ChromaLocation; else the base's when of the same subsampling, else the format default)
+    and are re-sited when it differs, also when the format already matches, also with use444=true.
+    Sitings are exact (no 3-value reduction); only the mask kernel is approximated (see Overlay docs).
+  - Layer: the "placement" default is the base clip's _ChromaLocation (was: always "mpeg2").
+  - Overlay, Layer, Subtitle, Text: a placement without its own mask/text kernel uses the nearest one
+    instead of "left" (e.g. "top"/"bottom" -> centered on 4:2:x/4:1:1; 4:4:0 "left" -> box average).
+  - Text, Subtitle (gdi=false): filtered "top_left" kernel (1-2-1 around the top-left luma sample:
+    3x3 on 4:2:0, vertical on 4:4:0). Was rendered as "left", on 4:2:0 half a luma row off.
+  - Subtitle (gdi=true) on YUY2: placement-aware, identical to YV16 (was: always centered chroma).
+- Fix #525: VfW: high bit depth YUVA 4:4:0 is exported as 8-bit 'I440' (Y, U, V plane order), but its
+  8-bit conversion keeps the alpha plane and was written in V, U order, swapping the chroma planes.
+  The plane order check now applies to any 4:4:0 format.
+
+20260928 3.7.5.r4726 (pre 3.7.6)
 --------------------------------
 - Fix #519: C API filters running as ``MT_NICE_FILTER``: concurrent calls on the same filter instance
   shared the wrapper's error fields. Thus there was a possibility that errors could be lost or reported

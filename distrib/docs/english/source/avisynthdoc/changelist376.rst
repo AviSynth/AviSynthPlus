@@ -14,6 +14,9 @@ Additions, changes
   * YUV 4:1:0 10~32bits
   * YUVA 4:1:0:α 8~32bits
 
+- VfW: YUV 4:1:0 is served as ``YVU9`` (Y, V, U) and YUV 4:4:0 as ``I440`` (Y, U, V);
+  4:1:1, 4:1:0 and 4:4:0 formats over 8 bits (with or without alpha) are served as their 8-bit
+  YV411/``YVU9``/``I440`` counterparts.
 - VfW: 8-bit Y plus alpha (``YA8``) clips are now served with the ``Y2[0][8]`` FourCC
   (a packed Y,A interleaved layout; matches ffmpeg's ``AV_PIX_FMT_YA8``).
 
@@ -119,6 +122,20 @@ Additions, changes
     computed from ground-truth linear RGB values converted through the active
     YUV matrix, giving accurate Cb/Cr coordinates at all bit depths including
     32-bit float.
+- ConvertToYUV4xx: ``ChromaInPlacement``/``ChromaOutPlacement`` are defined per axis (co-sited,
+  centered or bottom, horizontally and vertically), and every placement name is accepted for every
+  subsampled format; on a non-subsampled axis the positions coincide (e.g. 4:4:0 ``"left"`` equals
+  ``"center"``, 4:2:2/4:1:1 ``"top"`` equals ``"center"``, ``"DV"`` equals ``"left"`` there).
+  4:2:2 and 4:1:1 no longer reject ``"top"``, ``"bottom"`` and ``"DV"``.
+  See :doc:`Convert <./corefilters/convert>`.
+- Resizers ``placement``: same per-axis chroma siting as ConvertToYUV4xx (shared code).
+- "CombinePlanes": YA support: ``planes="YA"`` from greyscale clips gives a YA clip, and the default
+  source planes for a YA target are "YA". Target planes not listed in ``planes`` keep the first clip's
+  plane at the same position (Y/G, U/B, V/R, A), or get a neutral value when it has none (U/V center,
+  alpha opaque, Y/R/G/B black by ``_ColorRange``); they were undefined before.
+- "UToY8", "VToY8", "UToY", "VToY", "ExtractU", "ExtractV", "PlaneToY", "YToUV": YA support:
+  U/V extraction from a YA clip reports that it has no such plane; "YToUV" accepts YA clips
+  (their Y plane is used, as for Y clips).
 - "ConvertToYUY2": rewritten to route all conversions through YV16 as
   intermediate format, using the full ``ConvertToPlanarGeneric`` infrastructure.
   ``ChromaOutPlacement`` parameter added (was missing, present in ConvertToYV16).
@@ -174,27 +191,38 @@ Additions, changes
   * Planar RGB(A): planes are always processed in R, G, B, A logical order.
 
   See :doc:`showframes <./corefilters/showframes>`.
-- "Layer": add ``"top_left"`` option for the ``"placement"`` parameter — HEVC/AV1 left+top co-sited
-  chroma (point-sample, fastest).  Affects ``"mul"``, ``"add"``, ``"subtract"``, ``"lighten"``,
-  ``"darken"``, and ``"mulovr"`` modes with 4:2:0 / 4:2:2 sources.
-- "Overlay" ``"blend"`` mode: add ``"placement"`` parameter for correct luma-mask-to-chroma
-  downsampling in 4:2:0 and 4:2:2 clips.  Values: ``"mpeg2"`` (default), ``"mpeg1"``, ``"top_left"``.
-- ``Subtitle``: add ``placement`` string parameter — chroma location hint for subsampled
-  YUV formats (4:2:0, 4:2:2, 4:1:1).  When ``gdi=true`` all three siting modes are
-  supported: ``"MPEG2"`` / ``"left"`` (default), ``"MPEG1"`` / ``"center"``, and
-  ``"top_left"`` (UHD 4:2:0 / 4:2:2 co-sited chroma).  The default is read from the
-  ``_ChromaLocation`` frame property, falling back to ``"left"``.
-  When ``gdi=false`` only ``"left"`` and ``"center"`` are implemented (same as ``Text``).
+- "Layer": ``"placement"`` has the same values, meaning and default as ConvertToXXXX's
+  ``ChromaInPlacement``: the default is now the base clip's ``_ChromaLocation`` frame property
+  (was always ``"mpeg2"``), else the format default. The mask downsampling kernel is the nearest
+  implemented one, as in "Overlay".
+- "Overlay": add ``"placement"`` parameter: the chroma siting of the base clip (and the output), with
+  the same values, meaning and default as ConvertToXXXX's ``ChromaInPlacement``. The overlay clip and a
+  color mask keep their own ``_ChromaLocation`` and are re-sited to ``placement`` when it differs; the
+  mask downsampling kernel is the nearest implemented one.
+- ``Subtitle``: add ``placement`` string parameter for all subsampled YUV formats incl. YUY2, with the
+  same values, meaning and default as ConvertToXXXX's ``ChromaInPlacement``; mapped to the nearest
+  implemented text chroma kernel (same table as "Overlay"/"Layer"). YUY2 with ``gdi=true`` is now
+  rendered like 4:2:2 planar, so its default chroma is left-sited (was: always centred).
   See :doc:`Subtitle / Text <./corefilters/subtitle>`.
+- ``Text``: ``placement`` (and ``_ChromaLocation``) values without an own kernel are mapped like in
+  ``Subtitle`` instead of falling back to ``"left"``: e.g. ``"top"``/``"bottom"`` are rendered centred
+  on 4:2:0/4:2:2/4:1:1. ``"top_left"`` on 4:2:0 and 4:4:0 is now a 1-2-1 filter centred on the
+  top-left luma sample (3x3 on 4:2:0, vertical on 4:4:0), on 4:2:2/YUY2 the same as ``"left"``
+  (was: the ``"left"`` kernel, on 4:2:0 half a luma row off vertically).
 - ``Subtitle``: add ``gdi`` bool parameter.  When ``false``, Subtitle uses the built-in
   bitmap font (Terminus) instead of Windows GDI rendering — the same path as the
-  ``Text`` filter.  Faster and cross-platform compatible; ``placement`` is then limited
-  to ``"left"`` / ``"center"``.  Default: ``true``.
+  ``Text`` filter.  Faster and cross-platform compatible.  Default: ``true``.
   See :doc:`Subtitle / Text <./corefilters/subtitle>`.
 - ``Text``: add ``gdi`` bool parameter (accepted, has no effect; present for API
   compatibility with ``Subtitle`` — on non-Windows, ``Subtitle`` is aliased to ``Text``
   so every ``Subtitle`` parameter must exist in ``Text``).  Default: ``false``.
   See :doc:`Subtitle / Text <./corefilters/subtitle>`.
+- "Blur", "Sharpen": more precise integer kernel (weight with 15 fractional bits instead of 7 in
+  SIMD, 8 bit max error 0.5 instead of up to 2), identical in all (C/SSE2/SSSE3/SSE4.1/AVX2) paths.
+  Slight output change for amounts other than +/-1.0.
+- "TemporalSoften" 10-16 bit: the average is rounded half up in all (C/SSE/AVX2) paths, which give
+  identical results; differs from earlier versions by 1 only on exact .5 averages (when
+  ``scenechange`` left an even number of frames).
 
 
 Build environment, Interface
@@ -264,6 +292,18 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: "CombinePlanes" with a single clip and a target of different chroma subsampling (e.g. YV12 to
+  YV24, planes="Y"): the zero-copy path returned a malformed frame (chroma planes of the source size).
+  Existed since r2487 (2017).
+- Fix: "CombinePlanes": ``_ChromaLocation`` now follows the clips the target U and V planes come from
+  (it was always copied from the first clip, also e.g. when luma came from a Y clip and chroma from
+  another one), and it is removed when the target has no subsampled chroma (Y, YA, 4:4:4, RGB).
+  See :doc:`CombinePlanes <./corefilters/combineplanes>`.
+- Fix: Resizers with ``placement="DV"`` (or ``_ChromaLocation`` 6): both U and V were sited on the
+  top row; U belongs to the bottom row, V to the top (DV-PAL 4:2:0). Existed since 3.7.4.
+- Fix: "Text" (and "Subtitle" ``gdi=false``) on 4:4:4 formats with a fading ``halo_color``
+  (``$FFxxxxxx``, shaded background): U and V were faded toward 16 instead of the chroma center,
+  shifting the hue of the box. Regression since 3.7.3.
 - Fix: "ConvertToYUY2" / "ConvertToYV12": YV12<->YUY2 interlaced conversion
   used asymmetric 0.75/0.25 chroma interpolation coefficients instead of the
   MPEG-2 specified 7/8,1/8 and 3/8,5/8 coefficients, introducing opposite-
@@ -286,9 +326,6 @@ Bugfixes
   ``ghosted > 1``, preventing unbounded cache growth during backward seeking (Issue #379) and
   Bob()/SeparateFields access patterns (Issue #270). Frames evicted only once no longer trigger
   a resize; an undersized cache still grows once the same frame has been evicted twice.
-- Fix: "Histogram" Color2 mode to copy alpha channel from source for alpha-carrying formats
-  (YUVA, RGBPA, RGB32, RGB64); initialize alpha to zero in the histogram panel area.
-  (Was: garbage)
 - Fix: C-only vertical resampling code added more rounding than needed
   (regression since pre-3.7.5 20250427).
 - Fix: "Invert": corrected chroma inversion to pivot around signed 0 instead
@@ -350,6 +387,22 @@ Bugfixes
   ``rgbadjust_`` branch to always run regardless of settings. Also fixed a memory leak
   when freeing LUT tables.
 - Fix: "TemporalSoften" 16-bit scalar (C) rounding.
+- Fix: "TemporalSoften" ``scenechange`` threshold is calculated from the full frame width (was
+  rounded down to mod 32, a leftover from the 2002 ISSE SAD code).
+- Fix: "TemporalSoften" ``scenechange`` missed scene changes on frames over ~8.4 million pixels
+  (e.g. 8K): 32-bit overflow of the frame SAD and the threshold.
+- Fix: "RGBDifference", "RGBDifferenceFromPrevious", "RGBDifferenceToNext" on RGB32: right-edge
+  pixels were partly skipped when the width was 2 or 3 more than a multiple of 4.
+- Fix: frame buffer size calculation overflowed for frames over 2 GiB and could pass the size
+  limit check with an undersized buffer, e.g. ``BlankClip(width=16384, height=32768,
+  pixel_type="RGB64")`` (4 GiB) got a 64-byte buffer. Such frames are now rejected with
+  "Requested buffer size ... is too large".
+- Fix: "Histogram" ``mode="color"`` at 10-16 bit: a color filling a large area (e.g. a flat
+  4096x2160 16-bit clip) was plotted as a dark dot instead of a white one (int overflow).
+- Fix: "Blur", "Sharpen" 10-14 bit: the SIMD paths did not clamp to the bit depth maximum
+  (e.g. 10-bit ``Sharpen(1.0)`` gave values up to 2035).
+- Fix: "Blur", "Sharpen": NaN amount (e.g. ``Sharpen(0.0/0.0)``) was accepted, giving garbage
+  output; now rejected by the range check.
 - Fix: AVX2 YV24 (4:4:4) source alpha packing.
 - Fix: "Expr": a typo checked the output clip's ``IsYUVA()`` instead of the source
   clip's when selecting per-source plane enums, which could read the wrong plane for
@@ -461,9 +514,17 @@ Optimizations
   alpha/Y/U/V per pixel) to row-interleaved SoA layout, enabling correct
   chroma-placement-aware UV compositing.  Each UV output pixel is derived by spatially
   downsampling the luma-resolution mask row(s) via ``prepare_effective_mask_for_row``
-  (same family as Overlay/Layer); eight MaskModes cover all subsampling ratios
-  (4:4:4, 4:2:2, 4:2:0, 4:1:1) × siting variants (MPEG2/MPEG1/top_left); SIMD rowprep
+  (same family as Overlay/Layer); MaskModes cover all subsampling ratios
+  (4:4:4, 4:2:2, 4:2:0, 4:1:1, 4:4:0, 4:1:0) × kernel variants (MPEG2/MPEG1/top_left); SIMD rowprep
   dispatch (AVX2 / SSE4.1 / scalar) is selected at construction.
+- "AverageLuma", "AverageChromaU", "AverageChromaV", "AverageR/G/B/A": new SSE2 path for
+  10-16 bit (1.3-1.9x vs. C); 8 bit SIMD sums are 64-bit, so large frames (e.g. 8K) no longer
+  fall back to C (about 2.5x faster there).
+- "xxDifference" functions (x86, non-SSE2 CPUs): ISSE SAD shared with "TemporalSoften", 64-bit
+  sum, so large frames no longer fall back to C.
+- "TemporalSoften": AVX2 path for 8 and 10-16 bit (1.1-1.3x in average mode, 1.3-1.5x with
+  thresholds).
+- "Blur", "Sharpen": new SSSE3 path for 8 bit; MMX paths removed.
 
 Documentation
 ~~~~~~~~~~~~~
@@ -502,9 +563,9 @@ Documentation
 - Add ``ShowCRC32`` documentation to :doc:`showframes <./corefilters/showframes>`
   (filter exists since 3.7.0; rst page was not updated at the time).
   Document new ``channels`` and ``mode`` parameters added in 3.7.6.
-- Update :doc:`Layer <./corefilters/layer>` with ``"mulovr"`` mode, ``"top_left"`` placement
-  option, and related chroma-placement refactoring notes.
-- Update :doc:`Overlay <./corefilters/overlay>` with ``"placement"`` parameter for ``"blend"`` mode.
+- Update :doc:`Layer <./corefilters/layer>` with ``"mulovr"`` mode, ``"placement"`` parameter,
+  and related chroma-placement refactoring notes.
+- Update :doc:`Overlay <./corefilters/overlay>` with ``"placement"`` parameter.
 - Update :doc:`Arrays <./script_ref/script_ref_arrays>` with dictionary-style key lookup/set/delete
   (``ArrayGet``, ``ArraySet``, ``ArrayDel``) and the new ``ArrayIndexOf``.
 - Add :doc:`BuildPixelType <./corefilters/buildpixeltype>`
@@ -512,7 +573,7 @@ Documentation
 Please report bugs at `github AviSynthPlus page`_ - or - `Doom9's AviSynth+
 forum`_
 
-$Date: 2026/08/28 09:07:00 $
+$Date: 2026/10/02 21:29:00 $
 
 .. _github AviSynthPlus page:
     https://github.com/AviSynth/AviSynthPlus
