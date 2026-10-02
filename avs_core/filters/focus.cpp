@@ -686,7 +686,10 @@ TemporalSoften::TemporalSoften( PClip _child, unsigned radius, unsigned luma_thr
     factor = 1; // bitdepth independent. sad normalizes
   else
     factor = vi.BytesFromPixels(1) / pixelsize; // /pixelsize: correction for packed 16 bit rgb
-  scenechange *= ((vi.width/32)*32)*vi.height*factor; // why /*32?
+  // 3.7.6: removed (width/32)*32. The original (2002) ISSE SAD summed only the first
+  // (rowsize/32)*32 bytes of each row
+  // Current SAD routines include the leftover columns since ages.
+  scenechange *= (vi.width * vi.height * factor);
 
 
   int c = 0;
