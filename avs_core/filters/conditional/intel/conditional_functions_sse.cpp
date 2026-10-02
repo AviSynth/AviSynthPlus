@@ -48,7 +48,7 @@
 // sum: sad with zero
 double get_sum_of_pixels_sse2(const uint8_t* srcp, size_t height, size_t width, size_t pitch) {
   size_t mod16_width = width / 16 * 16;
-  int64_t result = 0;
+  int64_t result = 0; // fullframe sum exceeds int32 for large frames
   __m128i sum = _mm_setzero_si128();
   __m128i zero = _mm_setzero_si128();
 
@@ -56,7 +56,7 @@ double get_sum_of_pixels_sse2(const uint8_t* srcp, size_t height, size_t width, 
     for (size_t x = 0; x < mod16_width; x+=16) {
       __m128i src = _mm_load_si128(reinterpret_cast<const __m128i*>(srcp + x));
       __m128i sad = _mm_sad_epu8(src, zero);
-      sum = _mm_add_epi32(sum, sad);
+      sum = _mm_add_epi64(sum, sad); // sad provides 64bit lanes
     }
 
     for (size_t x = mod16_width; x < width; ++x) {
@@ -65,20 +65,20 @@ double get_sum_of_pixels_sse2(const uint8_t* srcp, size_t height, size_t width, 
 
     srcp += pitch;
   }
-  __m128i upper = _mm_castps_si128(_mm_movehl_ps(_mm_setzero_ps(), _mm_castsi128_ps(sum)));
-  sum = _mm_add_epi32(sum, upper);
-  result += _mm_cvtsi128_si32(sum);
-  return (double)result;
+  sum = _mm_add_epi64(sum, _mm_unpackhi_epi64(sum, sum)); // lane0 + lane1
+  int64_t val;
+  _mm_storel_epi64((__m128i*)&val, sum);
+  return (double)(result + val);
 }
 
 #ifdef X86_32
 double get_sum_of_pixels_isse(const uint8_t* srcp, size_t height, size_t width, size_t pitch) {
   size_t mod8_width = width / 8 * 8;
-  int64_t result = 0;
-  __m64 sum = _mm_setzero_si64();
+  int64_t result = 0; // fullframe sum exceeds int32 for large frames
   __m64 zero = _mm_setzero_si64();
 
   for (size_t y = 0; y < height; ++y) {
+    __m64 sum = _mm_setzero_si64(); // for one row int32 is enough
     for (size_t x = 0; x < mod8_width; x+=8) {
       __m64 src = *reinterpret_cast<const __m64*>(srcp + x);
       __m64 sad = _mm_sad_pu8(src, zero);
@@ -88,10 +88,10 @@ double get_sum_of_pixels_isse(const uint8_t* srcp, size_t height, size_t width, 
     for (size_t x = mod8_width; x < width; ++x) {
       result += srcp[x];
     }
+    result += _mm_cvtsi64_si32(sum);
 
     srcp += pitch;
   }
-  result += _mm_cvtsi64_si32(sum);
   _mm_empty();
   return (double)result;
 }
