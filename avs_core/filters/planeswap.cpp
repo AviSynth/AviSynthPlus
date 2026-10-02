@@ -120,7 +120,7 @@ AVSValue __cdecl SwapUV::CreateSwapUV(AVSValue args, void* , IScriptEnvironment*
 SwapUV::SwapUV(PClip _child, IScriptEnvironment* env) : GenericVideoFilter(_child)
 {
   if (!vi.IsYUV() && !vi.IsYUVA())
-    env->ThrowError("SwapUV: YUV or YUVA data only!");
+    env->ThrowError("SwapUV: Y, YA, YUV or YUVA data only!");
 }
 
 PVideoFrame __stdcall SwapUV::GetFrame(int n, IScriptEnvironment* env)
@@ -247,7 +247,7 @@ SwapUVToY::SwapUVToY(PClip _child, int _mode, IScriptEnvironment* env)
       env->ThrowError("PlaneToY: Clip has no Alpha channel!");
 
   if (!vi.IsYUV() && !vi.IsYUVA() && YUVmode )
-    env->ThrowError("PlaneToY: clip is not YUV!");
+    env->ThrowError("PlaneToY: clip is not Y, YA, YUV or YUVA!");
 
   // IsRGB() covers both packed (RGB24/32/48/64) and planar RGB/RGBA.
   if (!vi.IsRGB() && RGBmode)
@@ -521,11 +521,13 @@ AVSValue __cdecl SwapYToUV::CreateYToYUVA(AVSValue args, void* , IScriptEnvironm
 SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScriptEnvironment* env)
   : GenericVideoFilter(_child), clip(_clip), clipY(_clipY), clipA(_clipA)
 {
+  // with alpha clip: clipU must be Y, YA or YUVA (IsYUVA includes YA); YUV and YUY2 are rejected
   if(!(vi.IsYUVA() || vi.IsY()) && clipA)
-    env->ThrowError("YToUV: Only Y or YUVA data accepted when alpha clip is provided"); // Y, YUV and YUY2
+    env->ThrowError("YToUV: Only Y, YA or YUVA data accepted when alpha clip is provided");
+  // IsYUV includes Y and YUY2, IsYUVA includes YA: rejects RGB only
   if (!vi.IsYUV() && !vi.IsYUVA())
   {
-    env->ThrowError("YToUV: Only YUV or YUVA data accepted"); // Y, YUV and YUY2
+    env->ThrowError("YToUV: Only Y, YA, YUV or YUVA data accepted");
   }
 
   const VideoInfo& vi2 = clip->GetVideoInfo();
@@ -572,8 +574,6 @@ SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScr
   }
 
   if (clipA) {
-    if(vi.IsYUY2())
-      env->ThrowError("YToUV: YUY2 not supported with alpha clip");
     const VideoInfo& vi4 = clipA->GetVideoInfo();
     if (vi4.width != vi3.width || vi4.height != vi3.height) // Y width == A width
       env->ThrowError("YToUV: different Y and A clip dimensions");
@@ -592,13 +592,17 @@ SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScr
   case 32: vi.pixel_type = clipA ? VideoInfo::CS_YUVA420PS : VideoInfo::CS_YUV420PS; break;
   }
 
+  // subsampling factor: Y/U size
+  const int sub_w = vi3.width / vi.width;
+  const int sub_h = vi3.height / vi.height;
+
   if (vi3.width == vi.width) // Y width == U width -> subsampling 1:1
     vi.pixel_type |= VideoInfo::CS_Sub_Width_1;
   else if (vi3.width == vi.width * 2) // Y width == U width*2 -> horiz. subsampling 2
-    vi.width *= 2; // YV12 subsampling CS_Sub_Width_2 is o.k.
+    vi.width *= 2; // 4:2:0 subsampling CS_Sub_Width_2 is o.k.
   else if (vi3.width == vi.width * 4) { // Y width == U width*4 -> horiz. subsampling 4
     vi.pixel_type |= VideoInfo::CS_Sub_Width_4;
-    vi.width *= 4; // final clip width is 3x of the U channel width
+    vi.width *= 4; // final clip width is 4x of the U channel width
   }
   else
     env->ThrowError("YToUV: Video width ratio does not match any internal colorspace.");
@@ -606,13 +610,20 @@ SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScr
   if (vi3.height == vi.height)
     vi.pixel_type |= VideoInfo::CS_Sub_Height_1;
   else if (vi3.height == vi.height * 2)
-    vi.height *= 2;
+    vi.height *= 2; // 4:2:0 subsampling CS_Sub_Height_2 is o.k.
   else if (vi3.height == vi.height * 4) {
     vi.pixel_type |= VideoInfo::CS_Sub_Height_4;
     vi.height *= 4;
   }
   else
     env->ThrowError("YToUV: Video height ratio does not match any internal colorspace.");
+
+  // Check valid pairs:
+  // 1x1 (444), 2x1 (422), 2x2 (420), 4x1 (411), 1x2 (440), 4x4 (410)
+  // To prevent "Filter attempted to create VideoFrame with invalid pixel_type"
+  const bool valid_wh_pair = sub_h == 1 || (sub_h == 2 && sub_w <= 2) || (sub_h == 4 && sub_w == 4);
+  if (!valid_wh_pair)
+    env->ThrowError("YToUV: Video width and height ratio (%dx%d) does not match any internal colorspace.", sub_w, sub_h);
 }
 
 template <bool has_clipY>
