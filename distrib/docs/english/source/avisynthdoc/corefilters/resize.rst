@@ -504,23 +504,21 @@ Syntax and Parameters
 
 .. describe:: placement (string) 
 
-    Specifies chroma placement. Valid options are "auto", "mpeg2", "center", etc.,
-    similar to ConvertToXXXX and Text.
-    
-    - ``"MPEG2"`` (synonyms: ``"left"``)
-      Subsampling used in MPEG-2 4:2:x and most other formats. Chroma samples are located on the left pixel column of the group (default).
-    - ``"MPEG1"`` (synonyms: ``"jpeg"``, ``"center"``)
-      Subsampling used in MPEG-1 4:2:0. Chroma samples are located on the center of each group of 4 pixels.
-    - ``"DV"``
-      Like MPEG-2, but U and V channels are co-sited vertically: V on the top row, and U on the bottom row. For 4:1:1, chroma is located on the leftmost column.
-    - ``"top_left"``
-      Subsampling used in UHD 4:2:0. Chroma samples are located on the top left pixel column of the group.
-    - ``bottom_left`` 4:2:0 only
-    - ``bottom``   4:2:0 only 
+    Chroma placement of subsampled YUV formats:
 
-    The default is "auto", which reads the frame property ``_ChromaLocation`` for 420, 422, and 411 
-    formats. The chroma placement is ignored when ``keep_center`` is set to ``False`` or in 
-    ``PointResize``. Frame property ``_ChromaLocation`` is only read, not set.
+    - ``"left"`` (synonym: ``"MPEG2"``), ``"center"`` (synonyms: ``"MPEG1"``, ``"jpeg"``),
+      ``"top_left"``, ``"top"``, ``"bottom_left"``, ``"bottom"``
+    - ``"DV"``: V on the top row, U on the bottom row, both horizontally co-sited.
+
+    The names have the same per-axis meaning as in :doc:`ConvertToXXXX <convert>`
+    (see ``ChromaInPlacement``) and are valid for every subsampled format
+    (4:2:0, 4:2:2, 4:1:1, 4:4:0, 4:1:0); on an axis which is not subsampled the
+    positions coincide.
+
+    The default is "auto", which reads the frame property ``_ChromaLocation`` for subsampled
+    formats; without it the chroma is treated as ``"center"``. The chroma placement is ignored
+    when ``keep_center`` is set to ``False`` or in ``PointResize``. Frame property
+    ``_ChromaLocation`` is only read, not set.
 
     The positions of the sampling points are relative to the frame's top/left border in plane coordinates.
     For reference, the frame border is at 0.5 units of luma from the first luma sampling point, 
@@ -528,16 +526,6 @@ Syntax and Parameters
     with pixel center placed sampling position (0.5, 0.5).
     For more information, visit this link. http://www.mir.com/DMG/chroma.html
     
-    Rules:
-    
-    The used chroma placement is
-    
-    - read from ``"_ChromaLocation"`` frame property, otherwise ``"center"``
-    - override or set from ``"placement"`` parameter if parameter is other than ``"auto"``
-    - if ``"auto"`` + have frame property -> use frame property
-    - if ``"auto"`` + no frame property -> use ``"center"``
-    - no frame property and no parameter -> use ``"center"``
-
     Note that Avisynth does not take into account fieldbased or interlaced material.
 
     ::

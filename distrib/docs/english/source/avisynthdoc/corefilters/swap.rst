@@ -89,8 +89,8 @@ YToUV
 **YToUV** combines up to 4 independent clips to create a new YUV(A) clip.
 The Y channel of each of the supplied clips are then copied onto the respective
 channel of the output clip. Note that all of the parameters are unnamed, however,
-only the first two clips are mandatory. Only Y or YUV(A) color formats are
-accepted.
+only the first two clips are mandatory. Only Y, YA or YUV(A) color formats are
+accepted (only the Y plane of the clips is used; alpha of ``clipA`` if it has one).
 
 .. rubric:: Syntax and Parameters
 
@@ -117,6 +117,9 @@ accepted.
       output clip will be YUV444.
     * If the width and height of ``clipY`` are double the size of the U/V
       channels, the output clip will be YUV420.
+    * Width x height ratios of ``clipY`` to the U/V clips: 1x1 (YUV444), 2x1 (YUV422),
+      2x2 (YUV420), 4x1 (YUV411), 1x2 (YUV440) and 4x4 (YUV410); other ratios are
+      rejected.
     * Due to `chroma subsampling`_ restrictions, some dimensions are not
       compatible with YUV420 and YUV422 color formats.
 
@@ -138,6 +141,15 @@ Blur the U and V chroma channels different amounts::
     u = UToY8(video).Blur(1.5)
     v = VToY8(video).Blur(0.5)
     YtoUV(u, v, video)
+
+Build a YUVA clip from greyscale U/V clips and a YA (Y plus alpha) clip, which gives
+both the Y and the alpha plane::
+
+    video = ColorBars(512, 512, pixel_type="YUV444P8")
+    u = ExtractU(video)
+    v = ExtractV(video)
+    ya = CombinePlanes(ExtractY(video), ExtractU(video), planes="YA") # YA8, alpha from U
+    YToUV(u, v, ya, ya) # YUVA444P8: Y from ya's Y plane, alpha from ya's alpha plane
 
 Show *U* and V channels stacked side by side for illustration purposes.
 
@@ -164,6 +176,28 @@ Show *U* and V channels stacked side by side for illustration purposes.
             StackVertical(src, srcUV)
 
 
+Frame properties
+----------------
+
+* **SwapUV**: all frame properties are kept unchanged (swapping U and V does not
+  change the chroma placement).
+* **UToY / VToY**: all frame properties are copied from the source clip, including
+  ``_ChromaLocation`` (the chroma planes are neutral grey, so it has no effect).
+* **UToY8 / VToY8**: same as :doc:`ExtractU / ExtractV <extract>`: ``_ChromaLocation``
+  is deleted, since a Y-only clip has no chroma planes; other properties, such as
+  ``_ColorRange`` and ``_Matrix``, are kept.
+* **YToUV**: all frame properties are copied from ``clipU``; the properties of
+  ``clipV``, ``clipY`` and ``clipA`` are ignored. ``_ChromaLocation`` is not adjusted:
+  when the U and V clips are greyscale (e.g. ``UToY8``/``VToY8`` or ``ExtractU``/``ExtractV``
+  output), the result has no ``_ChromaLocation``, so the format's default placement
+  applies (see ``ChromaInPlacement`` in :doc:`Convert <convert>`; e.g. "left" for 4:2:0
+  and 4:2:2). Use ``propSet`` to restore it, or :doc:`CombinePlanes <combineplanes>`,
+  which keeps the first clip's ``_ChromaLocation`` in this case::
+
+      u = UToY8(video).Blur(1.5)
+      v = VToY8(video).Blur(0.5)
+      CombinePlanes(video, u, v, planes="YUV", source_planes="YYY") # keeps video's _ChromaLocation
+
 Changelog
 ---------
 
@@ -187,7 +221,7 @@ Changelog
     | AviSynth 2.5.0  | Added UToY, VToY, YToUV.                     |
     +-----------------+----------------------------------------------+
 
-$Date: 2022/09/17 14:12:41 $
+$Date: 2026/10/02 10:00:00 $
 
 .. _chroma subsampling:
     https://en.wikipedia.org/wiki/Chroma_subsampling

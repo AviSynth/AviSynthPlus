@@ -207,33 +207,35 @@ versions of a frame at once, and you want to label them to remember which is whi
     Valid values are the same as in ``ChromaInPlacement`` and ``ChromaOutPlacement``
     in the :doc:`Convert <convert>` functions.
 
-    Implemented values (when ``gdi=true``, the default):
+    Any placement is accepted, and silently mapped to the implemented text chroma
+    kernels, the same way as the mask kernels of :doc:`Overlay <overlay>` and
+    :doc:`Layer <layer>` (see the kernel table in Overlay's ``placement``):
 
-    - ``"MPEG2"`` (synonyms: ``"left"``) — default. Chroma samples on the left column.
-    - ``"MPEG1"`` (synonyms: ``"jpeg"``, ``"center"``) — chroma samples centered.
-    - ``"top_left"`` — UHD 4:2:0; chroma samples on the top-left pixel of the group.
+    Both renderers (``gdi=true`` and ``gdi=false``, the latter same as ``Text``) have
+    the same kernel variants: "mpeg2"-like (left-cosited H, centred V; 1-2-1 filter),
+    "mpeg1"-like (centred; box average) and "top_left"-like. 4:1:1, 4:4:0 and 4:1:0
+    have no "mpeg2"-like kernel. The "top_left"-like kernel is a point sample (a single
+    luma sample of the block) with ``gdi=true``; with ``gdi=false`` it is a 1-2-1 filter
+    centred on the top-left luma sample on 4:2:0 (3x3) and 4:4:0 (vertical), the same
+    as ``"left"`` on 4:2:2/YUY2, and a point sample on 4:1:1/4:1:0.
 
-    When ``gdi=false``, only ``"left"`` and ``"center"`` are implemented (same as ``Text``).
+    E.g. ``"top"`` and ``"bottom"`` use the centred kernel on 4:2:0/4:2:2/4:1:1, and on
+    4:4:0 ``"left"`` (``"mpeg2"``) equals ``"center"``. YUY2 is handled like 4:2:2.
 
-    Default value is
-
-    - read from ``"_ChromaLocation"`` frame property, otherwise ``"left"``
-    - override or set from ``"placement"`` parameter if parameter is other than ``"auto"``
-    - if ``"auto"`` + have frame property → use frame property
-    - if ``"auto"`` + no frame property → use ``"left"``
-    - no frame property and no parameter → use ``"left"``
+    Default (not given or ``"auto"``): the clip's ``_ChromaLocation`` frame property
+    (read from frame 0; subsampled YUV incl. YUY2), otherwise the per-format default of ConvertToXXXX:
+    ``"left"`` for 4:2:0/4:2:2/4:1:1 (and YUY2), ``"top"`` for 4:4:0, ``"top_left"`` for 4:1:0.
 
 .. describe:: gdi
 
     | When *true*, text is rendered using the Windows GDI Antialiaser, which
       produces antialiased output and supports TrueType fonts, ``font_filename``,
-      ``font_width``, ``font_angle``, ``interlaced``, ``noaa``, and full
-      ``placement`` support including ``"top_left"``.
+      ``font_width``, ``font_angle``, ``interlaced`` and ``noaa``.
     | When *false*, the built-in bitmap font (Terminus) is used — same rendering
       as the ``Text`` filter. Faster and cross-platform compatible but limited:
       ``font_filename``, ``font_width``, ``font_angle``, ``interlaced``, ``noaa``
-      and ``font`` (font name) are ignored; only ``"left"`` and ``"center"``
-      placement are implemented.
+      and ``font`` (font name) are ignored. ``placement`` works with both; only the
+      ``"top_left"``-like kernel differs (see ``placement``).
 
     Default: true
 
@@ -340,18 +342,17 @@ of specifying ``lsp`` parameter.
     Valid values are the same as in ``ChromaInPlacement`` and ``ChromaOutPlacement``
     in the :doc:`Convert <convert>` functions.
 
-    Implemented values (``Text`` and ``Subtitle`` with ``gdi=false``):
+    Any placement is accepted, and silently mapped to the implemented chroma kernels
+    with the kernel table of :doc:`Overlay <overlay>`'s ``placement``: "mpeg2"-like
+    (``"left"``, 1-2-1 filter; 4:2:0/4:2:2/YUY2 only), "mpeg1"-like (centred, box average)
+    and "top_left"-like (1-2-1 filter centred on the top-left luma sample: 3x3 on 4:2:0,
+    vertical on 4:4:0; equals ``"left"`` on 4:2:2/YUY2; point sample on 4:1:1/4:1:0).
+    E.g. ``"top"`` and ``"bottom"`` are centred on
+    4:2:0/4:2:2/4:1:1, and on 4:4:0 ``"left"`` (``"mpeg2"``) equals ``"center"``.
 
-    - ``"MPEG2"`` (synonyms: ``"left"``) — default. Chroma samples on the left column.
-    - ``"MPEG1"`` (synonyms: ``"jpeg"``, ``"center"``) — chroma samples centered.
-
-    Default value is
-
-    - read from ``"_ChromaLocation"`` frame property, otherwise ``"left"``
-    - override or set from ``"placement"`` parameter if parameter is other than ``"auto"``
-    - if ``"auto"`` + have frame property → use frame property
-    - if ``"auto"`` + no frame property → use ``"left"``
-    - no frame property and no parameter → use ``"left"``
+    Default (not given or ``"auto"``): the clip's ``_ChromaLocation`` frame property
+    (read from frame 0; subsampled YUV incl. YUY2), otherwise the per-format default of ConvertToXXXX:
+    ``"left"`` for 4:2:0/4:2:2/4:1:1 (and YUY2), ``"top"`` for 4:4:0, ``"top_left"`` for 4:1:0.
 
 .. describe:: gdi
 
@@ -481,10 +482,19 @@ Changelog
 +-----------------+--------------------------------------------------------------------------+
 | Version         | Changes                                                                  |
 +=================+==========================================================================+
-| AviSynth+ 3.7.6 || Add ``placement`` parameter to ``Subtitle`` (chroma location, same as   |
-|                 |  ``Text``). When ``gdi=true``, ``"top_left"`` is also supported.         |
-|                 || Add ``gdi`` parameter to ``Subtitle`` and ``Text``. When ``false``,     |
-|                 |  ``Subtitle`` uses the built-in bitmap font instead of GDI rendering.    |
+| AviSynth+ 3.7.6 || Add ``placement`` parameter to ``Subtitle``: chroma placement for all   |
+|                 |  subsampled YUV formats incl. YUY2; ConvertToXXXX ``ChromaInPlacement``  |
+|                 |  names and default (``_ChromaLocation``, else format default). Values    |
+|                 |  without an own kernel are mapped to the nearest one (same table as      |
+|                 |  Overlay/Layer). YUY2 (``gdi=true``) is rendered like 4:2:2 planar: its  |
+|                 |  default chroma is now left-sited (was: always centred).                 |
+|                 || ``Text``: ``placement`` values without an own kernel are mapped like    |
+|                 |  in ``Subtitle`` instead of falling back to ``"left"`` (e.g. ``"top"``   |
+|                 |  is rendered centred on 4:2:0/4:2:2/4:1:1). ``"top_left"`` on            |
+|                 |  4:2:0/4:4:0 is now a 1-2-1 filter centred on the top-left luma sample,  |
+|                 |  on 4:2:2/YUY2 the same as ``"left"`` (was: the ``"left"`` kernel).      |
+|                 || Add ``gdi`` parameter to ``Subtitle``. When ``false``, ``Subtitle``     |
+|                 |  uses the built-in bitmap font instead of GDI rendering.                 |
 |                 || Add ``gdi`` parameter to ``Text`` (accepted but ignored; for API        |
 |                 |  compatibility with ``Subtitle``).                                       |
 +-----------------+--------------------------------------------------------------------------+

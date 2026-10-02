@@ -259,28 +259,30 @@ Note that some modes can be similar to :doc:`Overlay <overlay>`, but the two fil
 
 .. describe:: placement
 
-    Chroma placement for subsampled planar YUV formats: 4:2:0, 4:2:2, 4:1:1, 4:4:0
-    and 4:1:0 (not available for YUY2).
+    Chroma placement (siting) of the clips for subsampled planar YUV formats: 4:2:0,
+    4:2:2, 4:1:1, 4:4:0 and 4:1:0 (YUY2 is processed as 4:2:2).
 
-    default=``"mpeg2"``
+    Accepted values are the same as for ``ChromaInPlacement`` of
+    :doc:`ConvertToXXXX <convert>` (case-insensitive): ``"left"`` (``"mpeg2"``),
+    ``"center"`` (``"mpeg1"``, ``"jpeg"``), ``"top_left"``, ``"top"``,
+    ``"bottom_left"``, ``"bottom"``, ``"DV"`` and ``"auto"``, with the same per-axis
+    meaning.
 
-    Possible values: ``"mpeg2"`` (default), ``"mpeg1"``, ``"top_left"``.
+    Default (not given or ``"auto"``): the base clip's ``_ChromaLocation`` frame property
+    (read from frame 0), otherwise the per-format default of ConvertToXXXX: ``"left"``
+    for 4:2:0/4:2:2/4:1:1, ``"top"`` for 4:4:0, ``"top_left"`` for 4:1:0.
 
     Used in "mul", "mulovr", "darken", "lighten", "add" and "subtract" modes with planar YUV
     color spaces to correctly filter the luma-resolution alpha mask down to chroma
-    resolution for the U and V planes.
-
-    * ``"mpeg2"`` — left-cosited H, centred V (MPEG-2 / H.264 default; triangle filter).
-    * ``"mpeg1"`` — centred H+V (MPEG-1 / JPEG; box filter).
-    * ``"top_left"`` — left-cosited H+V (HEVC / AV1 / UHD default; point sample, fastest).
-
-    **4:1:1, 4:4:0 and 4:1:0** have no standard chroma siting convention, so only
-    two distinct behaviors exist per format instead of three: ``"mpeg2"`` and
-    ``"top_left"`` both mean a point sample, and only ``"mpeg1"`` means a centered
-    box average — same grouping for all three ratios. See
-    :doc:`Overlay <overlay>`'s ``placement`` documentation for the full
-    per-format siting table and rationale (Layer shares the same underlying
+    resolution for the U and V planes. Only three filter kernels are implemented, the
+    placement is silently mapped to the nearest one; the "mpeg2"-like kernel is a
+    left-cosited H, centred V triangle filter, the "mpeg1"-like one a box filter, the
+    "top_left"-like one a point sample (fastest). See the kernel table in
+    :doc:`Overlay <overlay>`'s ``placement`` documentation (Layer shares the same
     chroma-mask logic).
+
+    Layer does not convert: both clips must have the same format, and they are assumed
+    to share the same chroma siting; the overlay clip's ``_ChromaLocation`` is not used.
 
 Other notes
 -----------
@@ -321,7 +323,13 @@ Changelog
 +=================+===============================================================+
 | 3.7.6           | | Layer: Add "mulovr" mode (Overlay-style multiply, YUV(A)    |
 |                 |   only)                                                       |
-|                 | | Layer: Add 'top_left' option for "placement"                |
+|                 | | "placement": ConvertToXXXX ChromaInPlacement syntax         |
+|                 |   (left/mpeg2, center/mpeg1/jpeg, top_left, top, bottom_left, |
+|                 |   bottom, dv, auto) and per-axis meaning                      |
+|                 | | "placement" default: the clip's _ChromaLocation frame       |
+|                 |   property, else the format default (was: always "mpeg2")     |
+|                 | | mask kernel: nearest implemented variant, shared with       |
+|                 |   Overlay                                                     |
 |                 | | Layer: full refactor, use unified blend functions,          |
 |                 |   opacity (and not level)-based integer division arithmetic   |
 +-----------------+---------------------------------------------------------------+
@@ -338,6 +346,6 @@ Changelog
 +-----------------+---------------------------------------------------------------+
 
 
-$Date: 2026/04/30 09:23:00 $
+$Date: 2026/09/30 10:00:00 $
 
 .. _in this thread: http://forum.doom9.org/showthread.php?s=&threadid=28438

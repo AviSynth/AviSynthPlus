@@ -33,9 +33,8 @@ Sampling
      longer applies. It is kept for backward compatibility with pre-2.5 scripts.
      It is now equivalent to ``ConvertToYUY2``, and still accepts only a single
      ``matrix`` parameter and does not support interlaced material.
-   - **4:4:0 and 4:1:0** are new bit-depth-agnostic formats as of AviSynth+
-     **4:1:1** supports 10+ bit depths as of AviSynth+ 3.7.6.
-     (4:1:1 t 8-bits has existed since AviSynth 2.6).
+   - **4:4:0 and 4:1:0** are new formats (all bit depths) as of AviSynth+ 3.7.6, and
+     **4:1:1** supports 10+ bit depths as well (8-bit 4:1:1 has existed since AviSynth 2.6).
      Unlike 4:2:0/4:2:2, none of these three ratios has an inherited
      broadcast/industry-standard chroma siting convention; see the new
      `4:1:1, 4:4:0 and 4:1:0 sampling (AviSynth+)`_ section below.
@@ -858,56 +857,34 @@ transpose of 4:2:2:
 | Y  Y Y Y Y  Y Y Y  | line 4 |
 +--------------------+--------+
 
-With no inherited convention, only two distinct siting behaviors exist per
-format (a centered box average, or an uncentered point-sample) — but *which*
-of the three ``"mpeg2"``/``"mpeg1"``/``"top_left"`` compatibility names
-collapse together is not the same for all three, since it depends on which
-axis each ratio actually subsamples:
+With no inherited convention, AviSynth+ applies the usual placement names per axis
+(see ``ChromaInPlacement`` of :doc:`ConvertToXXXX <../corefilters/convert>`): the
+horizontal part (co-sited or centered) and the vertical part (top, centered or bottom)
+are used separately, and on an axis without subsampling that part has no effect.
+Every name is accepted for every format; names differing only on a non-subsampled
+axis are equivalent:
 
-.. list-table:: Effective chroma siting for 4:1:1, 4:4:0 and 4:1:0
+.. list-table:: Equivalent placement names for 4:1:1, 4:4:0 and 4:1:0
    :header-rows: 1
-   :widths: 10 30 30 30
+   :widths: 20 80
 
    * - Format
-     - ``"mpeg2"``
-     - ``"mpeg1"``
-     - ``"top_left"``
+     - Equivalent names (chroma sample position within the block)
    * - 4:1:1 (H only)
-     - = ``"top_left"``: point-sample, left column of the 4-wide block
-     - box average over the 4-wide block
-     - point-sample, left column of the 4-wide block
+     - ``"left"`` = ``"top_left"`` = ``"bottom_left"`` (left column);
+       ``"center"`` = ``"top"`` = ``"bottom"`` (centered in the 4-wide block)
    * - 4:4:0 (V only)
-     - = ``"top_left"``: point-sample, top row of the 2-row block
-     - box average over the 2-row block
-     - point-sample, top row of the 2-row block
+     - ``"top"`` = ``"top_left"`` (top row); ``"left"`` = ``"center"`` (centered in
+       the 2-row block); ``"bottom"`` = ``"bottom_left"`` (bottom row)
    * - 4:1:0 (H and V)
-     - = ``"top_left"``: point-sample, top-left of the 4×4 block
-     - box average over the 4×4 block
-     - point-sample, top-left of the 4×4 block
+     - all six are distinct positions in the 4x4 block
 
-All three ratios group the same way: ``"mpeg2"`` and ``"top_left"`` always
-collapse to the same point-sample behavior, and only ``"mpeg1"`` (the one
-placement that actually asks for a centered box average) is distinct. For
-4:1:1 and 4:1:0 this is because both subsample horizontally, where ``"mpeg2"``
-(H co-sited) already is that point-sample offset. 4:4:0 subsamples *only*
-vertically, so ``"mpeg2"``'s H-component is moot to begin with — with no H
-axis to be co-sited on, ``"mpeg2"`` and ``"top_left"`` are indistinguishable
-there too, so it collapses the same way rather than the opposite way. The
-point-sample choice for each format matches what tools with no siting
-awareness for these ratios do (e.g. ffmpeg's ``swscale``, which always
-resamples 4:1:1/4:4:0/4:1:0 with a zero offset), so it round-trips losslessly
-against such tools and is also the fastest option — this is why AviSynth+
-also uses it as the default when no ``ChromaInPlacement``/``placement``/
-``_ChromaLocation`` is given.
-
-Note that ``ConvertToYUV4xx``'s own parser does not literally accept all
-three compatibility names as raw ``ChromaInPlacement``/``ChromaOutPlacement``
-strings on every format — 4:4:0 in particular only recognizes the literal
-strings ``"center"``/``"top"`` (passing ``"left"``, ``"mpeg2"`` or
-``"top_left"`` directly throws an error); 4:1:1 and 4:1:0 accept all three
-compatibility names directly. See :doc:`Overlay <../corefilters/overlay>`'s
-``placement`` parameter documentation for the full acceptance table and how
-Overlay works around the 4:4:0 case internally.
+The defaults (``"left"`` for 4:1:1, ``"top"`` for 4:4:0, ``"top_left"`` for 4:1:0)
+are the zero-offset positions, matching tools with no siting awareness for these
+ratios (e.g. ffmpeg's ``swscale``), so they round-trip consistently with such tools.
+Filters which only approximate the siting with a few kernels (the masks of Overlay
+and Layer, Subtitle/Text) use the nearest one; see :doc:`Overlay
+<../corefilters/overlay>`'s ``placement``.
 
 
 4:2:0 Interlaced Chroma Problem (or ICP)

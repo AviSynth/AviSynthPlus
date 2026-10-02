@@ -547,48 +547,54 @@ Syntax and parameters
 
 .. describe:: ChromaInPlacement, ChromaOutPlacement
 
-    string  ChromaInPlacement = "MPEG2"
-    
-    string  ChromaOutPlacement = "MPEG2"
+    string  ChromaInPlacement = (see below)
 
-    ChromaInPlacement determines the chroma placement in the clip when converting from YV12/YUV420, YV16/YUV422 or YV411/YUV411.
-    ChromaOutPlacement determines the chroma placement in the clip when converting to YV12/YUV420, YV16/YUV422 or YV411/YUV411.
-    
-    The placement can be one of these strings: 
+    string  ChromaOutPlacement = (see below)
 
-    - ``"MPEG2"`` (synonyms: ``"left"``)
-      Subsampling used in MPEG-2 4:2:x and most other formats. Chroma samples are located on the left pixel column of the group (default).
-    - ``"MPEG1"`` (synonyms: ``"jpeg"``, ``"center"``)
-      Subsampling used in MPEG-1 4:2:0. Chroma samples are located on the center of each group of 4 pixels.
-    - ``"DV"``
-      Like MPEG-2, but U and V channels are co-sited vertically: V on the top row, and U on the bottom row. For 4:1:1, chroma is located on the leftmost column.
+    ChromaInPlacement determines the chroma placement in the clip when converting from a
+    subsampled format (4:2:0, 4:2:2, 4:1:1, 4:4:0, 4:1:0).
+    ChromaOutPlacement determines the chroma placement in the clip when converting to one.
+
+    The placement can be one of these strings (case-insensitive):
+
+    - ``"left"`` (synonym: ``"MPEG2"``)
+      Subsampling used in MPEG-2 4:2:x and most other formats: horizontally co-sited
+      with the left luma column, vertically centered.
+    - ``"center"`` (synonyms: ``"MPEG1"``, ``"jpeg"``)
+      Subsampling used in MPEG-1 4:2:0 and JPEG: centered in both directions.
     - ``"top_left"``
-      Subsampling used in UHD 4:2:0. Chroma samples are located on the top left pixel column of the group.
-    - ``bottom_left`` 4:2:0 only
-    - ``bottom``   4:2:0 only
+      Subsampling used in UHD (HEVC/AV1) 4:2:0: co-sited with the top-left luma sample.
+    - ``"top"``: horizontally centered, vertically co-sited with the top luma row.
+    - ``"bottom_left"``: horizontally co-sited, vertically on the bottom luma row.
+    - ``"bottom"``: horizontally centered, vertically on the bottom luma row.
+    - ``"DV"`` (DV-PAL 4:2:0, Avisynth special)
+      Both channels horizontally co-sited, on alternate rows: V on the top row
+      (as ``"top_left"``), U on the bottom row (as ``"bottom_left"``). For 4:1:1 and
+      4:2:2 (no vertical subsampling) this equals ``"left"``.
+    - ``"auto"`` or not given: the ``_ChromaLocation`` frame property of the input is
+      used for ChromaInPlacement, if present; otherwise the format default (below).
 
-    .. note::
+    **Placement is defined per axis.** Within the block of luma samples sharing one
+    chroma sample (e.g. 2x2 for 4:2:0, 4x1 for 4:1:1, 1x2 for 4:4:0, 4x4 for 4:1:0),
+    a chroma sample is either co-sited with the first luma sample, centered, or on the
+    last one, independently horizontally (left / center) and vertically (top / center /
+    bottom). On an axis which is not subsampled, all three positions are the same, so:
 
-       4:4:0 (``ConvertToYUV440``/``ConvertToYUVA440``) and 4:1:0
-       (``ConvertToYUV410``/``ConvertToYUVA410``) are exceptions to all of the above:
-       neither ratio has a standard broadcast chroma siting convention (no MPEG/H.26x/AV1
-       stream header ever defined one), so instead of the three-way choice above they
-       support only two distinct placements — a centered box average (``"center"``,
-       synonyms ``"mpeg1"``/``"jpeg"``), and an uncentered point sample (``"top"`` for
-       4:4:0; ``"top_left"``, also accepted as ``"top"`` or ``"left"``, for 4:1:0). No
-       other name from the list above (``"mpeg2"``, ``"dv"``, ``"bottom_left"``,
-       ``"bottom"``) is accepted for either format and throws an error if given
-       explicitly.
+    - 4:2:2 and 4:1:1: only the horizontal part counts; ``"top"`` and ``"bottom"`` equal
+      ``"center"``, ``"top_left"`` and ``"bottom_left"`` equal ``"left"``.
+    - 4:4:0: only the vertical part counts; ``"left"`` equals ``"center"``,
+      ``"top_left"`` equals ``"top"``, ``"bottom_left"`` equals ``"bottom"``.
+    - 4:2:0 and 4:1:0: all six placements are distinct.
 
-       The point-sample value is the **default** for both (not ``"center"``) when
-       ``ChromaInPlacement``/``ChromaOutPlacement`` is left unset or set to
-       ``"auto"`` — this matches FFmpeg's ``libswscale``, which has no siting
-       awareness at all for ``YUV410P``/``YUV440P`` and always resamples them with a
-       zero (point-sample) offset, so scripts moving between the two tools see
-       consistent chroma positioning by default. Avisynth's handling is strict:
-       it does not silently ignore an incompatible placement; an explicit value must be 
-       one of the two or three names accepted for that format (or one of their aliases
-       above); any other explicit value is rejected with an error rather than silently discarded.
+    Thus every placement is accepted for every subsampled format. (Before 3.7.6, 4:2:2 and
+    4:1:1 rejected ``"top"``, ``"bottom"`` and ``"DV"``.)
+
+    **Defaults** when not given (and no ``_ChromaLocation`` frame property is present):
+    ``"left"`` for 4:2:0, 4:2:2 and 4:1:1; ``"top"`` for 4:4:0 and ``"top_left"`` for
+    4:1:0. Neither 4:4:0 nor 4:1:0 has a standard broadcast chroma siting convention (no
+    MPEG/H.26x/AV1 stream header ever defined one); their point-sample defaults match
+    FFmpeg's ``libswscale``, which always resamples them with a zero offset, so scripts
+    moving between the two tools see consistent chroma positioning by default.
 
     .. note::
 
@@ -605,7 +611,7 @@ Syntax and parameters
          4:2:0/4:4:0. The chroma-siting model used internally can only express a single
          siting position per field, so it cannot represent that 2-rows-per-field split at
          all. Rather than reject the combination, ``interlaced=true`` with 4:1:0 falls
-         back to the same flat (non-field-aware) ``"center"`` position on both fields.
+         back to the flat (non-field-aware) position of the given placement on both fields.
          (Intentional workaround, possibly non-existent in the wild).
 
    See also the Frame properties section below.
