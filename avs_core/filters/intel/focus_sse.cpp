@@ -1357,9 +1357,9 @@ void accumulate_line_16_sse2(BYTE* c_plane, const BYTE** planeP, int planes, siz
     }
 
     __m128i acc;
-    //__m128 half = _mm_set1_ps(0.5f); // no need rounder, _mm_cvtps_epi32 default is round-to-nearest, unless we use _mm_cvttps_epi32 which truncates
-    low = _mm_cvtps_epi32(_mm_mul_ps(_mm_cvtepi32_ps(low), div_vector));
-    high = _mm_cvtps_epi32(_mm_mul_ps(_mm_cvtepi32_ps(high), div_vector));
+    const __m128 half = _mm_set1_ps(0.5f);
+    low = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(low), div_vector), half));
+    high = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(high), div_vector), half));
     acc = _MM_PACKUS_EPI32(low, high); // sse4.1 simul
     if (lessThan16bit)
       acc = _MM_MIN_EPU16(acc, limit); // sse4.1 simul
@@ -1433,9 +1433,9 @@ void accumulate_line_16_sse41(BYTE* c_plane, const BYTE** planeP, int planes, si
     }
 
     __m128i acc;
-    //__m128 half = _mm_set1_ps(0.5f); // no need rounder, _mm_cvtps_epi32 default is round-to-nearest, unless we use _mm_cvttps_epi32 which truncates
-    low = _mm_cvtps_epi32(_mm_mul_ps(_mm_cvtepi32_ps(low), div_vector));
-    high = _mm_cvtps_epi32(_mm_mul_ps(_mm_cvtepi32_ps(high), div_vector));
+    const __m128 half = _mm_set1_ps(0.5f);
+    low = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(low), div_vector), half));
+    high = _mm_cvttps_epi32(_mm_add_ps(_mm_mul_ps(_mm_cvtepi32_ps(high), div_vector), half));
     acc = _mm_packus_epi32(low, high); // sse41
     if (lessThan16bit)
       acc = _mm_min_epu16(acc, limit); // sse41

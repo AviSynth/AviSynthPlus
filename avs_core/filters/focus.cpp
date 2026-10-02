@@ -744,7 +744,7 @@ static void accumulate_line_c(BYTE* _c_plane, const BYTE** planeP, int planes, i
 
   float average_multiplier = 0.0f;
   if constexpr(sizeof(pixel_t) == 2) {
-    // Match the 16-bit SSE paths' float reciprocal and default nearest rounding.
+    // Match the 16-bit SIMD paths: float reciprocal, round half up.
     average_multiplier = 1.0f / static_cast<float>(planes + 1);
   }
 
@@ -771,7 +771,7 @@ static void accumulate_line_c(BYTE* _c_plane, const BYTE** planeP, int planes, i
     if (std::is_floating_point<pixel_t>::value)
       c_plane[x] = (pixel_t)(sum / (planes + 1)); // float: simple average
     else if constexpr(sizeof(pixel_t) == 2)
-      c_plane[x] = (pixel_t)std::nearbyintf(static_cast<float>(sum) * average_multiplier);
+      c_plane[x] = (pixel_t)(int)(static_cast<float>(sum) * average_multiplier + 0.5f); // half up, match SIMD paths
     else
       c_plane[x] = (pixel_t)(((bigsum_t)sum * div + 16384) >> 15); // div = 32768/(planes+1) for integer arithmetic
   }
@@ -827,6 +827,36 @@ static void accumulate_line(BYTE* c_plane, const BYTE** planeP, int planes, size
   // threshold == 255: simple average
   bool maxThreshold = (threshold == 255);
 #ifdef INTEL_INTRINSICS
+  const BYTE* planeP_rest[16]; // AVX2: offset plane pointers for the rest of the row
+  if ((pixelsize <= 2) && (env->GetCPUFlags() & CPUF_AVX2) && rowsize >= 32) {
+    // AVX2 for the mod32 width
+    const size_t rowsize_mod32 = rowsize / 32 * 32;
+    const int thresh16 = threshold << (bits_per_pixel - 8); // for 10-16 bits
+    if (pixelsize == 1) {
+      if (maxThreshold)
+        accumulate_line_avx2<true>(c_plane, planeP, planes, rowsize_mod32, threshold | (threshold << 8), div);
+      else
+        accumulate_line_avx2<false>(c_plane, planeP, planes, rowsize_mod32, threshold | (threshold << 8), div);
+    }
+    else {
+      if (maxThreshold) {
+        if (bits_per_pixel < 16) accumulate_line_16_avx2<true, true>(c_plane, planeP, planes, rowsize_mod32, thresh16, bits_per_pixel);
+        else accumulate_line_16_avx2<true, false>(c_plane, planeP, planes, rowsize_mod32, thresh16, bits_per_pixel);
+      }
+      else {
+        if (bits_per_pixel < 16) accumulate_line_16_avx2<false, true>(c_plane, planeP, planes, rowsize_mod32, thresh16, bits_per_pixel);
+        else accumulate_line_16_avx2<false, false>(c_plane, planeP, planes, rowsize_mod32, thresh16, bits_per_pixel);
+      }
+    }
+    if (rowsize_mod32 == rowsize)
+      return;
+    // The rest <32 bytes falls through SSSE3/SSE4.1/C with modded pointers and sizes
+    c_plane += rowsize_mod32;
+    for (int i = 0; i < planes; i++)
+      planeP_rest[i] = planeP[i] + rowsize_mod32;
+    planeP = planeP_rest;
+    rowsize -= rowsize_mod32;
+  }
   if ((pixelsize == 2) && (env->GetCPUFlags() & CPUF_SSE4) && rowsize >= 16) {
     // <maxThreshold, lessThan16bit>
     if(maxThreshold) {
