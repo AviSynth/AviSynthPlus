@@ -228,10 +228,10 @@ static AVS_FORCEINLINE __m128i af_unpack_blend_uint16_t_sse41(__m128i &left, __m
 }
 
 
-void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount) {
+void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount, int bits_per_pixel) {
   // amount was: half_amount (32768). Full: 65536 (2**16)
   // now it becomes 2**(16-9)=2**7 scale
-  int t = (amount + 256) >> 9; // 16-9 = 7 -> shift in
+  const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
   __m128i center_weight = _mm_set1_epi32(t);
   __m128i outer_weight = _mm_set1_epi32(64 - t);
   __m128i round_mask = _mm_set1_epi32(0x40);
@@ -255,6 +255,7 @@ void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch
       __m128i result_hi = af_blend_uint16_t_sse2(upper_hi, center_hi, lower_hi, center_weight, outer_weight, round_mask);
 
       __m128i result = _MM_PACKUS_EPI32(result_lo, result_hi); // sse4.1 simul
+      result = _MM_MIN_EPU16(result, limit);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x), result);
     }
@@ -275,6 +276,7 @@ void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch
     __m128i result_hi = af_blend_uint16_t_sse2(upper_hi, center_hi, center_hi, center_weight, outer_weight, round_mask);
 
     __m128i result = _MM_PACKUS_EPI32(result_lo, result_hi); // sse4.1 simul
+    result = _MM_MIN_EPU16(result, limit);
 
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x), result);
   }
@@ -283,11 +285,11 @@ void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount)
+void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount, int bits_per_pixel)
 {
   // amount was: half_amount (32768). Full: 65536 (2**16)
   // now it becomes 2**(16-9)=2**7 scale
-  int t = (amount + 256) >> 9; // 16-9 = 7 -> shift in
+  const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
   __m128i center_weight = _mm_set1_epi32(t);
   __m128i outer_weight = _mm_set1_epi32(64 - t);
   __m128i round_mask = _mm_set1_epi32(0x40);
@@ -311,6 +313,7 @@ void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitc
       __m128i result_hi = af_blend_uint16_t_sse41(upper_hi, center_hi, lower_hi, center_weight, outer_weight, round_mask);
 
       __m128i result = _mm_packus_epi32(result_lo, result_hi);
+      result = _mm_min_epu16(result, limit);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x), result);
     }
@@ -331,6 +334,7 @@ void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitc
     __m128i result_hi = af_blend_uint16_t_sse41(upper_hi, center_hi, center_hi, center_weight, outer_weight, round_mask);
 
     __m128i result = _mm_packus_epi32(result_lo, result_hi);
+    result = _mm_min_epu16(result, limit);
 
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp + x), result);
   }
@@ -934,7 +938,7 @@ void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch,
   int outer_weight_c = int(32768 - amount);
 
   int t = int((amount + 256) >> 9);
-  __m128i center_weight = _mm_set1_epi32(t);
+  const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
   __m128i outer_weight = _mm_set1_epi32(64 - t);
   __m128i round_mask = _mm_set1_epi32(0x40);
   __m128i zero = _mm_setzero_si128();
@@ -950,6 +954,7 @@ void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch,
     left = _mm_or_si128(_mm_and_si128(center, left_mask), _mm_slli_si128(center, 2));
 
     __m128i result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = _MM_MIN_EPU16(result, limit);
     left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + (16 - 2)));
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp), result);
 
@@ -959,6 +964,7 @@ void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch,
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + 2));
 
       result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = _MM_MIN_EPU16(result, limit);
 
       left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + (16 - 2)));
 
@@ -971,6 +977,7 @@ void af_horizontal_planar_uint16_t_sse2(BYTE* dstp, size_t height, size_t pitch,
       right = _mm_or_si128(_mm_and_si128(center, right_mask), _mm_srli_si128(center, 2));
 
       result = af_unpack_blend_uint16_t_sse2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = _MM_MIN_EPU16(result, limit);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp + mod16_width - 16), result);
     }
@@ -994,7 +1001,7 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
   int outer_weight_c = int(32768 - amount);
 
   int t = int((amount + 256) >> 9);
-  __m128i center_weight = _mm_set1_epi32(t);
+  const __m128i limit = _mm_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
   __m128i outer_weight = _mm_set1_epi32(64 - t);
   __m128i round_mask = _mm_set1_epi32(0x40);
   __m128i zero = _mm_setzero_si128();
@@ -1010,6 +1017,7 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
     left = _mm_or_si128(_mm_and_si128(center, left_mask), _mm_slli_si128(center, 2));
 
     __m128i result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = _mm_min_epu16(result, limit);
     left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + (16 - 2)));
     _mm_store_si128(reinterpret_cast<__m128i*>(dstp), result);
 
@@ -1019,6 +1027,7 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
       right = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + 2));
 
       result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = _mm_min_epu16(result, limit);
 
       left = _mm_loadu_si128(reinterpret_cast<const __m128i*>(dstp + x + (16 - 2)));
 
@@ -1031,6 +1040,7 @@ void af_horizontal_planar_uint16_t_sse41(BYTE* dstp, size_t height, size_t pitch
       right = _mm_or_si128(_mm_and_si128(center, right_mask), _mm_srli_si128(center, 2));
 
       result = af_unpack_blend_uint16_t_sse41(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = _mm_min_epu16(result, limit);
 
       _mm_store_si128(reinterpret_cast<__m128i*>(dstp + mod16_width - 16), result);
     }

@@ -125,10 +125,10 @@ static AVS_FORCEINLINE __m256i af_unpack_blend_uint16_t_avx2(__m256i &left, __m2
   return _mm256_packus_epi32(result_lo, result_hi);
 }
 
-void af_vertical_uint16_t_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount) {
+void af_vertical_uint16_t_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount, int bits_per_pixel) {
   // amount was: half_amount (32768). Full: 65536 (2**16)
   // now it becomes 2**(16-9)=2**7 scale
-  int t = (amount + 256) >> 9; // 16-9 = 7 -> shift in
+  const __m256i limit = _mm256_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
   __m256i center_weight = _mm256_set1_epi32(t);
   __m256i outer_weight = _mm256_set1_epi32(64 - t);
   __m256i round_mask = _mm256_set1_epi32(0x40);
@@ -152,6 +152,7 @@ void af_vertical_uint16_t_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch
       __m256i result_hi = af_blend_uint16_t_avx2(upper_hi, center_hi, lower_hi, center_weight, outer_weight, round_mask);
 
       __m256i result = _mm256_packus_epi32(result_lo, result_hi);
+      result = _mm256_min_epu16(result, limit);
 
       _mm256_store_si256(reinterpret_cast<__m256i*>(dstp + x), result);
     }
@@ -173,6 +174,7 @@ void af_vertical_uint16_t_avx2(BYTE* line_buf, BYTE* dstp, int height, int pitch
 
     __m256i result;
     result = _mm256_packus_epi32(result_lo, result_hi);
+    result = _mm256_min_epu16(result, limit);
 
     _mm256_store_si256(reinterpret_cast<__m256i*>(dstp + x), result);
   }
@@ -334,7 +336,7 @@ void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch,
   int outer_weight_c = int(32768 - amount);
 
   int t = int((amount + 256) >> 9);
-  __m256i center_weight = _mm256_set1_epi32(t);
+  const __m256i limit = _mm256_set1_epi16((short)((1 << bits_per_pixel) - 1)); // clamp for 10-14 bits
   __m256i outer_weight = _mm256_set1_epi32(64 - t);
   __m256i round_mask = _mm256_set1_epi32(0x40);
   __m256i zero = _mm256_setzero_si256();
@@ -354,6 +356,7 @@ void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch,
     left = _mm256_set_m128i(left_hi128, left_lo128);
 
     __m256i result = af_unpack_blend_uint16_t_avx2(left, center, right, center_weight, outer_weight, round_mask, zero);
+    result = _mm256_min_epu16(result, limit);
     left = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dstp + (32 - sizeof(uint16_t))));
     _mm256_store_si256(reinterpret_cast<__m256i*>(dstp), result);
 
@@ -363,6 +366,7 @@ void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch,
       right = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dstp + x + sizeof(uint16_t)));
 
       result = af_unpack_blend_uint16_t_avx2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = _mm256_min_epu16(result, limit);
 
       left = _mm256_loadu_si256(reinterpret_cast<const __m256i*>(dstp + x + (32 - sizeof(uint16_t)))); // read ahead to prevent overwrite
 
@@ -378,6 +382,7 @@ void af_horizontal_planar_uint16_t_avx2(BYTE* dstp, size_t height, size_t pitch,
       right = _mm256_set_m128i(right_hi128, right_lo128);
 
       result = af_unpack_blend_uint16_t_avx2(left, center, right, center_weight, outer_weight, round_mask, zero);
+      result = _mm256_min_epu16(result, limit);
 
       _mm256_store_si256(reinterpret_cast<__m256i*>(dstp + mod32_width - 32), result);
     }

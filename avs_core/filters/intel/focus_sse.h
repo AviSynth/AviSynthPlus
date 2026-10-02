@@ -43,11 +43,12 @@
 void af_vertical_mmx(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount);
 #endif
 void af_vertical_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount);
-void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount);
+void af_vertical_ssse3(BYTE* line_buf, BYTE* dstp, int height, int pitch, int width, int amount);
+void af_vertical_uint16_t_sse2(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount, int bits_per_pixel);
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount);
+void af_vertical_uint16_t_sse41(BYTE* line_buf, BYTE* dstp, int height, int pitch, int row_size, int amount, int bits_per_pixel);
 void af_vertical_sse2_float(BYTE * line_buf, BYTE * dstp, const int height, const int pitch, const int row_size, const float amount);
 
 

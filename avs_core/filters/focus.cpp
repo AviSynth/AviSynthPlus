@@ -146,13 +146,13 @@ static void af_vertical_process(BYTE* line_buf, BYTE* dstp, size_t height, size_
     af_vertical_sse2(line_buf, dstp, (int)height, (int)pitch, (int)width, half_amount);
   }
   else if (sizeof(pixel_t) == 2 && (env->GetCPUFlags() & CPUF_AVX2) && row_size >= 32) {
-    af_vertical_uint16_t_avx2(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount);
+    af_vertical_uint16_t_avx2(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount, bits_per_pixel);
   }
   else if (sizeof(pixel_t) == 2 && (env->GetCPUFlags() & CPUF_SSE4_1) && row_size >= 16) {
-    af_vertical_uint16_t_sse41(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount);
+    af_vertical_uint16_t_sse41(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount, bits_per_pixel);
   }
   else if (sizeof(pixel_t) == 2 && (env->GetCPUFlags() & CPUF_SSE2) && row_size >= 16) {
-    af_vertical_uint16_t_sse2(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount);
+    af_vertical_uint16_t_sse2(line_buf, dstp, (int)height, (int)pitch, (int)row_size, half_amount, bits_per_pixel);
   }
   else
 #ifdef X86_32
