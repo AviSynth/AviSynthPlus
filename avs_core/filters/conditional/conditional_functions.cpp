@@ -230,9 +230,12 @@ AVSValue AveragePlane::AvgPlane(AVSValue clip, void* , int plane, int offset, IS
   double sum = 0.0;
 
 #ifdef INTEL_INTRINSICS
-  // 8 bit SIMD: int64 internally, no 32 bit limit
+  // SIMD: int64 internally, no 32 bit limit
   if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_SSE2) && width >= 16) {
     sum = get_sum_of_pixels_sse2(srcp, height, width, pitch);
+  } else
+  if ((pixelsize==2) && (env->GetCPUFlags() & CPUF_SSE2) && width >= 8) {
+    sum = get_sum_of_pixels_uint16_sse2(srcp, height, width, pitch);
   } else
 #ifdef X86_32
   if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_INTEGER_SSE) && width >= 8) {
