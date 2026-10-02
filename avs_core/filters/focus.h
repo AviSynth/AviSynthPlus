@@ -108,6 +108,7 @@ private:
       int threshold;
     } planeInfo;
     planeInfo planes[4];
+    int plane_count; // number of valid planes[] entries, 0: nothing to process
     int scenechange;
     int pixelsize;
     int bits_per_pixel;

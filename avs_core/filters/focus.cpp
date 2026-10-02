@@ -210,7 +210,7 @@ PVideoFrame __stdcall AdjustFocusV::GetFrame(int n, IScriptEnvironment* env)
       const int planesRGB[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A};
       // IsYA() must be checked before IsYUVA(): IsYUVA() is also true for YA
       const int *planes = vi.IsYA() ? planesYA : vi.IsYUV() || vi.IsYUVA() ? planesYUV : planesRGB;
-      const int cplanes_to_filter = vi.IsYA() ? 1 : 3;
+      const int cplanes_to_filter = (vi.IsY() || vi.IsYA()) ? 1 : 3; // greyscale: Y only
 
       for (int cplane = 0; cplane < cplanes_to_filter; cplane++) {
             int plane = planes[cplane];
@@ -481,7 +481,7 @@ PVideoFrame __stdcall AdjustFocusH::GetFrame(int n, IScriptEnvironment* env)
     int bits_per_pixel = vi.BitsPerComponent();
     // Only the non-alpha planes get the blur/sharpen
     // alpha was already copied by copy_frame above
-    const int cplanes_to_filter = vi.IsYA() ? 1 : 3;
+    const int cplanes_to_filter = (vi.IsY() || vi.IsYA()) ? 1 : 3; // greyscale: Y only
     for(int cplane=0;cplane<cplanes_to_filter;cplane++) {
       int plane = planes[cplane];
       int row_size = dst->GetRowSize(plane);
@@ -695,14 +695,14 @@ TemporalSoften::TemporalSoften( PClip _child, unsigned radius, unsigned luma_thr
       planes[c].planeId = PLANAR_Y;
       planes[c++].threshold = luma_thresh;
     }
-    if (chroma_thresh>0) {
+    if (chroma_thresh>0 && vi.NumComponents() >= 3) { // Y/YA: no chroma planes
       planes[c].planeId = PLANAR_V;
       planes[c++].threshold =chroma_thresh;
       planes[c].planeId = PLANAR_U;
       planes[c++].threshold = chroma_thresh;
     }
   } else if (vi.IsYUY2()) {
-    planes[c].planeId=0;
+    planes[c].planeId= DEFAULT_PLANE; // 0
     planes[c++].threshold=luma_thresh|(chroma_thresh<<8);
   } else if (vi.IsRGB()) {  // For RGB We use Luma.
     if (vi.IsPlanar()) {
@@ -714,11 +714,11 @@ TemporalSoften::TemporalSoften( PClip _child, unsigned radius, unsigned luma_thr
       planes[c++].threshold = luma_thresh;
     }
     else { // packed RGB
-      planes[c].planeId = 0;
+      planes[c].planeId = DEFAULT_PLANE; // 0
       planes[c++].threshold = luma_thresh;
     }
   }
-  planes[c].planeId=0;
+  plane_count = c;
 }
 
 //offset is the initial value of x. Used when C routine processes only parts of frames after SSE/MMX paths do their job.
@@ -960,11 +960,12 @@ static int64_t calculate_sad(const BYTE* cur_ptr, const BYTE* other_ptr, int cur
 PVideoFrame TemporalSoften::GetFrame(int n, IScriptEnvironment* env)
 {
   int radius = (kernel-1) / 2;
-  int c = 0;
 
   // Just skip if silly settings
 
-  if ((!luma_threshold && !chroma_threshold) || !radius)
+  // returns the frame unchanged when nothing is left to process
+  // (e.g. Y/YA + luma_threshold = 0 --> empty plane list)
+  if ((!luma_threshold && !chroma_threshold) || !radius || plane_count == 0)
   {
     PVideoFrame ret = child->GetFrame(n, env); // P.F.
     return ret;
@@ -991,7 +992,7 @@ PVideoFrame TemporalSoften::GetFrame(int n, IScriptEnvironment* env)
   PVideoFrame CenterFrame = frames[radius];
   env->MakeWritable(&CenterFrame);
 
-  do {
+  for (int c = 0; c < plane_count; c++) {
     const BYTE* planeP[16];
     const BYTE* planeP2[16];
     int planePitch[16];
@@ -1081,8 +1082,7 @@ PVideoFrame TemporalSoften::GetFrame(int n, IScriptEnvironment* env)
       }
     } else { // Just maintain the plane
     }
-    c++;
-  } while (planes[c].planeId);
+  }
 
   //  PVideoFrame result = frames[radius]; // we are using CenterFrame instead
   //  return result;
