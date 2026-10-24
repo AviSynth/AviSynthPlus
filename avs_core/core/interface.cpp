@@ -1364,7 +1364,16 @@ static const AVS_Linkage avs_linkage = {    // struct AVS_Linkage {
 /**********************************************************************/
 };                                          // }
 
+#ifdef AVS_WINDOWS
 extern __declspec(dllexport) const AVS_Linkage* const AVS_linkage = &avs_linkage;
+#else
+// Not const on POSIX: C++ plugins define their own writable AVS_linkage and store the
+// vectors pointer in AvisynthPluginInit3. ELF symbol names do not carry the const, so when
+// the host links libavisynth directly, the plugin's reference may bind to this object;
+// a const one would live in read-only memory and the plugin's store would crash.
+// The plugin stores the same value (vectors == AVS_linkage), so a write here is harmless.
+const AVS_Linkage* AVS_linkage = &avs_linkage;
+#endif
 
 
 /**********************************************************************/

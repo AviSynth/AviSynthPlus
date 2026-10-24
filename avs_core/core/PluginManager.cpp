@@ -1239,7 +1239,11 @@ std::string PluginManager::PluginLoading() const
 // 3: other exception
 int PluginManager::TryAsAvs26(PluginFile &plugin, AVSValue *result, std::string &avsexception_message)
 {
+#ifdef AVS_WINDOWS
   extern const AVS_Linkage* const AVS_linkage; // In interface.cpp
+#else
+  extern const AVS_Linkage* AVS_linkage; // In interface.cpp, not const on POSIX
+#endif
 #ifdef AVS_POSIX
   AvisynthPluginInit3Func AvisynthPluginInit3 = (AvisynthPluginInit3Func)dlsym(plugin.Library, "AvisynthPluginInit3");
 #elif defined(GCC_WIN32)

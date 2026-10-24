@@ -19,6 +19,11 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 - Fix: Expr JIT (x86/x64): the executable code blocks were never freed on Linux/macOS/BSD (munmap with size 0),
   mmap failed on FreeBSD (fd 0 instead of -1 for MAP_ANON), allocation failures were not checked
   (now an error message instead of a crash). Reported by MeteorRain
+- Fix: Linux/BSD: crash when loading any C++ plugin into a host that links libavisynth directly (not via
+  dlopen RTLD_LOCAL): the plugin's own AVS_linkage bound to the core's read-only AVS_linkage, then the plugin's
+  store in AvisynthPluginInit3 wrote to read-only memory. The core's AVS_linkage is not const on POSIX anymore,
+  existing plugin binaries work without a rebuild.
+  Reported by MeteorRain
 
 20261023 3.7.5.r4896 (pre 3.7.6)
 --------------------------------

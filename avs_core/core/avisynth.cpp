@@ -6543,7 +6543,11 @@ extern void ApplyMessageEx(PVideoFrame* frame, const VideoInfo& vi,
   IScriptEnvironment* env);
 
 const AVS_Linkage* ScriptEnvironment::GetAVSLinkage() {
+#ifdef AVS_WINDOWS
   extern const AVS_Linkage* const AVS_linkage; // In interface.cpp
+#else
+  extern const AVS_Linkage* AVS_linkage; // In interface.cpp, not const on POSIX
+#endif
 
   return AVS_linkage;
 }
