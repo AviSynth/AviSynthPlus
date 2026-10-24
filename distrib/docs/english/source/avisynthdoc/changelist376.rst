@@ -381,6 +381,9 @@ Bugfixes
 - Fix: Linux/BSD: crash when loading any C++ plugin into a host that links libavisynth directly
   (``AVS_linkage`` symbol of the plugin resolved to the read-only one of the core). Existing plugins
   work without a rebuild. Reported by MeteorRain.
+- Fix: Linux/macOS/BSD: an autoload plugin which cannot be loaded (e.g. ImageSeq without DevIL) made the whole
+  autoload fail, and with it ``LoadPlugin`` of any other plugin. Now it is skipped like on Windows; an explicit
+  ``LoadPlugin`` of it still reports the reason. Reported by MysteryX.
 - Fix: ``SetMaxCPU`` limited the CPU flags of the whole process until the AviSynth DLL was unloaded, e.g. a
   script reload in VirtualDub kept the earlier limit (#440). Now the limit belongs to the script environment.
   See :ref:`SetMaxCPU <setmaxcpu>`. Existed since 3.6.0.

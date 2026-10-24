@@ -22,8 +22,10 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 - Fix: Linux/BSD: crash when loading any C++ plugin into a host that links libavisynth directly (not via
   dlopen RTLD_LOCAL): the plugin's own AVS_linkage bound to the core's read-only AVS_linkage, then the plugin's
   store in AvisynthPluginInit3 wrote to read-only memory. The core's AVS_linkage is not const on POSIX anymore,
-  existing plugin binaries work without a rebuild.
-  Reported by MeteorRain
+  existing plugin binaries work without a rebuild. Reported by MeteorRain
+- Fix: Linux/macOS/BSD: an autoload plugin which cannot be loaded (e.g. a missing dependency, like ImageSeq without
+  DevIL) made the whole autoload fail, and with it LoadPlugin of any other plugin. Now it is skipped like on Windows;
+  an explicit LoadPlugin of it still reports the reason. Reported by MysteryX
 
 20261023 3.7.5.r4896 (pre 3.7.6)
 --------------------------------
