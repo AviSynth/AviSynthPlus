@@ -1063,7 +1063,8 @@ struct Backend
 
 	Backend(void* pbuff = NULL, size_t buffsize = 0) : pbuff_((uint8*) pbuff), buffsize_(buffsize), size_(0)
 	{
-		memset(pbuff, 0xCC, buffsize);	// INT3
+		if (pbuff && buffsize)
+			memset(pbuff, 0xCC, buffsize);	// INT3
 	}
 
 	size_t GetSize() const
