@@ -84,7 +84,8 @@ struct CompositeKeyDjb2Hash {
 // Custom equality function for composite keys
 struct CompositeKeyEqual {
   bool operator()(const std::pair<const char*, size_t>& lhs, const std::pair<const char*, size_t>& rhs) const {
-    return (lhs.second == rhs.second) && (std::strncmp(lhs.first, rhs.first, lhs.second) == 0);
+    // memcmp, not strncmp: a string saved with a length may contain embedded zeros
+    return (lhs.second == rhs.second) && (std::memcmp(lhs.first, rhs.first, lhs.second) == 0);
   }
 };
 
@@ -150,8 +151,8 @@ public:
        ss.reserve(srclen); // worst case. Note: input string may not be closed by 0x00
        // PF: no need for WideString conversion, utf8 lower 128 ascii characters are freely searchable w/o conversion
        len = 0;
-       for (size_t i = 0; s[i] && i<srclen; ++i, ++len) {
-         if (s[i] == '\\') {
+       for (size_t i = 0; i < srclen && s[i]; ++i, ++len) {
+         if (s[i] == '\\' && i + 1 < srclen) {
            switch (s[i + 1]) {
            case 'n': ss += '\n'; ++i; continue;
            case 'r': ss += '\r'; ++i; continue;
@@ -192,6 +193,7 @@ public:
    }
 
    void Clear() {
+     cache.clear(); // its keys point into the freed or reused blocks
      if (current_block) {
          // deallocate string blocks except the first one
          while (char* p = *(char**)current_block) {
