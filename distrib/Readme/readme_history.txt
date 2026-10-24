@@ -9,7 +9,14 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
-20261021 3.7.5.rXXXX (pre 3.7.6)
+20261024 3.7.5.rXXXX (pre 3.7.6)
+--------------------------------
+- ResampleAudio: fix signed overflow in the dtbe (creep error) scale
+  Reported by MeteorRain (Doom9)
+- Fix: Expr: the jitasm Backend constructor called memset on a NULL buffer with size 0 (UB).
+  Reported by MeteorRain
+
+20261023 3.7.5.r4896 (pre 3.7.6)
 --------------------------------
 - Optimization: aarch64 NEON packed RGB24 <-> RGB32 and RGB48 <-> RGB64 conversion (vld3/vst4 and
   vld4/vst3 de-interleaving), the C versions stayed scalar with GCC -O3. Bit-identical to C.

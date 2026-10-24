@@ -1608,7 +1608,7 @@ ResampleAudio::ResampleAudio(PClip _child, int _target_rate_n, int _target_rate_
   double dt = (1 << Np) / factor;              /* Output sampling period          */
   dtb = int(dt);                               /* Yes! Truncated not rounded      */
   dt -= dtb;                                   /* 0 <= SamplingPeriodDeficit < 1  */
-  dtbe = unsigned((1 << 31) * dt + 0.5);       /* Prevent creep, bump dtb every (2^31)/dtbe samples */
+  dtbe = unsigned((1u << 31) * dt + 0.5);      /* Prevent creep, bump dtb every (2^31)/dtbe samples */
 
   double dh = min(double(Npc), factor * Npc);  /* Filter sampling period */
   dhb = int(dh * (1 << Na) + 0.5);
@@ -1812,7 +1812,7 @@ nofix:
     v       += FilterUD(Xp + ch + q, (short)(( -pos) & Pmask),   ch);  /* Perform right-wing inner product */
     *dst++ = v;     /* deposit output */
     }
-    if ((dtberror += dtbe) >= (1 << 31)) { // Don't be a creep ;-)
+    if ((dtberror += dtbe) >= (1u << 31)) { // Don't be a creep ;-)
     dtberror -= (1u << 31);
     pos += dtb + 1;   /* Move to next sample by time increment + error adjustment */
     }
