@@ -86,6 +86,26 @@
 #include <sys/mman.h>
 #endif
 
+#ifdef VS_TARGET_CPU_X86
+// Common code, called from the SSE2 and AVX2 codegen paths.
+// Copies the JIT code into a new executable memory block. nullptr on failure.
+static ExprData::ProcessLineProc allocExecCode(const void* code, size_t size)
+{
+#ifdef VS_TARGET_OS_WINDOWS
+  void* p = VirtualAlloc(nullptr, size, MEM_COMMIT, PAGE_EXECUTE_READWRITE);
+  if (!p)
+    return nullptr;
+#else
+  // fd must be -1 for MAP_ANON (FreeBSD rejects 0)
+  void* p = mmap(nullptr, size, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, -1, 0);
+  if (p == MAP_FAILED)
+    return nullptr;
+#endif
+  memcpy(p, code, size);
+  return (ExprData::ProcessLineProc)p;
+}
+#endif
+
 #ifdef XP_TLS
 #ifdef MSVC_PURE
 // v141_xp workaround: disabling /O2 global optimizations reduces build time
@@ -7097,24 +7117,20 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
           // avx2
           ExprEvalAvx2 ExprObj(d.ops[i], d.numInputs, env->GetCPUFlags(), planewidth_real_or_lut, planeheight, optSingleMode);
           if (ExprObj.GetCode(true) && ExprObj.GetCodeSize()) { // PF modded jitasm. true: epilog with vmovaps, and vzeroupper
-#ifdef VS_TARGET_OS_WINDOWS
-            d.proc[i] = (ExprData::ProcessLineProc)VirtualAlloc(nullptr, ExprObj.GetCodeSize(), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-#else
-            d.proc[i] = (ExprData::ProcessLineProc)mmap(nullptr, ExprObj.GetCodeSize(), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, 0, 0);
-#endif
-            memcpy((void *)d.proc[i], ExprObj.GetCode(), ExprObj.GetCodeSize());
+            d.proc[i] = allocExecCode(ExprObj.GetCode(), ExprObj.GetCodeSize());
+            if (!d.proc[i])
+              env->ThrowError("Expr: cannot allocate executable memory for the JIT code");
+            d.procSize[i] = ExprObj.GetCodeSize();
           }
         }
         else if (optSSE2 && d.planeOptSSE2[i]) {
           // sse2, sse4
           ExprEval ExprObj(d.ops[i], d.numInputs, env->GetCPUFlags(), planewidth_real_or_lut, planeheight, optSingleMode);
           if (ExprObj.GetCode() && ExprObj.GetCodeSize()) {
-#ifdef VS_TARGET_OS_WINDOWS
-            d.proc[i] = (ExprData::ProcessLineProc)VirtualAlloc(nullptr, ExprObj.GetCodeSize(), MEM_COMMIT, PAGE_EXECUTE_READWRITE);
-#else
-            d.proc[i] = (ExprData::ProcessLineProc)mmap(nullptr, ExprObj.GetCodeSize(), PROT_READ | PROT_WRITE | PROT_EXEC, MAP_ANON | MAP_PRIVATE, 0, 0);
-#endif
-            memcpy((void *)d.proc[i], ExprObj.GetCode(), ExprObj.GetCodeSize());
+            d.proc[i] = allocExecCode(ExprObj.GetCode(), ExprObj.GetCodeSize());
+            if (!d.proc[i])
+              env->ThrowError("Expr: cannot allocate executable memory for the JIT code");
+            d.procSize[i] = ExprObj.GetCodeSize();
           }
         }
 

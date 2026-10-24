@@ -183,18 +183,22 @@ struct ExprData {
 #ifdef VS_TARGET_CPU_X86
   typedef void(*ProcessLineProc)(void *rwptrs, intptr_t ptroff[RWPTR_SIZE], intptr_t niter, uint32_t spatialY);
   ProcessLineProc proc[4]; // 4th: alpha
-  ExprData() : clips(), vi(), proc() {}
+  size_t procSize[4]; // mapped size of proc, for munmap
+  ExprData() : clips(), vi(), proc(), procSize() {}
 #else
   ExprData() : clips(), vi() {}
 #endif
   ~ExprData() {
 #ifdef VS_TARGET_CPU_X86
-    for (int i = 0; i < 4; i++) // 4th: alpha
+    for (int i = 0; i < 4; i++) { // 4th: alpha
+      if (!proc[i])
+        continue;
 #ifdef VS_TARGET_OS_WINDOWS
       VirtualFree((LPVOID)proc[i], 0, MEM_RELEASE);
 #else
-      munmap((void *)proc[i], 0);
+      munmap((void *)proc[i], procSize[i]);
 #endif
+    }
 #endif
   }
 };

@@ -16,6 +16,9 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 - Fix: Expr: the jitasm Backend constructor called memset on a NULL buffer with size 0 (UB).
   Reported by MeteorRain
 - Fix: aarch64 Linux/BSD: SVE2.1 was never detected. Reported by MeteorRain
+- Fix: Expr JIT (x86/x64): the executable code blocks were never freed on Linux/macOS/BSD (munmap with size 0),
+  mmap failed on FreeBSD (fd 0 instead of -1 for MAP_ANON), allocation failures were not checked
+  (now an error message instead of a crash). Reported by MeteorRain
 
 20261023 3.7.5.r4896 (pre 3.7.6)
 --------------------------------

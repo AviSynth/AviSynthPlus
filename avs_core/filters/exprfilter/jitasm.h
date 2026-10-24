@@ -1534,7 +1534,7 @@ namespace detail
 				int pagesize = getpagesize();
 				size_t buffsize = (codesize + pagesize - 1) / pagesize * pagesize;
 				void* pbuff = mmap(NULL, buffsize, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANON, -1, 0);
-				if (!pbuff) {
+				if (pbuff == MAP_FAILED) {
 					JITASM_ASSERT(0);
 					return false;
 				}
