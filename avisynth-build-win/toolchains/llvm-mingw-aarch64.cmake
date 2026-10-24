@@ -75,9 +75,9 @@ set(CMAKE_C_COMPILER_TARGET   aarch64-w64-mingw32)
 set(CMAKE_CXX_COMPILER_TARGET aarch64-w64-mingw32)
 
 # --- flags ------------------------------------------------------------------
-#  The UCRT flavour of llvm-mingw links libc++ and libunwind statically,
-#  so the produced DLLs have no extra runtime dependency besides the
-#  system DLLs and the UCRT.
+#  The produced DLLs import libc++.dll and libunwind.dll (llvm-mingw's C++
+#  runtime, not part of Windows): ship them next to AviSynth.dll and in
+#  plugins\ (build_release.bat copies them).  The C runtime is the UCRT.
 set(AVS_MINGW_COMMON_FLAGS "")
 
 # --- search paths -----------------------------------------------------------

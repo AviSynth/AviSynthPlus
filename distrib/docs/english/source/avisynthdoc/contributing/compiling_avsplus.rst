@@ -21,6 +21,8 @@ Related documents:
   dependencies and toolchain (llvm-mingw, cross-compiled from Linux/WSL2).
 * :doc:`release_build_automation` — the automated multi-configuration
   Windows dev build (``build_release.bat``).
+* :doc:`visual_studio_cmake_presets` — ``CMakePresets.json``: x64 MSVC and
+  ARM64 llvm-mingw builds from the Visual Studio IDE (Open Folder).
 * :doc:`posix` — building and using AviSynth+ on Linux, macOS and BSD.
 * :doc:`contributing_with_git` — git primer for contributors.
 

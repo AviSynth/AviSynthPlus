@@ -23,6 +23,8 @@ Related documents:
   with Visual Studio.
 * :doc:`avsplus_external_deps_guide_manual_arm` — the Linux/WSL2 llvm-mingw
   route for Windows on ARM.
+* :doc:`visual_studio_cmake_presets` — single builds (x64 MSVC, ARM64
+  llvm-mingw) from the Visual Studio IDE with ``CMakePresets.json``.
 * :doc:`posix` — building and using AviSynth+ on Linux, macOS and BSD.
 * :doc:`contributing_with_git` — git primer for contributors.
 
