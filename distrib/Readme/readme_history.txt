@@ -15,6 +15,7 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
   Reported by MeteorRain (Doom9)
 - Fix: Expr: the jitasm Backend constructor called memset on a NULL buffer with size 0 (UB).
   Reported by MeteorRain
+- Fix: aarch64 Linux/BSD: SVE2.1 was never detected. Reported by MeteorRain
 
 20261023 3.7.5.r4896 (pre 3.7.6)
 --------------------------------

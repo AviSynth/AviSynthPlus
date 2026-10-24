@@ -177,11 +177,9 @@ static int64_t ARMCheckForExtensions()
   // CPUF_ARM_SVE2_1 (incremental SVE2 part 1)
   // optional in v9.1-a, mandatory in v9.2-a
   #ifdef HWCAP2_SVE2P1
-  #ifdef CPUF_ARM_SVE2_1
   if (hwcap2 & HWCAP2_SVE2P1) {
     result |= CPUF_ARM_SVE2_1;
   }
-  #endif
   #endif
 
   // CPUF_ARM_I8MM (AdvSIMD Int8 matrix multiply, Armv8.2-I8MM)

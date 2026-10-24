@@ -164,6 +164,9 @@ if(ENABLE_NEON_SIMD)
 
     # SVE2.1 (FEAT_SVE2p1 / ARMv9.1-A)
     # Needs GCC 15 or a newer Clang (Clang 22 OK, Clang 15 not).
+    # No *_sve2_1.cpp files yet. Once there are, an older compiler fails on the unknown +sve2p1 modifier:
+    # check the flag first (check_cxx_compiler_flag), skip the files and guard their dispatch with a define
+    # when unsupported, like DEFINE_AVX512 / INTEL_INTRINSICS_AVX512 on x86. (+sve2 and +i8mm: GCC 10+)
     handle_arch_flags(SVE2_1 " -march=armv9.1-a+sve2p1 " " /arch:armv9.1 ")
 
 else()

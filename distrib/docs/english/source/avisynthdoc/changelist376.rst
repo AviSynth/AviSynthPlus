@@ -373,6 +373,8 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: ``ResampleAudio``: fix signed overflow in the dtbe (creep error) scale.
+- Fix: aarch64 Linux/BSD: SVE2.1 CPU feature was never detected. Reported by MeteorRain.
 - Fix: ``SetMaxCPU`` limited the CPU flags of the whole process until the AviSynth DLL was unloaded, e.g. a
   script reload in VirtualDub kept the earlier limit (#440). Now the limit belongs to the script environment.
   See :ref:`SetMaxCPU <setmaxcpu>`. Existed since 3.6.0.
