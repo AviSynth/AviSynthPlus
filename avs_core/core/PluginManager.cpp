@@ -767,7 +767,14 @@ void PluginManager::AutoloadPlugins()
     return;
 
   AutoloadExecuted = true;
-  Autoloading = true;
+
+  // Make Autoloading (the variable) is reset also when a plugin or an .avsi throws,
+  // otherwise later LoadPlugin calls and functions would be treated as autoloaded ones.
+  struct AutoloadingGuard {
+    bool& flag;
+    AutoloadingGuard(bool& f) : flag(f) { flag = true; }
+    ~AutoloadingGuard() { flag = false; }
+  } autoloading_guard(Autoloading);
 
   // Load binary plugins
   // AutoLoadDirs are utf8 on Windows as well
@@ -898,8 +905,6 @@ void PluginManager::AutoloadPlugins()
       }
     }
   }
-
-  Autoloading = false;
 }
 
 PluginManager::~PluginManager()
