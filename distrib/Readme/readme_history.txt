@@ -26,6 +26,9 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 - Fix: Linux/macOS/BSD: an autoload plugin which cannot be loaded (e.g. a missing dependency, like ImageSeq without
   DevIL) made the whole autoload fail, and with it LoadPlugin of any other plugin. Now it is skipped like on Windows;
   an explicit LoadPlugin of it still reports the reason. Reported by MysteryX
+- Fix: escaped strings ending with an escaped backslash, e.g. e"C:\\Temp\\" or e"\\", gave "missing closing
+  quotation mark": a quotation mark after \\ was taken as an escaped one. Now it is escaped only after an odd
+  number of backslashes.
 
 20261023 3.7.5.r4896 (pre 3.7.6)
 --------------------------------

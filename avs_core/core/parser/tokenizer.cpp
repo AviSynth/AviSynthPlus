@@ -53,6 +53,16 @@
  *******   Tokenizer   ******
  ***************************/
 
+// In an e"..." string a quotation mark is escaped only when an odd number of backslashes
+// precede it: in e"\\" the backslash is escaped, the quotation mark closes the string.
+static bool IsEscapedQuotation(const char* string_start, const char* quotation)
+{
+  int backslashes = 0;
+  for (const char* p = quotation - 1; p >= string_start && *p == '\\'; --p)
+    ++backslashes;
+  return (backslashes & 1) != 0;
+}
+
 Tokenizer::Tokenizer(const char* pc, IScriptEnvironment* _env)
   : env(_env)
 {
@@ -279,7 +289,7 @@ void Tokenizer::NextToken() {
             end = strstr(tmp_start, "\"\"\"");
             if (!end)
               env->ThrowError("Parse error: string missing closing quotation marks");
-            escaped_quotation = escape && (*(end - 1) == '\\');
+            escaped_quotation = escape && IsEscapedQuotation(start, end);
             if (escaped_quotation)
               tmp_start = end + 1;
           } while (escaped_quotation);
@@ -296,7 +306,7 @@ void Tokenizer::NextToken() {
             end = strchr(tmp_start, '"');
             if (!end)
               env->ThrowError("Parse error: string missing closing quotation mark");
-            escaped_quotation = escape && (*(end - 1) == '\\');
+            escaped_quotation = escape && IsEscapedQuotation(start, end);
             if (escaped_quotation)
               tmp_start = end + 1;
           } while (escaped_quotation);

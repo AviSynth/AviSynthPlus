@@ -65,6 +65,9 @@ Converted escape sequences:
 
     e"Hello \n" will store actual LF (0x0A, 10) control character into the string
 
+A string may end with an escaped backslash: ``e"C:\\Temp\\"`` gives ``C:\Temp\``
+(fixed in 3.7.6; earlier versions reported a missing closing quotation mark).
+
 -   int
 -   long
 
