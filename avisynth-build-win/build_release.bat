@@ -61,9 +61,12 @@ if not defined BUILD_CLANG set "BUILD_CLANG=1"
 if not defined BUILD_V145  set "BUILD_V145=1"
 if not defined BUILD_WIN7  set "BUILD_WIN7=1"
 
-rem  Set to 0 to skip the Windows-on-ARM64 (aarch64) build.  Set it to 0
-rem  if the llvm-mingw toolchain is not installed -- see LLVM_MINGW_ROOT
-rem  in the DETECTION block below.
+rem  The Windows-on-ARM64 (aarch64) build.  It is on by default, but it
+rem  needs the llvm-mingw toolchain (see LLVM_MINGW_ROOT in the DETECTION
+rem  block below): when that is missing, the variant is skipped with a
+rem  warning -- unless the switch was set explicitly, in which case the
+rem  missing toolchain is an error.
+set _OVR_BUILD_ARM64=%BUILD_ARM64%
 if not defined BUILD_ARM64 set "BUILD_ARM64=1"
 
 rem  Build identification
@@ -93,7 +96,7 @@ rem      build_release.bat beta
 rem
 rem  The values used are echoed at the start of the run.
 rem  -----------------------------------------------------------------------
-set BUILD_TAG=tst
+if not defined BUILD_TAG set "BUILD_TAG=tst"
 
 rem  Remember anything that was set in the environment, so the detected
 rem  values do not overwrite it.
@@ -197,7 +200,7 @@ rem  Use the UCRT flavour of llvm-mingw (the "-ucrt-" build): it links
 rem  against ucrtbase.dll and the api-ms-win-crt-* forwarders, i.e. the
 rem  CRT of Windows 10/11 -- the same one the MSVC build uses.
 rem  Update the path below when the toolchain is updated.
-set LLVM_MINGW_ROOT=C:\avsplus_build_deps\llvm-mingw-20261020-ucrt-x86_64
+if not defined LLVM_MINGW_ROOT set "LLVM_MINGW_ROOT=C:\avsplus_build_deps\llvm-mingw-20261020-ucrt-x86_64"
 set LLVM_MINGW_CLANG=%LLVM_MINGW_ROOT%\bin\aarch64-w64-mingw32-clang++.exe
 set LLVM_MINGW_VER=
 if exist "%LLVM_MINGW_CLANG%" (
@@ -213,6 +216,19 @@ if defined LLVM_MINGW_VER (
     echo   llvm-mingw root: %LLVM_MINGW_ROOT%
 ) else (
     echo   llvm-mingw aarch64 toolchain not found at: %LLVM_MINGW_ROOT%
+    rem  The ARM64 variant is on by default, so a missing toolchain only
+    rem  means "skip it" -- unless the switch was set explicitly, then it
+    rem  is an error the user has to know about.
+    if defined _OVR_BUILD_ARM64 (
+        echo ERROR: BUILD_ARM64 was set explicitly, but the llvm-mingw
+        echo        toolchain is missing at: %LLVM_MINGW_ROOT%
+        echo        Download the UCRT build from
+        echo        https://github.com/mstorsjo/llvm-mingw/releases and
+        echo        update LLVM_MINGW_ROOT, or unset BUILD_ARM64.
+        goto :fatal_exit
+    )
+    set "BUILD_ARM64=0"
+    echo   WARNING: skipping the ARM64 variant -- no llvm-mingw toolchain.
 )
 
 rem  Plugin dependency paths
@@ -374,12 +390,12 @@ if "%BUILD_XP%"=="1" (
     if not exist "%DEPS_XP_X64%\lib\SoundTouch.lib" (
         echo ERROR: SoundTouch v141_xp x64 not found at: %DEPS_XP_X64%\lib\SoundTouch.lib
         echo        Run helpers\makesoundtouch.bat to build SoundTouch.
-        exit /b 1
+        goto :fatal_exit
     )
     if not exist "%DEPS_XP_X86%\lib\SoundTouch.lib" (
         echo ERROR: SoundTouch v141_xp x86 not found at: %DEPS_XP_X86%\lib\SoundTouch.lib
         echo        Run helpers\makesoundtouch.bat to build SoundTouch.
-        exit /b 1
+        goto :fatal_exit
     )
 )
 rem  The ClangCL, v145 and v143 builds all use the v143 SoundTouch libraries
@@ -399,18 +415,15 @@ if not exist "%DEPS_V143_X86%\lib\SoundTouch.lib" (
     exit /b 1
 )
 :skip_soundtouch_check
+rem  The llvm-mingw toolchain itself was already checked in the DETECTION
+rem  block (missing toolchain -> the variant is skipped there).  Only the
+rem  runtime DLLs are checked here, since without them the ARM64 build
+rem  would produce DLLs that cannot start on the target machine.
 if "%BUILD_ARM64%"=="1" (
-    if not exist "%LLVM_MINGW_CLANG%" (
-        echo ERROR: llvm-mingw aarch64 toolchain not found: %LLVM_MINGW_CLANG%
-        echo        Download the UCRT build of llvm-mingw from
-        echo        https://github.com/mstorsjo/llvm-mingw/releases and update
-        echo        LLVM_MINGW_ROOT in this script, or set BUILD_ARM64=0.
-        exit /b 1
-    )
     if not exist "%LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin\libc++.dll" (
         echo ERROR: the aarch64 runtime of llvm-mingw was not found under
         echo        %LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin
-        exit /b 1
+        goto :fatal_exit
     )
 )
 
@@ -1009,5 +1022,21 @@ echo  %DEST%
 echo ========================================================
 echo.
 
+goto :script_done
+
+rem  -----------------------------------------------------------------------
+rem  Fatal exit.
+rem
+rem  "exit /b N" inside a parenthesised block does not reliably set the
+rem  script's exit code: cmd.exe loses it when the enclosing block has
+rem  further commands after the nested if.  The script still stops, but the
+rem  status comes back as 0 -- which hides the failure from anything that
+rem  checks it.  The error paths therefore print their message and jump
+rem  here, where the exit happens outside of any block.
+rem  -----------------------------------------------------------------------
+:fatal_exit
+exit /b 1
+
+:script_done
 endlocal
 goto :eof
