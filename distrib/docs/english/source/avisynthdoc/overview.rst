@@ -121,6 +121,7 @@ Advanced Topics
 Versions History
 ----------------
 
+-   :doc:`Changelist 3.7.7 <changelist377>`
 -   :doc:`Changelist 3.7.6 <changelist376>`
 -   :doc:`Changelist 3.7.5 <changelist375>`
 -   :doc:`Changelist 3.7.4 <changelist374>`

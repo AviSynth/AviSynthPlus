@@ -9,6 +9,15 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
+20261030 3.7.6.rXXXX (pre 3.7.7)
+--------------------------------
+- Fix: Layer(op="Subtract") with YUVA clips: the blend weight is the original overlay alpha, not the inverted
+  one. Regression since 3.7.5.r4589. Reported by MeteorRain
+
+20261025 3.7.6.r4909
+--------------------
+** RELEASE **
+
 20261024 3.7.5.rXXXX (pre 3.7.6)
 --------------------------------
 - ResampleAudio: fix signed overflow in the dtbe (creep error) scale

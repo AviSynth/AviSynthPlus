@@ -2347,8 +2347,23 @@ PVideoFrame __stdcall Layer::GetFrame(int n, IScriptEnvironment* env)
   if (xcount <= 0 || ycount <= 0) return src1;
 
   PVideoFrame src2 = child2->GetFrame(std::min(n, overlay_frames - 1), env);
-  
+
   env->MakeWritable(&src1);
+
+  // Separate per-pixel blend weight, shared by the packed RGB, YUV(A) and planar RGB(A) paths.
+  // mask_child is set only for pre-inverted Subtract (see Layer::Create): ExtractA of the
+  // original overlay, a Y clip with the overlay's bit depth, offset by (ysrc, xsrc) as the overlay.
+  // The inverted overlay alpha must not be used as weight then; it is only the blend target
+  // of the alpha channel itself.
+  // nullptr for all other ops: the overlay's own alpha is the weight.
+  PVideoFrame mask_frame;
+  const BYTE* separate_maskp = nullptr;
+  int separate_mask_pitch = 0;
+  if (mask_child) {
+    mask_frame = mask_child->GetFrame(std::min(n, overlay_frames - 1), env);
+    separate_mask_pitch = mask_frame->GetPitch(PLANAR_Y);
+    separate_maskp = mask_frame->GetReadPtr(PLANAR_Y) + separate_mask_pitch * ysrc + xsrc * vi.ComponentSize();
+  }
 
   const int mylevel = hasAlpha ? (int)(opacity * ((1 << bits_per_pixel) + 1) + 0.5f) : (int)(opacity * (1 << bits_per_pixel) + 0.5f);
 
@@ -2446,18 +2461,11 @@ PVideoFrame __stdcall Layer::GetFrame(int n, IScriptEnvironment* env)
         // clip supplies the original alpha when the overlay was pre-inverted.
         // Uses magic-div (÷max_val) arithmetic
 
-        // mask_child is set for pre-inverted Subtract; nullptr for plain Add.
-        // The mask clip (ExtractA of original overlay) has 1 channel with 1 byte/pixel
-        // for RGB32 and 2 bytes/pixel for RGB64; offset by (ysrc, xsrc) as the overlay.
-        const BYTE* maskp8   = nullptr;
-        int         maskpitch = 0;
-        PVideoFrame mask_frame;
-        if (mask_child) {
-          mask_frame = mask_child->GetFrame(std::min(n, overlay_frames - 1), env);
-          maskpitch  = mask_frame->GetPitch();
-          maskp8     = mask_frame->GetReadPtr() + maskpitch * ysrc + xsrc * pixelsize;
-        }
-        const bool has_separate_mask = (mask_child != nullptr);
+        // separate_maskp is set for pre-inverted Subtract; nullptr for plain Add.
+        // Without it the kernel reads the interleaved overlay alpha as weight.
+        const BYTE* maskp8 = separate_maskp;
+        const int maskpitch = separate_mask_pitch;
+        const bool has_separate_mask = (separate_maskp != nullptr);
 
         layer_packedrgb_blend_c_t* blend_fn;
 #ifdef INTEL_INTRINSICS
@@ -2700,6 +2708,22 @@ PVideoFrame __stdcall Layer::GetFrame(int n, IScriptEnvironment* env)
       // YA is using only PLANAR_Y (index 0)
       const int maxPlanes = vi.IsYA() ? 1 : std::min(vi.NumComponents(), 3);
       const int planesYUV[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
+
+      // YUVA Add/Mul (and pre-inverted Subtract):
+      // overlay alpha acts as per-pixel blend weight, or the separate mask
+      // supplies the original alpha when the overlay was pre-inverted.
+      // Luma resolution in both cases.
+      const BYTE* maskp = nullptr;
+      int mask_pitch = 0;
+      if (separate_maskp) {
+        maskp = separate_maskp;
+        mask_pitch = separate_mask_pitch;
+      }
+      else if (hasAlpha) {
+        mask_pitch = src2->GetPitch(PLANAR_A);
+        maskp = src2->GetReadPtr(PLANAR_A) + mask_pitch * ysrc + xsrc * pixelsize;
+      }
+
       for (int channel = 0; channel < maxPlanes; channel++)
       {
         const int plane = planesYUV[channel];
@@ -2724,9 +2748,6 @@ PVideoFrame __stdcall Layer::GetFrame(int n, IScriptEnvironment* env)
 
         BYTE* src1p = src1->GetWritePtr(plane) + src1_pitch * (ydest >> hs) + (xdest >> ws) * pixelsize; // destination
         const BYTE* src2p = src2->GetReadPtr(plane) + src2_pitch * (ysrc >> hs) + (xsrc >> ws) * pixelsize; // source plane
-
-        const BYTE* maskp = hasAlpha ? src2->GetReadPtr(PLANAR_A) + src2->GetPitch(PLANAR_A) * (ysrc) + (xsrc) * pixelsize : nullptr; // alpha plane from Overlay
-        const int mask_pitch = hasAlpha ? src2->GetPitch(PLANAR_A) : 0;
 
         const bool is_chroma = plane != PLANAR_Y;
 
@@ -2850,23 +2871,18 @@ PVideoFrame __stdcall Layer::GetFrame(int n, IScriptEnvironment* env)
     }
 
     // Per-pixel blend weight (maskp): normally the overlay's A plane.
-    // For Subtract, mask_child holds ExtractA of the pre-Invert overlay (original A = weight);
-    // ovrp[3] then points to the inverted A, used only as the alpha blend target when
-    // process_alpha_channel=true.  For all other ops mask_child is nullptr.
-    PVideoFrame mask_frame;
+    // For pre-inverted Subtract it is the separate mask (original A); ovrp[3] then points
+    // to the inverted A, used only as the alpha blend target when process_alpha_channel=true.
     const BYTE* maskp = nullptr;
     int mask_pitch = 0;
-    if (hasAlpha) {
-      if (mask_child) {
-        mask_frame = mask_child->GetFrame(std::min(n, overlay_frames - 1), env);
-        maskp = mask_frame->GetReadPtr(PLANAR_Y) + mask_frame->GetPitch(PLANAR_Y) * ysrc + xsrc * pixelsize;
-        mask_pitch = mask_frame->GetPitch(PLANAR_Y);
-      }
-      else {
-        // Direct add/mul/lighten/darken: overlay A plane is the blend weight.
-        maskp = src2->GetReadPtr(PLANAR_A) + ovrp_pitch * ysrc + xsrc * pixelsize;
-        mask_pitch = ovrp_pitch;
-      }
+    if (separate_maskp) {
+      maskp = separate_maskp;
+      mask_pitch = separate_mask_pitch;
+    }
+    else if (hasAlpha) {
+      // Direct add/mul/lighten/darken: overlay A plane is the blend weight.
+      maskp = src2->GetReadPtr(PLANAR_A) + ovrp_pitch * ysrc + xsrc * pixelsize;
+      mask_pitch = ovrp_pitch;
     }
 
     if (!lstrcmpi(Op, "Mul"))
