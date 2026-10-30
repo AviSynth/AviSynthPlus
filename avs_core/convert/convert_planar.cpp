@@ -1318,8 +1318,8 @@ AVSValue __cdecl ConvertYUY2ToYV16_or_Y::Create(AVSValue args, void*, IScriptEnv
 
 ConvertYV16ToYUY2::ConvertYV16ToYUY2(PClip src, IScriptEnvironment* env) : GenericVideoFilter(src) {
 
-  if (!vi.IsYV16())
-    env->ThrowError("ConvertYV16ToYUY2: Only YV16 is allowed as input");
+  if (!vi.Is422() || vi.BitsPerComponent() != 8)
+    env->ThrowError("ConvertYV16ToYUY2: input must be 8-bit YUV(A) 4:2:2");
 
   vi.pixel_type = VideoInfo::CS_YUY2;
 }
@@ -2006,12 +2006,19 @@ AVSValue __cdecl ConvertToPlanarGeneric::CreateConvertToYUY2(AVSValue args, void
   if (args[9].Defined() && args[9].AsInt() != 8)
     env->ThrowError("ConvertToYUY2: bits must be 8, YUY2 is an 8-bit format");
 
+  // YUY2 has no alpha. Strip it before conversion (RemoveAlphaPlane is a
+  // quick noncopying subframe), otherwise CreateYUV422 would keep it and
+  // output YUVA422.
+  // Packed RGB32/64 alpha is ignored by CreateYUV422 itself.
+  if (vi.IsYUVA() || vi.IsPlanarRGBA()) // IsYUVA includes YA
+    clip = new RemoveAlphaPlane(clip, env);
+
   // Rebuild args with bits=8 forced, so CreateYUV422 sees an explicit
   // 8-bit target regardless of source bit depth.
   // This also means the void*1 path in CreateYUV422 won't reject
   // high bit depth sources - the bits=8 in args drives the downconvert.
   AVSValue new_args[11] = {
-    args[0],     // clip
+    clip,        // clip (planar alpha already stripped)
     args[1],     // interlaced
     args[2],     // matrix
     args[3],     // ChromaInPlacement

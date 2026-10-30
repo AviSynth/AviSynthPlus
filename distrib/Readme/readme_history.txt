@@ -11,6 +11,9 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261030 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix #529: ConvertToYUY2() from alpha sources (planar RGBA, YUVA, YA) failed with a misleading
+  "ConvertYV16ToYUY2: Only YV16 is allowed" error. Alpha is now dropped, as with RGB32/RGB64.
+  Reported by dartheditous
 - Fix: Layer(op="Subtract") with YUVA clips: the blend weight is the original overlay alpha, not the inverted
   one. Regression since 3.7.5.r4589. Reported by MeteorRain
 
