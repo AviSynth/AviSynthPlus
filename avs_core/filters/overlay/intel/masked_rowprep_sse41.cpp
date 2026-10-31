@@ -919,12 +919,6 @@ const float* prepare_effective_mask_for_row_float_sse41(
         __m128 scaled = _mm_mul_ps(v16, v_opacity);
         _mm_storeu_ps(dst + x, scaled);
       }
-      for (; x <= width - 4; x += 4) {
-        // just put back opacity * mask
-        __m128 v16 = _mm_loadu_ps(maskp + x);
-        __m128 scaled = _mm_mul_ps(v16, _mm_set1_ps(opacity));
-        _mm_storeu_ps(dst + x, scaled);
-      }
       for (; x < width; x++)
         dst[x] = maskp[x] * opacity;
       return dst;
