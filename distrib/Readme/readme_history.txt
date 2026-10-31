@@ -11,6 +11,12 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix #531: GCC build with LTO (-flto) failed at link time on x86/x64 Linux:
+  "inlining failed in call to 'always_inline' prepare_effective_mask_for_row_float_sse41: target specific
+  option mismatch". The force-inlined SSE4.1 function, defined in another source file, was called from a
+  function without the SSE4.1 target; LTO tried to inline it across the files.
+  The caller now has the SSE4.1 target, and the needless force-inline was removed (also from the AVX2 twin).
+  Existed since 3.7.6.
 - Fix #530: AddAlphaPlane() refused greyscale (Y) clips. Now Y gives YA (e.g. Y8 -> YA8, Y32 -> YAS), with
   the default opaque alpha, a mask value, opacity= or a mask clip (Y, or any alpha format, also YA).
   RemoveAlphaPlane() turns YA back into Y. Existed since 3.7.6 (new YA formats).

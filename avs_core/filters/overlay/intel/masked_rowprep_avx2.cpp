@@ -963,7 +963,7 @@ template<MaskMode maskMode, bool full_opacity>
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("avx2")))
 #endif
-AVS_FORCEINLINE const float* prepare_effective_mask_for_row_float_avx2(
+const float* prepare_effective_mask_for_row_float_avx2(
   const float* maskp,
   int mask_pitch,
   int width,

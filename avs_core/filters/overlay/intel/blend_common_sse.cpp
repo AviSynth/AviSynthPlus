@@ -577,6 +577,9 @@ template void do_fill_chroma_row_sse41<uint16_t, true> (std::vector<uint16_t>&, 
 template void do_fill_chroma_row_sse41<uint16_t, false>(std::vector<uint16_t>&, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
 
 template<bool full_opacity>
+#if defined(GCC) || defined(CLANG)
+__attribute__((__target__("sse4.1")))
+#endif
 void do_fill_chroma_row_float_sse41(
   std::vector<float>& buf, const float* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,

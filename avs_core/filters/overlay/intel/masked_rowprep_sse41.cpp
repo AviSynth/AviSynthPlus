@@ -898,7 +898,7 @@ template<MaskMode maskMode, bool full_opacity>
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-AVS_FORCEINLINE const float* prepare_effective_mask_for_row_float_sse41(
+const float* prepare_effective_mask_for_row_float_sse41(
   const float* maskp,
   int mask_pitch,
   int width,

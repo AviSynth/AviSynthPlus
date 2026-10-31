@@ -6,6 +6,9 @@ Additions, changes
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+- Fix: GCC build with LTO (link-time optimization) failed with "inlining failed in call to 'always_inline'
+  ... target specific option mismatch" in the SSE4.1 Overlay/Layer mask row preparation (x86/x64).
+  (`issue #531 <https://github.com/AviSynth/AviSynthPlus/issues/531>`_)
 
 Bugfixes
 ~~~~~~~~
