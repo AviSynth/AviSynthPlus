@@ -450,8 +450,6 @@ AddAlphaPlane::AddAlphaPlane(PClip _child, PClip _alphaClip, float _mask_f, bool
 {
   if(vi.IsYUY2())
     env->ThrowError("AddAlphaPlane: YUY2 is not allowed");
-  if(vi.IsY())
-    env->ThrowError("AddAlphaPlane: greyscale source is not allowed");
   if(!vi.IsYUV() && !vi.IsYUVA() && !vi.IsRGB())
     env->ThrowError("AddAlphaPlane: format not supported");
 
@@ -459,6 +457,7 @@ AddAlphaPlane::AddAlphaPlane(PClip _child, PClip _alphaClip, float _mask_f, bool
   bits_per_pixel = vi.BitsPerComponent();
 
   if (vi.IsYUV()) {
+    // Y (greyscale) becomes YA: CS_GENERIC_Y and CS_GENERIC_YA differ only in CS_YUV/CS_YUVA
     int pixel_type = vi.pixel_type;
     if (vi.IsYV12())
       pixel_type = VideoInfo::CS_YV12;
@@ -498,8 +497,9 @@ PVideoFrame AddAlphaPlane::GetFrame(int n, IScriptEnvironment* env)
     int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
     int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
     int *planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;
-    // copy existing 3 planes
-    for (int p = 0; p < 3; ++p) {
+    // copy existing color planes: 1 for YA (from Y), 3 otherwise
+    const int num_color_planes = vi.IsYA() ? 1 : 3;
+    for (int p = 0; p < num_color_planes; ++p) {
       const int plane = planes[p];
       env->BitBlt(dst->GetWritePtr(plane), dst->GetPitch(plane), src->GetReadPtr(plane),
            src->GetPitch(plane), src->GetRowSize(plane), src->GetHeight(plane));
@@ -624,10 +624,9 @@ RemoveAlphaPlane::RemoveAlphaPlane(PClip _child, IScriptEnvironment* env)
 {
   if(vi.IsYUY2())
     env->ThrowError("RemoveAlphaPlane: YUY2 is not allowed");
-  if(vi.IsY())
-    env->ThrowError("RemoveAlphaPlane: greyscale source is not allowed");
 
   if (vi.IsYUVA()) {
+    // YA becomes Y: CS_GENERIC_YA and CS_GENERIC_Y differ only in CS_YUVA/CS_YUV
     int pixel_type = vi.pixel_type;
     int new_pixel_type = (pixel_type & ~VideoInfo::CS_YUVA) | VideoInfo::CS_YUV;
     vi.pixel_type = new_pixel_type;
@@ -643,6 +642,8 @@ PVideoFrame RemoveAlphaPlane::GetFrame(int n, IScriptEnvironment* env)
   PVideoFrame src = child->GetFrame(n, env);
   // Packed RGB: already handled in ::Create through Invoke 32->24 or 64->48 conversion
   // only planar here
+  if (vi.IsY()) // from YA (or Y passthrough): keep the Y plane only
+    return env->Subframe(src, 0, src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
   int planes_y[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A };
   int planes_r[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A };
   int *planes = (vi.IsYUV() || vi.IsYUVA()) ? planes_y : planes_r;

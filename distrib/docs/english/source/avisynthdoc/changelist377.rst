@@ -14,6 +14,9 @@ Bugfixes
 - Fix: ConvertToYUY2 from sources with alpha (planar RGBA, YUVA, YA) gave
   "ConvertYV16ToYUY2: Only YV16 is allowed as input". Alpha is now dropped, as with RGB32/RGB64.
   (`issue #529 <https://github.com/AviSynth/AviSynthPlus/issues/529>`_)
+- Fix: AddAlphaPlane refused greyscale (Y) clips; it now gives a YA clip. RemoveAlphaPlane turns
+  YA back into Y. Existed since 3.7.6 (new YA formats).
+  (`issue #530 <https://github.com/AviSynth/AviSynthPlus/issues/530>`_)
 
 Optimizations
 ~~~~~~~~~~~~~

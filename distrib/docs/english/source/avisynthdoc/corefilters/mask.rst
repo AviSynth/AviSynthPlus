@@ -19,7 +19,7 @@ AddAlphaPlane
 **AddAlphaPlane** adds an alpha plane to the source clip. It can also be used to
 replace the existing alpha plane of the source clip. Note that the color format
 changes after using ``AddAlphaPlane()`` on an alpha-less format, for example,
-RGBP16 becomes RGBAP16.
+RGBP16 becomes RGBAP16, Y8 becomes YA8.
 
 .. rubric:: Syntax and Parameters
 
@@ -32,8 +32,8 @@ RGBP16 becomes RGBAP16.
 
 .. describe:: clip
 
-    Source clip; RGB24, RGB32, RGB48, RGB64, and all Planar RGB(A) and YUV(A)
-    formats supported.
+    Source clip; RGB24, RGB32, RGB48, RGB64, and all Planar RGB(A), YUV(A)
+    and greyscale Y/YA formats supported.
 
 .. describe:: mask
 
@@ -41,7 +41,7 @@ RGBP16 becomes RGBAP16.
     integer or a float value.
     
     **Clip:** The alpha source clip can either be a single channel greyscale (Y) 
-    or an alpha capable format (such as RGBAP8 or RGB64). If a clip is supplied,
+    or an alpha capable format (such as RGBAP8, YA8 or RGB64). If a clip is supplied,
     depending on the type, either the greyscale clip or the alpha channel is
     then copied onto the alpha channel of the source clip. The alpha source
     clip must be the same bit depth and dimensions as the source clip.
@@ -93,7 +93,7 @@ RemoveAlphaPlane
 
 **RemoveAlphaPlane** removes the alpha plane from the source clip. Note that the
 color format changes after using ``RemoveAlphaPlane()``, for example, YUVA444P8
-becomes YUV444P8.
+becomes YUV444P8, YA8 becomes Y8.
 
 
 .. rubric:: Syntax and Parameters
@@ -104,7 +104,8 @@ becomes YUV444P8.
 
 .. describe:: clip
 
-    Source clip; RGB32, RGB64, and all Planar RGBA and YUVA formats supported.
+    Source clip; RGB32, RGB64, and all Planar RGBA, YUVA and YA formats supported.
+    Clips without alpha are returned unchanged.
 
 .. _Mask:
 
@@ -335,6 +336,9 @@ Changelog
 +-----------------+-------------------------------------------------------------+
 | Version         | Changes                                                     |
 +=================+=============================================================+
+| AviSynth+ 3.7.7 || AddAlphaPlane: greyscale (Y) source gives YA (fix, #530).  |
+|                 || RemoveAlphaPlane: YA source gives Y.                       |
++-----------------+-------------------------------------------------------------+
 | AviSynth+ r2487 || Mask: support RGB64 and all Planar RGBA formats.           |
 |                 || ColorKeyMask: support RGB64 and all Planar RGBA formats.   |
 |                 || ResetMask: support RGB64 and all Planar RGBA/YUVA formats. |
@@ -349,7 +353,7 @@ Changelog
 | AviSynth 2.0.3  | Added ColorKeyMask filter.                                  |
 +-----------------+-------------------------------------------------------------+
 
-$Date: 2022/03/30 15:25:39 $
+$Date: 2026/10/31 12:00:00 $
 
 .. _chroma keying:
     https://en.wikipedia.org/wiki/Chroma_key
