@@ -243,6 +243,11 @@ std::string Utf8ToAnsi(const char* s_utf8)
 // than half a unit in the DBL_DIG-th digit), and the trailing zeros are stripped below.
 // So at most 3 (float: 4) print + read back rounds instead of up to 17.
 // Not for subnormals (below DBL_MIN / FLT_MIN): they have fewer significant bits, so they start from 1 digit.
+// Powers of two: the doubles below are half as far apart as the ones above, so the rounding interval is
+// narrower below. The nearest decimal can then lie below the value outside that interval while the next
+// decimal up reads back; so for them one unit up in the last digit is also tried (e.g. 2^-24 gives
+// 5.960464477539063e-08, not 5.9604644775390625e-08). For other values the interval is symmetric, and the
+// nearest decimal reads back whenever any decimal of that length does.
 static std::string shortest_to_string(double d, int min_digits, int max_digits, bool is_float)
 {
   if (std::isnan(d))
@@ -252,13 +257,24 @@ static std::string shortest_to_string(double d, int min_digits, int max_digits, 
   if (d == 0)
     return std::signbit(d) ? "-0.0" : "0.0";
 
+  const double a = std::fabs(d);
+  int binary_exponent;
+  const bool power_of_two = std::frexp(a, &binary_exponent) == 0.5;
+  // read back without a decimal point, so locale independent
+  auto reads_back = [a, is_float](const std::string& digits, int exponent) {
+    const std::string number = digits + "e" + std::to_string(exponent - (int)(digits.size() - 1));
+    return is_float ?
+      std::strtof(number.c_str(), nullptr) == (float)a :
+      std::strtod(number.c_str(), nullptr) == a;
+  };
+
   // find the shortest precision which round-trips
   std::string digits; // significant digits, without the decimal point
   int exponent = 0; // decimal exponent of the first digit
-  const bool subnormal = std::fabs(d) < (is_float ? (double)FLT_MIN : DBL_MIN);
+  const bool subnormal = a < (is_float ? (double)FLT_MIN : DBL_MIN);
   for (int precision = subnormal ? 1 : min_digits; precision <= max_digits; precision++) {
     char buf[40];
-    snprintf(buf, sizeof(buf), "%.*e", precision - 1, std::fabs(d)); // e.g. "1.5e-05"
+    snprintf(buf, sizeof(buf), "%.*e", precision - 1, a); // e.g. "1.5e-05"
     // collect the digits, skipping the decimal point (which can be locale dependent)
     digits.clear();
     const char* p = buf;
@@ -266,13 +282,29 @@ static std::string shortest_to_string(double d, int min_digits, int max_digits, 
       if (isAsciiDigit(*p))
         digits += *p;
     exponent = (int)strtol(p + 1, nullptr, 10);
-    // read back without a decimal point, so locale independent
-    const std::string number = digits + "e" + std::to_string(exponent - (int)(digits.size() - 1));
-    const bool same = is_float ?
-      std::strtof(number.c_str(), nullptr) == (float)std::fabs(d) :
-      std::strtod(number.c_str(), nullptr) == std::fabs(d);
-    if (same)
+    if (reads_back(digits, exponent))
       break;
+    if (power_of_two) {
+      // one unit up in the last digit
+      std::string up = digits;
+      int i = (int)up.size() - 1;
+      for (; i >= 0 && up[i] == '9'; i--)
+        up[i] = '0';
+      int up_exponent = exponent;
+      if (i >= 0)
+        up[i]++;
+      else {
+        // all nines: 99..9 + 1 = 100..0, one more decimal exponent
+        up.insert(up.begin(), '1');
+        up.pop_back();
+        up_exponent++;
+      }
+      if (reads_back(up, up_exponent)) {
+        digits = up;
+        exponent = up_exponent;
+        break;
+      }
+    }
   }
   while (digits.size() > 1 && digits.back() == '0')
     digits.pop_back();
