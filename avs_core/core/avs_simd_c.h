@@ -51,6 +51,17 @@
 #include <immintrin.h>  // covers SSE2 through AVX2 for MSVC
 #endif
 
+// Everything below is in an anonymous namespace: the classes (VectorWrapper, Int32x4, ...), their member
+// functions and the free templates are inline code with external linkage otherwise. Once this header is
+// included in a TU built with -mavx2 / /arch:AVX2 (or any other ISA flag), those would be compiled with
+// AVX2 instructions, and the linker keeps one COMDAT copy for all TUs: possibly the AVX2 one for a generic
+// caller. Here every TU gets its own copy, built with its own flags.
+// Consequence: each including TU has its own distinct types. They cannot appear in declarations shared
+// between TUs: a function declared in a header with an Int32x4 parameter and defined in another TU would
+// not link (undefined reference), and GCC warns (-Wsubobject-linkage) for such class members.
+// Use them inside one TU (local variables, static or anonymous-namespace functions).
+namespace {
+
 // Determine if we can use vector attribute
 
 // As of 2025 clang (llvm) supports vector attributes and also produces fast code
@@ -1346,5 +1357,7 @@ static AVS_FORCEINLINE Int32x4 mul16x16_to_Int32x4(const Int16x4& a, const Int16
   }
   return result;
 }
+
+} // namespace
 
 #endif  // __AVS_SIMD_C_H__
