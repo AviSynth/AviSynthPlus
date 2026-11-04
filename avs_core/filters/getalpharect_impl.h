@@ -33,7 +33,7 @@
 // import and export plugins, or graphical user interfaces.
 
 #pragma once
-// GetAlphaRect shared types, table initialisation, and SIMD dispatch declarations.
+// GetAlphaRect shared types, lookup table accessor, and SIMD dispatch declarations.
 // Included by text-overlay.cpp (scalar path) and by the _sse41 / _avx2 TUs.
 
 #include <stdint.h>
@@ -58,28 +58,10 @@ struct GARTables {
   uint16_t gamma[129];    // sqrt-gamma: gamma[n] = uint16_t(sqrt(n/128.0)*516*64+0.5)
 };
 
-inline const GARTables& gar_tables() noexcept {
-  static const GARTables t = []() {
-    GARTables t{};
-    const double scale = 516.0 * 64.0 / std::sqrt(128.0);
-    for (int i = 0; i <= 128; i++)
-      t.gamma[i] = (uint16_t)(std::sqrt((double)i) * scale + 0.5);
-    for (int i = 0; i < 256; i++) {
-      uint8_t b = 0, l = 0, r = 0;
-      if (i &   1) { b=1; l|=0x01; r|=0xFF; }
-      if (i &   2) { ++b; l|=0x03; r|=0xFE; }
-      if (i &   4) { ++b; l|=0x07; r|=0xFC; }
-      if (i &   8) { ++b; l|=0x0F; r|=0xF8; }
-      if (i &  16) { ++b; l|=0x1F; r|=0xF0; }
-      if (i &  32) { ++b; l|=0x3F; r|=0xE0; }
-      if (i &  64) { ++b; l|=0x7F; r|=0xC0; }
-      if (i & 128) { ++b; l|=0xFF; r|=0x80; }
-      t.bitcnt[i] = b; t.bitexl[i] = l; t.bitexr[i] = r;
-    }
-    return t;
-  }();
-  return t;
-}
+// Defined out of line in text-overlay.cpp (generic, baseline-ISA TU). Not inline on purpose: an inline
+// definition here would also be compiled in the _sse41/_avx2/_avx512 TUs, and the linker keeps a single
+// COMDAT copy for all callers, possibly an AVX2 one for the generic text-overlay.cpp caller.
+const GARTables& gar_tables() noexcept;
 
 // SWAR popcount for a uint64_t — no CPUID extension required.
 static inline int swar_popcount64(uint64_t v) {

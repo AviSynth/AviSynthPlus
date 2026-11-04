@@ -70,6 +70,29 @@
 #include "../core/audio.h"
 #include <bitset>
 
+// GetAlphaRect lookup tables, shared by the scalar and all SIMD tiers (declared in getalpharect_impl.h).
+const GARTables& gar_tables() noexcept {
+  static const GARTables t = []() {
+    GARTables t{};
+    const double scale = 516.0 * 64.0 / std::sqrt(128.0);
+    for (int i = 0; i <= 128; i++)
+      t.gamma[i] = (uint16_t)(std::sqrt((double)i) * scale + 0.5);
+    for (int i = 0; i < 256; i++) {
+      uint8_t b = 0, l = 0, r = 0;
+      if (i &   1) { b=1; l|=0x01; r|=0xFF; }
+      if (i &   2) { ++b; l|=0x03; r|=0xFE; }
+      if (i &   4) { ++b; l|=0x07; r|=0xFC; }
+      if (i &   8) { ++b; l|=0x0F; r|=0xF8; }
+      if (i &  16) { ++b; l|=0x1F; r|=0xF0; }
+      if (i &  32) { ++b; l|=0x3F; r|=0xE0; }
+      if (i &  64) { ++b; l|=0x7F; r|=0xC0; }
+      if (i & 128) { ++b; l|=0xFF; r|=0x80; }
+      t.bitcnt[i] = b; t.bitexl[i] = l; t.bitexr[i] = r;
+    }
+    return t;
+  }();
+  return t;
+}
 
 #if defined(AVS_WINDOWS) && !defined(NO_WIN_GDI)
 static HFONT LoadFont(const char name[], int size, bool bold, bool italic, int width=0, int angle=0)
