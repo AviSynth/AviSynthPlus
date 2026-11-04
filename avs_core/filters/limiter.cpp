@@ -569,6 +569,12 @@ PVideoFrame __stdcall Limiter::GetFrame(int n, IScriptEnvironment* env) {
   int row_size = frame->GetRowSize();
   int width = vi.width;
   int height = vi.height;
+#ifdef INTEL_INTRINSICS
+  // The x86 SIMD paths compute min(max(x, min), max), equal to the C only when min <= max.
+  // Degenerated case: min > max is not rejected;
+  // C gives min below min and max otherwise: use C for that case.
+  const bool simd_ok = min_luma <= max_luma && min_chroma <= max_chroma;
+#endif
 
   if (vi.IsYUY2()) {
 
@@ -649,14 +655,14 @@ PVideoFrame __stdcall Limiter::GetFrame(int n, IScriptEnvironment* env) {
       return frame;
     }
 #ifdef INTEL_INTRINSICS
-    if (env->GetCPUFlags() & CPUF_SSE2) {
+    if (simd_ok && (env->GetCPUFlags() & CPUF_SSE2)) {
       limit_plane_sse2(srcp, min_luma | (min_chroma << 8), max_luma | (max_chroma << 8), pitch, row_size, height);
       return frame;
     }
 
     /** Run emulator if CPU supports it**/
 #ifdef X86_32
-    if (env->GetCPUFlags() & CPUF_INTEGER_SSE)
+    if (simd_ok && (env->GetCPUFlags() & CPUF_INTEGER_SSE))
     {
       //limit_plane_mmx(srcp, min_luma, max_luma, pitch, row_size, height);
       limit_plane_isse(srcp, min_luma | (min_chroma << 8), max_luma | (max_chroma << 8), pitch, row_size, height);
@@ -776,7 +782,7 @@ PVideoFrame __stdcall Limiter::GetFrame(int n, IScriptEnvironment* env) {
   {
 #ifdef INTEL_INTRINSICS
     //todo: separate to functions and use sse2 for aligned planes even if some are unaligned
-    if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_SSE2)) {
+    if (simd_ok && (pixelsize==1) && (env->GetCPUFlags() & CPUF_SSE2)) {
         limit_plane_sse2(srcp, min_luma | (min_luma << 8), max_luma | (max_luma << 8), pitch, row_size, height);
 
         limit_plane_sse2(frame->GetWritePtr(PLANAR_U), min_chroma | (min_chroma << 8), max_chroma | (max_chroma << 8),
@@ -789,7 +795,7 @@ PVideoFrame __stdcall Limiter::GetFrame(int n, IScriptEnvironment* env) {
     }
 
 #ifdef X86_32
-    if ((pixelsize==1) && (env->GetCPUFlags() & CPUF_INTEGER_SSE))
+    if (simd_ok && (pixelsize==1) && (env->GetCPUFlags() & CPUF_INTEGER_SSE))
     {
       limit_plane_isse(srcp, min_luma | (min_luma << 8), max_luma | (max_luma << 8), pitch, row_size, height);
       limit_plane_isse(frame->GetWritePtr(PLANAR_U), min_chroma | (min_chroma << 8), max_chroma | (max_chroma << 8),
@@ -801,7 +807,7 @@ PVideoFrame __stdcall Limiter::GetFrame(int n, IScriptEnvironment* env) {
     }
 #endif
 
-    if (pixelsize == 2 )
+    if (simd_ok && pixelsize == 2)
     {
       if (env->GetCPUFlags() & CPUF_SSE4_1) {
         limit_plane_uint16_sse4(srcp, min_luma, max_luma, pitch, height);

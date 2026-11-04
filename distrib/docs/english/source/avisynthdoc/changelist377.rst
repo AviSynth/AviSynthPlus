@@ -12,6 +12,10 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Limiter with (Degenerated case) min > max (e.g. ``Limiter(200, 100, 180, 50, paramscale=true)``), which is outside the
+  documented [min, max] range use: the x86 SIMD paths gave ``max`` for every pixel, the C and the aarch64 NEON
+  give ``min`` below ``min`` and ``max`` otherwise. On x86 this case now goes to C as well; min <= max is unchanged.
+  Existed since classic AviSynth (8 bit) and since the 10-16 bit Limiter (2016).
 - Fix: Layer(op="Subtract") with YUVA clips: the blend weight is the original overlay alpha, not the inverted
   one. Regression since 3.7.6 (test build r4589)
 - Fix: ConvertToYUY2 from sources with alpha (planar RGBA, YUVA, YA) gave

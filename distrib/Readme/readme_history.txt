@@ -11,6 +11,12 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: Limiter with min > max, e.g. Limiter(200, 100, 180, 50, paramscale=true). Not a documented use (the
+  filter clamps into a [min, max] range), but the result depended on the CPU: the x86 SIMD paths compute
+  min(max(x, min), max), which gives max for every pixel, while the C and the aarch64 NEON compute
+  x < min ? min : (x > max ? max : x), which gives min below min and max otherwise.
+  On x86 the min > max case now uses the C path, so x86, C and NEON give the same output; min <= max is unchanged.
+  Existed since classic AviSynth (8 bit) and since the 10-16 bit Limiter (2016).
 - Optimization: SSE2 emulation of the SSE4.1 _mm_min_epu16 / _mm_max_epu16 (used without SSE4.1 by Limiter,
   Blur/Sharpen and the 10-14 bit resizers): 2 instructions (saturating subtract trick) instead of 5
   (compare + blend). The pack + clamp-to-limit helpers in avs_simd_c.h (MSVC SSE2 build, e.g. the C resizer):
