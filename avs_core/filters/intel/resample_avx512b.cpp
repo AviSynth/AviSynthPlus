@@ -1055,9 +1055,9 @@ void resize_h_planar_float_avx512_transpose_vstripe_ks8(BYTE* dst8, const BYTE* 
   constexpr int PIXELS_AT_A_TIME = 16; // Process sixteen pixels in parallel using AVX512 (4x4 using m128 lanes)
 
   // 'source_overread_beyond_targetx' indicates if the filter kernel can read beyond the target width.
-  // Even if the filter alignment allows larger reads, our safety boundary for unaligned loads starts at 4 pixels back
-  // from the target width, as we load 4 floats at once conceptually with our safe load.
-  const int width_safe_mod = (program->safelimit_4_pixels.overread_possible ? program->safelimit_4_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // The safe zone loads 8 source floats from each pixel's offset (_mm256_loadu_ps), so the limit is
+  // safelimit_8_pixels. (safelimit_4_pixels let the 8-float loads read past the source row: NaN contamination.)
+  const int width_safe_mod = (program->safelimit_8_pixels.overread_possible ? program->safelimit_8_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   // Preconditions:
   assert(program->filter_size_real <= 8);
@@ -1250,7 +1250,11 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks4(BYTE* dst8, const BYTE* s
   constexpr int PIXELS_AT_A_TIME = 16; // Process sixteen pixels in parallel using AVX512 (4x4 using m128 lanes)
 
   // 'source_overread_beyond_targetx' indicates if the filter kernel can read beyond the target width.
-  const int width_safe_mod = (program->safelimit_4_pixels.overread_possible ? program->safelimit_4_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // The safe zone loads a 32-float window (2x _mm512_loadu_ps) from each group's start offset, and the taps
+  // (including zero-coefficient padding taps up to the kernel width) select lanes from it. Limit: each pixel's
+  // offset + 32 within the source row. A smaller limit let padding taps pick up data past the row end
+  // (0 * NaN = NaN) and let the window read past the source buffer.
+  const int width_safe_mod = (program->safelimit_32_pixels.overread_possible ? program->safelimit_32_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   // Preconditions:
   assert(program->filter_size_real <= 4); // We preload all relevant coefficients (up to 4) before the height loop.
@@ -1381,7 +1385,11 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks8(BYTE* dst8, const BYTE* s
   constexpr int PIXELS_AT_A_TIME = 16; // Process sixteen pixels in parallel using AVX512 (4x4 using m128 lanes)
 
   // 'source_overread_beyond_targetx' indicates if the filter kernel can read beyond the target width.
-  const int width_safe_mod = (program->safelimit_8_pixels.overread_possible ? program->safelimit_8_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // The safe zone loads a 32-float window (2x _mm512_loadu_ps) from each group's start offset, and the taps
+  // (including zero-coefficient padding taps up to the kernel width) select lanes from it. Limit: each pixel's
+  // offset + 32 within the source row. A smaller limit let padding taps pick up data past the row end
+  // (0 * NaN = NaN) and let the window read past the source buffer.
+  const int width_safe_mod = (program->safelimit_32_pixels.overread_possible ? program->safelimit_32_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   // Preconditions:
   assert(program->filter_size_real <= 8); // We preload all relevant coefficients (up to 8) before the height loop.
@@ -1538,7 +1546,11 @@ void resize_h_planar_float_avx512_permutex_vstripe_2s8_ks8(BYTE* dst8, const BYT
   constexpr int PIXELS_AT_A_TIME = 16; // Process 2 groups of 8 pixels in parallel using AVX512 with wider source gathering for downsample
 
   // 'source_overread_beyond_targetx' indicates if the filter kernel can read beyond the target width.
-  const int width_safe_mod = (program->safelimit_8_pixels.overread_possible ? program->safelimit_8_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // The safe zone loads a 32-float window (2x _mm512_loadu_ps) from each group's start offset, and the taps
+  // (including zero-coefficient padding taps up to the kernel width) select lanes from it. Limit: each pixel's
+  // offset + 32 within the source row. A smaller limit let padding taps pick up data past the row end
+  // (0 * NaN = NaN) and let the window read past the source buffer.
+  const int width_safe_mod = (program->safelimit_32_pixels.overread_possible ? program->safelimit_32_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   // Preconditions:
   assert(program->filter_size_real <= 8); // We preload all relevant coefficients (up to 8) before the height loop.
@@ -1716,7 +1728,11 @@ void resize_h_planar_float_avx512_permutex_vstripe_ks16(BYTE* dst8, const BYTE* 
   constexpr int PIXELS_AT_A_TIME = 16; // Process sixteen pixels in parallel using AVX512 
 
   // 'source_overread_beyond_targetx' indicates if the filter kernel can read beyond the target width.
-  const int width_safe_mod = (program->safelimit_8_pixels.overread_possible ? program->safelimit_8_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // The safe zone loads a 32-float window (2x _mm512_loadu_ps) from each group's start offset, and the taps
+  // (including zero-coefficient padding taps up to the kernel width) select lanes from it. Limit: each pixel's
+  // offset + 32 within the source row. A smaller limit let padding taps pick up data past the row end
+  // (0 * NaN = NaN) and let the window read past the source buffer.
+  const int width_safe_mod = (program->safelimit_32_pixels.overread_possible ? program->safelimit_32_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   // Preconditions:
   assert(program->filter_size_real <= 16); // We preload all relevant coefficients (up to 8) before the height loop.
@@ -1925,7 +1941,11 @@ void resize_h_planar_float_avx512_permutex_vstripe_2s8_ks16(BYTE* dst8, const BY
   constexpr int PIXELS_AT_A_TIME = 16; // Process 16 pixels in parallel using AVX512 for partial downsampling works
 
   // 'source_overread_beyond_targetx' indicates if the filter kernel can read beyond the target width.
-  const int width_safe_mod = (program->safelimit_8_pixels.overread_possible ? program->safelimit_8_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // The safe zone loads a 32-float window (2x _mm512_loadu_ps) from each group's start offset, and the taps
+  // (including zero-coefficient padding taps up to the kernel width) select lanes from it. Limit: each pixel's
+  // offset + 32 within the source row. A smaller limit let padding taps pick up data past the row end
+  // (0 * NaN = NaN) and let the window read past the source buffer.
+  const int width_safe_mod = (program->safelimit_32_pixels.overread_possible ? program->safelimit_32_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   // Preconditions:
   assert(program->filter_size_real <= 16); // We preload all relevant coefficients (up to 8) before the height loop.
@@ -2149,8 +2169,12 @@ void resize_h_planar_float_avx512_permutex_vstripe_4s4_ks16(BYTE* dst8, const BY
   float* dst = (float*)dst8;
 
   constexpr int PIXELS_AT_A_TIME = 16;
+  // The safe zone loads a 32-float window (2x _mm512_loadu_ps) from each group's start offset, and the taps
+  // (including zero-coefficient padding taps up to the kernel width) select lanes from it. Limit: each pixel's
+  // offset + 32 within the source row. A smaller limit let padding taps pick up data past the row end
+  // (0 * NaN = NaN) and let the window read past the source buffer.
 
-  const int width_safe_mod = (program->safelimit_8_pixels.overread_possible ? program->safelimit_8_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  const int width_safe_mod = (program->safelimit_32_pixels.overread_possible ? program->safelimit_32_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   assert(program->filter_size_real <= 16);
   assert(program->target_size_alignment >= 16);
@@ -3341,8 +3365,11 @@ static void internal_resizer_h_avx512_generic_float_pix16_sub4_ks_4_8_16(BYTE* d
   src_pitch = src_pitch / sizeof(float);
 
   constexpr int PIXELS_AT_A_TIME = 16;
-  // Align safe zone to 16 pixels
-  const int w_safe_mod16 = (program->safelimit_16_pixels.overread_possible ? program->safelimit_16_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // Align safe zone to 16 pixels.
+  // The safe path reads filter_size (aligned) source floats for each target pixel: the limit is
+  // safelimit_filter_size_aligned, not safelimit_16_pixels (16 is the target pixels per step, not the read width).
+  // A read past the source row would multiply garbage (possibly NaN) by the zero padding coefficients.
+  const int w_safe_mod16 = (program->safelimit_filter_size_aligned.overread_possible ? program->safelimit_filter_size_aligned.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   for (int y = 0; y < height; y++) {
     float* current_coeff_base = program->pixel_coefficient_float;

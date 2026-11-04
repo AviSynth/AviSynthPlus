@@ -12,6 +12,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: 32 bit float horizontal resize (all resizers), AVX2 and AVX-512: near the right edge of each row the
+  source was read past the row end; multiplied by zero padding coefficients, a NaN found there gave NaN
+  output pixels, at random (depending on memory content). Existed since 3.7.6.
 - Fix: YUV to planar RGB (and RGB to YUV/Y) conversion to 10-14 bit, AVX2: values above 32767 before the
   final clamp were not clamped (e.g. 14 bit target, B channel at high Y and near-maximum U gave ~32800
   instead of 16383). Existed since 3.7.6.

@@ -634,7 +634,9 @@ static void internal_resizer_h_avx2_generic_float(BYTE* dst8, const BYTE* src8, 
   dst_pitch = dst_pitch / sizeof(float);
   src_pitch = src_pitch / sizeof(float);
 
-  const int w_safe_mod8 = (program->safelimit_8_pixels.overread_possible ? program->safelimit_8_pixels.source_overread_beyond_targetx : width) / 8 * 8;
+  // The safe path reads filter_size (aligned) source floats for each target pixel: limit by
+  // safelimit_filter_size_aligned, not safelimit_8_pixels (8 is the target pixels per step).
+  const int w_safe_mod8 = (program->safelimit_filter_size_aligned.overread_possible ? program->safelimit_filter_size_aligned.source_overread_beyond_targetx : width) / 8 * 8;
 
   for (int y = 0; y < height; y++) {
     float* current_coeff_base = program->pixel_coefficient_float;
@@ -2828,8 +2830,11 @@ static void internal_resizer_h_avx2_generic_float_pix16_sub4_ks_4_8_16(BYTE* dst
   src_pitch = src_pitch / sizeof(float);
 
   constexpr int PIXELS_AT_A_TIME = 16;
-  // Align safe zone to 16 pixels
-  const int w_safe_mod16 = (program->safelimit_16_pixels.overread_possible ? program->safelimit_16_pixels.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // Align safe zone to 16 pixels.
+  // The safe path reads filter_size (aligned) source floats for each target pixel: the limit is
+  // safelimit_filter_size_aligned, not safelimit_16_pixels (16 is the target pixels per step, not the read width).
+  // A read past the source row would multiply garbage (possibly NaN) by the zero padding coefficients.
+  const int w_safe_mod16 = (program->safelimit_filter_size_aligned.overread_possible ? program->safelimit_filter_size_aligned.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   for (int y = 0; y < height; y++) {
     float* current_coeff_base = program->pixel_coefficient_float;

@@ -11,6 +11,15 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: 32 bit float horizontal resizers, AVX2 and AVX-512: random NaN output pixels near the right edge.
+  The "safe zone" (fast, full-width loads) was limited by a too short source read width: e.g. the generic
+  kernel reads filter_size (aligned to 8) source floats per target pixel, but checked only 16; the AVX-512
+  ks8 transpose kernel reads 8 but checked 4; the AVX-512 permutex kernels (ks4/ks8/ks16, 2s8, 4s4) load a
+  32 float window but checked 4 or 8. The over-read values (next row, or past the frame) were multiplied by
+  the zero padding coefficients, and 0 * NaN = NaN. So the result depended on memory content and varied from
+  run to run, e.g. Spline64Resize(20, 4) of a 64 pixel wide YUV444PS clip. The AVX-512 permutex kernels could
+  also read past the end of the source buffer. Now each kernel uses the limit of its real read width.
+  Existed since 3.7.6.
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion with 10-14 bit integer output: missing clamp.
   The result was packed with unsigned saturation (0..65535) and then clamped with a signed 16 bit min, so
   values 32768..65535 (negative as signed) passed the max-pixel-value clamp.
