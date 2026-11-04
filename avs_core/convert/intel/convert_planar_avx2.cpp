@@ -830,7 +830,10 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
   }
 
   const int rowsize = width * sizeof(pixel_t);
-  const int rowsize_aligned = AlignNumber(rowsize, FRAME_ALIGN); // 64
+  // Float rows (float input loads, float output stores): pixels in a FRAME_ALIGN-aligned row.
+  // Counted in pixels, not in source bytes: with 8-16 bit input and float output the destination
+  // row is 2-4x wider than the source row.
+  const int width_aligned_float = AlignNumber(width * (int)sizeof(float), FRAME_ALIGN) / (int)sizeof(float);
   for (int yy = 0; yy < height; yy++) {
     // 32 pixels per loop: 32 * 8 bit = 32 bytes; 32 * 16 bit = 64 bytes
     // Note: extra care needed for 32-bit float input or output, since 32xfloat is over
@@ -861,9 +864,10 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
       // Can I write all 32 pixels (blockA+B+C+D)?
       // yes: write all 4 blocks (blockA, B, C, D)
       // no : Write only first 2 blocks (blockA, B), 16 floats are guaranteed safe due to 64-byte alignment
+      // Same rule for loading the second 16 floats of a float source row.
       bool safe_last_16float_64bytes;
       if constexpr (final_is_float || sizeof(pixel_t) == 4)
-        safe_last_16float_64bytes = (x + 32 * (int)sizeof(pixel_t)) <= rowsize_aligned;
+        safe_last_16float_64bytes = (x / (int)sizeof(pixel_t) + 32) <= width_aligned_float;
       else
         safe_last_16float_64bytes = false;
 

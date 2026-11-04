@@ -11,6 +11,11 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:
+  memory overwrite. The "can store 32 floats" check used the source row size, the float destination row
+  is 2-4x wider. On narrow clips (e.g. width < 16, or the last 32-pixel block of a row) up to 64 bytes per row
+  were written past the row end; on the last row past the end of the plane, overwriting the first row of
+  the next plane (seen as random values in B and R row 0). Existed since 3.7.6.
 - Fix: Limiter with min > max, e.g. Limiter(200, 100, 180, 50, paramscale=true). Not a documented use (the
   filter clamps into a [min, max] range), but the result depended on the CPU: the x86 SIMD paths compute
   min(max(x, min), max), which gives max for every pixel, while the C and the aarch64 NEON compute

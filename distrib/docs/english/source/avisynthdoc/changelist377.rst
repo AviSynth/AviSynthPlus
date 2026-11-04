@@ -12,6 +12,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit to 32 bit float, AVX2: memory
+  overwrite past the end of the rows (and the last row past the plane) on narrow clips, corrupting the
+  first row of the next plane. Existed since 3.7.6.
 - Fix: Limiter with (Degenerated case) min > max (e.g. ``Limiter(200, 100, 180, 50, paramscale=true)``), which is outside the
   documented [min, max] range use: the x86 SIMD paths gave ``max`` for every pixel, the C and the aarch64 NEON
   give ``min`` below ``min`` and ``max`` otherwise. On x86 this case now goes to C as well; min <= max is unchanged.
