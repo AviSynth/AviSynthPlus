@@ -100,14 +100,27 @@ void update_Transfer_and_Primaries(AVSMap* props, int theTransfer, int thePrimar
 void update_ColorRange(AVSMap* props, int theColorRange, IScriptEnvironment* env);
 void update_ChromaLocation(AVSMap* props, int theChromaLocation, IScriptEnvironment* env);
 
-typedef struct bits_conv_constants {
-  float src_offset = 0.0f;
-  int src_offset_i = 0;
-  float mul_factor = 1.0f;
-  float dst_offset = 0.0f;
-  float src_span = 1.0f;
-  float dst_span = 1.0f;
-} bits_conv_constants;
+// Range/offset constants for bit depth and full/limited range conversion, filled by get_bits_conv_constants().
+//
+// The default constructor (identity: offsets 0, factor and spans 1) is defined out of line in
+// convert_helper.cpp on purpose. This struct is also constructed in the SIMD TUs compiled with
+// -mavx2 / /arch:AVX2 (convert_bits_avx2.cpp, convert_planar_avx2.cpp ...). Default member initializers
+// would make the implicit constructor an inline function, which every including TU compiles with its own
+// ISA flags, and the linker keeps only one of those copies (COMDAT) for all callers: possibly an AVX2 one
+// for a generic caller running on a CPU without AVX2 (seen in MSVC Debug builds).
+// Defined once in a generic TU, it is always baseline code. The cost is a call per construction; all
+// construction sites run once per plane or once at setup, never per pixel.
+// Keep the defaults in the constructor, not as member initializers here.
+struct bits_conv_constants {
+  float src_offset;   // default 0.0f
+  int src_offset_i;   // default 0
+  float mul_factor;   // default 1.0f
+  float dst_offset;   // default 0.0f
+  float src_span;     // default 1.0f
+  float dst_span;     // default 1.0f
+
+  bits_conv_constants() noexcept;
+};
 
 // universal transform values for any full-limited bit-depth mix
 [[maybe_unused]] static AVS_FORCEINLINE void get_bits_conv_constants(bits_conv_constants& d, bool use_chroma, bool fulls, bool fulld, int srcBitDepth, int dstBitDepth)

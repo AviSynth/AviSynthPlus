@@ -48,6 +48,18 @@
 #include <vector>
 #include <sstream>
 
+// Out of line on purpose, see the comment at the struct in convert_helper.h: this TU is compiled with the
+// baseline ISA, so no AVX2 copy of the constructor can be chosen by the linker for a generic caller.
+bits_conv_constants::bits_conv_constants() noexcept :
+  src_offset(0.0f),
+  src_offset_i(0),
+  mul_factor(1.0f),
+  dst_offset(0.0f),
+  src_span(1.0f),
+  dst_span(1.0f)
+{
+}
+
 const std::vector<std::pair<const char*, ColorRange_Compat_e>> g_range_table{
     { "limited", AVS_COLORRANGE_LIMITED },
     { "full",    AVS_COLORRANGE_FULL },
