@@ -258,35 +258,6 @@ static AVS_FORCEINLINE bool IsForwardedUserCacheHint(int cachehints) {
   return a;
 }
 
-// fake _mm_packus_epi32 (orig is SSE4.1 only)
-// only for packing 00000000..0000FFFF range integers, does not clamp properly above that, e.g. 00010001
-[[maybe_unused]] static AVS_FORCEINLINE __m128i _MM_PACKUS_EPI32_SRC_TRUEWORD(__m128i a, __m128i b)
-{
-  a = _mm_slli_epi32 (a, 16);
-  a = _mm_srai_epi32 (a, 16);
-  b = _mm_slli_epi32 (b, 16);
-  b = _mm_srai_epi32 (b, 16);
-  a = _mm_packs_epi32 (a, b);
-  return a;
-}
-
-[[maybe_unused]] static AVS_FORCEINLINE __m128i _MM_CMPLE_EPU16(__m128i x, __m128i y)
-{
-  // Returns 0xFFFF where x <= y:
-  return _mm_cmpeq_epi16(_mm_subs_epu16(x, y), _mm_setzero_si128());
-}
-
-[[maybe_unused]] static AVS_FORCEINLINE __m128i _MM_BLENDV_SI128(__m128i x, __m128i y, __m128i mask)
-{
-  // Replace bit in x with bit in y when matching bit in mask is set:
-  return _mm_or_si128(_mm_andnot_si128(mask, x), _mm_and_si128(mask, y));
-}
-
-// SSE4.1 simulation for SSE2, same as above, intrisic name is _mm_blendv_epi8
-[[maybe_unused]] static AVS_FORCEINLINE __m128i _MM_BLENDV_EPI8(__m128i const& a, __m128i const& b, __m128i const& selector) {
-  return _mm_or_si128(_mm_andnot_si128(selector, a), _mm_and_si128(selector, b));
-}
-
 // sse2 simulation of SSE4's _mm_min_epu16
 // Uses the saturating unsigned subtract: subs_epu16(x, y) == x - min(x, y),
 // so min(x, y) == x - subs_epu16(x, y). 2 instructions (psubusw, psubw)
