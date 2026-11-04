@@ -36,8 +36,12 @@
 // Same arithmetic as C, bit-identical:
 //   b = (y_b*Y + u_b*U + v_b*V + 4096 + (offset_rgb << 13)) >> 13, then clip to 0..255
 //   with Y = y + offset_y, U = u - 128, V = v - 128.
-// Coefficients and inputs fit int16, the products are summed in int32 (vmull_s16/vmlal_s16).
+// Coefficients and inputs fit int16, the products are summed in int32 (vmlal by lane).
 // >> 13 is arithmetic like the C int shift; vqmovun_s32 + vqmovn_u16 clip like PixelClip.
+// Register pressure (16 pixels per step, vst3/vst4 need 3-4 consecutive registers): the 9 coefficients are kept
+// in 2 registers and used by lane, and the input offsets are folded into one rounder per channel:
+//   c_y*(y + offset_y) + c_u*(u - 128) + c_v*(v - 128) + r == c_y*y + c_u*u + c_v*v + (r + c_y*offset_y - 128*(c_u + c_v))
+// exact in int32, so the result stays bit-identical to C.
 
 #include "convert_planar_neon.h"
 #include <avs/config.h>
@@ -47,19 +51,24 @@
 
 namespace {
 
-struct Coeffs {
-  int16x4_t yb, ub, vb, yg, ug, vg, yr, ur, vr;
-  int32x4_t rounder;
-};
-
-static AVS_FORCEINLINE int16x4_t c16(int c) { return vdup_n_s16(static_cast<int16_t>(c)); }
-
-// one output channel for 8 pixels
+// one output channel for 8 pixels; Y, U, V are the raw 0..255 inputs (offsets are in the rounder).
+// Coefficient lanes: k8 = { y_b, u_b, v_b, y_g, u_g, v_g, y_r, u_r }, k4 = { v_r, 0, 0, 0 }.
+template<int LY, int LU, int LV, bool V_IN_K4>
 static AVS_FORCEINLINE uint8x8_t channel8(int16x8_t Y, int16x8_t U, int16x8_t V,
-  int16x4_t cy, int16x4_t cu, int16x4_t cv, int32x4_t rounder)
+  int16x8_t k8, int16x4_t k4, int32x4_t rounder)
 {
-  int32x4_t lo = vmlal_s16(vmlal_s16(vmlal_s16(rounder, vget_low_s16(Y), cy), vget_low_s16(U), cu), vget_low_s16(V), cv);
-  int32x4_t hi = vmlal_s16(vmlal_s16(vmlal_s16(rounder, vget_high_s16(Y), cy), vget_high_s16(U), cu), vget_high_s16(V), cv);
+  int32x4_t lo = vmlal_laneq_s16(rounder, vget_low_s16(Y), k8, LY);
+  int32x4_t hi = vmlal_high_laneq_s16(rounder, Y, k8, LY);
+  lo = vmlal_laneq_s16(lo, vget_low_s16(U), k8, LU);
+  hi = vmlal_high_laneq_s16(hi, U, k8, LU);
+  if constexpr (V_IN_K4) {
+    lo = vmlal_lane_s16(lo, vget_low_s16(V), k4, LV);
+    hi = vmlal_high_lane_s16(hi, V, k4, LV);
+  }
+  else {
+    lo = vmlal_laneq_s16(lo, vget_low_s16(V), k8, LV);
+    hi = vmlal_high_laneq_s16(hi, V, k8, LV);
+  }
   lo = vshrq_n_s32(lo, 13);
   hi = vshrq_n_s32(hi, 13);
   const uint16x8_t u16 = vcombine_u16(vqmovun_s32(lo), vqmovun_s32(hi)); // < 0 -> 0
@@ -68,6 +77,31 @@ static AVS_FORCEINLINE uint8x8_t channel8(int16x8_t Y, int16x8_t U, int16x8_t V,
 
 static AVS_FORCEINLINE uint8_t clip8(int v) { return static_cast<uint8_t>(v < 0 ? 0 : (v > 255 ? 255 : v)); }
 
+// Scalar tail (at most 15 pixels), kept scalar on purpose: the compilers auto-vectorized it into a large
+// loop that is never reached (less than 16 pixels) and has register spills. Its own function, because GCC
+// before 14 has no loop pragma for this, only the function attribute.
+template<int pixel_step, bool source_has_alpha>
+#if defined(__GNUC__) && !defined(__clang__)
+__attribute__((optimize("no-tree-vectorize")))
+#endif
+static void yv24_to_rgb_tail(BYTE* dstp, const BYTE* srcY, const BYTE* srcU, const BYTE* srcV, const BYTE* srcA,
+  size_t x, size_t width, const ConversionMatrix& matrix, int rounder_i)
+{
+#if defined(__clang__)
+#pragma clang loop vectorize(disable) interleave(disable)
+#endif
+  for (; x < width; x++) {
+    const int Y = srcY[x] + matrix.offset_y;
+    const int U = srcU[x] - 128;
+    const int V = srcV[x] - 128;
+    dstp[x * pixel_step + 0] = clip8((matrix.y_b * Y + matrix.u_b * U + matrix.v_b * V + rounder_i) >> 13);
+    dstp[x * pixel_step + 1] = clip8((matrix.y_g * Y + matrix.u_g * U + matrix.v_g * V + rounder_i) >> 13);
+    dstp[x * pixel_step + 2] = clip8((matrix.y_r * Y + matrix.u_r * U + matrix.v_r * V + rounder_i) >> 13);
+    if constexpr (pixel_step == 4)
+      dstp[x * 4 + 3] = source_has_alpha ? srcA[x] : 255;
+  }
+}
+
 } // namespace
 
 template<int pixel_step, bool source_has_alpha>
@@ -75,13 +109,16 @@ void convert_yv24_to_rgb_neon(BYTE* dstp, const BYTE* srcY, const BYTE* srcU, co
 {
   // The 13 bit coefficients (below 2.2 * 8192) and offset_y are generated in range: int16 is enough.
   const int rounder_i = 4096 + (matrix.offset_rgb << 13);
-  Coeffs k;
-  k.yb = c16(matrix.y_b); k.ub = c16(matrix.u_b); k.vb = c16(matrix.v_b);
-  k.yg = c16(matrix.y_g); k.ug = c16(matrix.u_g); k.vg = c16(matrix.v_g);
-  k.yr = c16(matrix.y_r); k.ur = c16(matrix.u_r); k.vr = c16(matrix.v_r);
-  k.rounder = vdupq_n_s32(rounder_i);
-  const int16x8_t offset_y = vdupq_n_s16(static_cast<int16_t>(matrix.offset_y));
-  const int16x8_t uv_offset = vdupq_n_s16(128);
+  const int16_t kc[8] = {
+    static_cast<int16_t>(matrix.y_b), static_cast<int16_t>(matrix.u_b), static_cast<int16_t>(matrix.v_b),
+    static_cast<int16_t>(matrix.y_g), static_cast<int16_t>(matrix.u_g), static_cast<int16_t>(matrix.v_g),
+    static_cast<int16_t>(matrix.y_r), static_cast<int16_t>(matrix.u_r) };
+  const int16x8_t k8 = vld1q_s16(kc);
+  const int16x4_t k4 = vdup_n_s16(static_cast<int16_t>(matrix.v_r));
+  // input offsets folded in: + c_y * offset_y - 128 * (c_u + c_v)
+  const int32x4_t rounder_b = vdupq_n_s32(rounder_i + matrix.y_b * matrix.offset_y - 128 * (matrix.u_b + matrix.v_b));
+  const int32x4_t rounder_g = vdupq_n_s32(rounder_i + matrix.y_g * matrix.offset_y - 128 * (matrix.u_g + matrix.v_g));
+  const int32x4_t rounder_r = vdupq_n_s32(rounder_i + matrix.y_r * matrix.offset_y - 128 * (matrix.u_r + matrix.v_r));
   const uint8x16_t alpha_max = vdupq_n_u8(255);
 
   const size_t wmod16 = width / 16 * 16;
@@ -97,12 +134,12 @@ void convert_yv24_to_rgb_neon(BYTE* dstp, const BYTE* srcY, const BYTE* srcU, co
         const uint8x8_t yh = h == 0 ? vget_low_u8(y8) : vget_high_u8(y8);
         const uint8x8_t uh = h == 0 ? vget_low_u8(u8) : vget_high_u8(u8);
         const uint8x8_t vh = h == 0 ? vget_low_u8(v8) : vget_high_u8(v8);
-        const int16x8_t Y = vaddq_s16(vreinterpretq_s16_u16(vmovl_u8(yh)), offset_y);
-        const int16x8_t U = vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(uh)), uv_offset);
-        const int16x8_t V = vsubq_s16(vreinterpretq_s16_u16(vmovl_u8(vh)), uv_offset);
-        b[h] = channel8(Y, U, V, k.yb, k.ub, k.vb, k.rounder);
-        g[h] = channel8(Y, U, V, k.yg, k.ug, k.vg, k.rounder);
-        r[h] = channel8(Y, U, V, k.yr, k.ur, k.vr, k.rounder);
+        const int16x8_t Y = vreinterpretq_s16_u16(vmovl_u8(yh));
+        const int16x8_t U = vreinterpretq_s16_u16(vmovl_u8(uh));
+        const int16x8_t V = vreinterpretq_s16_u16(vmovl_u8(vh));
+        b[h] = channel8<0, 1, 2, false>(Y, U, V, k8, k4, rounder_b);
+        g[h] = channel8<3, 4, 5, false>(Y, U, V, k8, k4, rounder_g);
+        r[h] = channel8<6, 7, 0, true>(Y, U, V, k8, k4, rounder_r);
       }
       if constexpr (pixel_step == 4) {
         uint8x16x4_t bgra;
@@ -120,16 +157,7 @@ void convert_yv24_to_rgb_neon(BYTE* dstp, const BYTE* srcY, const BYTE* srcU, co
         vst3q_u8(dstp + x * 3, bgr);
       }
     }
-    for (; x < width; x++) {
-      const int Y = srcY[x] + matrix.offset_y;
-      const int U = srcU[x] - 128;
-      const int V = srcV[x] - 128;
-      dstp[x * pixel_step + 0] = clip8((matrix.y_b * Y + matrix.u_b * U + matrix.v_b * V + rounder_i) >> 13);
-      dstp[x * pixel_step + 1] = clip8((matrix.y_g * Y + matrix.u_g * U + matrix.v_g * V + rounder_i) >> 13);
-      dstp[x * pixel_step + 2] = clip8((matrix.y_r * Y + matrix.u_r * U + matrix.v_r * V + rounder_i) >> 13);
-      if constexpr (pixel_step == 4)
-        dstp[x * 4 + 3] = source_has_alpha ? srcA[x] : 255;
-    }
+    yv24_to_rgb_tail<pixel_step, source_has_alpha>(dstp, srcY, srcU, srcV, srcA, x, width, matrix, rounder_i);
     dstp -= dst_pitch;
     srcY += src_pitch_y;
     srcU += src_pitch_uv;

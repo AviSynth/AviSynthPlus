@@ -100,8 +100,11 @@ static AVS_FORCEINLINE void process_eight_pixels_h_neon(const pixel_t* AVS_RESTR
 {
   const short* coeff = coeff_base + x * filter_size;
   int32x4_t r[8];
-  // unrolled: keeps the 8 partial sums in registers (otherwise GCC 12 spills them to the stack)
-#if defined(__GNUC__) && !defined(__clang__)
+  // unrolled: keeps the 8 partial sums in registers (otherwise GCC 12 spills them to the stack;
+  // Clang ignores the GCC pragma and kept r[] on the stack too, hence its own pragma)
+#if defined(__clang__)
+#pragma clang loop unroll(full)
+#elif defined(__GNUC__)
 #pragma GCC unroll 8
 #endif
   for (int j = 0; j < 8; j++)
