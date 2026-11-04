@@ -18,6 +18,8 @@
 //   #define LAYER_ROWPREP_FN       prepare_effective_mask_for_row_avx2
 // to allow the same C template to compile with arch-spcific different rowprep variants 
 // ---------------------------------------------------------------------------
+#include "../core/scratch_buffer.h" // ScratchBuffer for the row buffers
+
 #ifndef LAYER_ROWPREP_FN
 #  define LAYER_ROWPREP_FN  prepare_effective_mask_for_row
 #endif
@@ -77,7 +79,7 @@ static void layer_yuv_mul_c_inner(BYTE* dstp8, const BYTE* ovrp8, const BYTE* ma
   const int half = max_pixel_value / 2;
 
   // Buffer: needed for subsampled spatial averaging, or MASK444+!full_opacity baking.
-  std::vector<pixel_t> effective_mask_buffer;
+  ScratchBuffer<pixel_t> effective_mask_buffer;
   if constexpr (has_alpha && (maskMode != MASK444 || !full_opacity)) {
     effective_mask_buffer.resize(width);
   }
@@ -89,9 +91,9 @@ static void layer_yuv_mul_c_inner(BYTE* dstp8, const BYTE* ovrp8, const BYTE* ma
     //          !full_opacity path bakes (avg * opacity_i) / div
     if constexpr (has_alpha) {
       if constexpr (full_opacity)
-        effective_mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, true>(maskp, mask_pitch, width, effective_mask_buffer);
+        effective_mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, true>(maskp, mask_pitch, width, effective_mask_buffer.data());
       else
-        effective_mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, false>(maskp, mask_pitch, width, effective_mask_buffer, opacity_i, half, magic);
+        effective_mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, false>(maskp, mask_pitch, width, effective_mask_buffer.data(), opacity_i, half, magic);
     }
 
     // Main blending loop — alpha_mask is fully prepared by rowprep.
@@ -175,7 +177,7 @@ static void layer_yuv_mul_f_c(BYTE* dstp8, const BYTE* ovrp8, const BYTE* maskp8
   mask_pitch /= sizeof(float);
 
   // precalculate mask buffer
-  std::vector<float> effective_mask_buffer;
+  ScratchBuffer<float> effective_mask_buffer;
   if constexpr (has_alpha && maskMode != MASK444) {
     effective_mask_buffer.resize(width);
   }
@@ -185,7 +187,7 @@ static void layer_yuv_mul_f_c(BYTE* dstp8, const BYTE* ovrp8, const BYTE* maskp8
 
     // precalculate effective mask for this row
     if constexpr (has_alpha) {
-      effective_mask_ptr = prepare_effective_mask_for_row_float_c<maskMode>(maskp, mask_pitch, width, effective_mask_buffer);
+      effective_mask_ptr = prepare_effective_mask_for_row_float_c<maskMode>(maskp, mask_pitch, width, effective_mask_buffer.data());
     }
 
     // blending loop
@@ -265,9 +267,9 @@ static void layer_yuv_lighten_darken_c(
   const int cheight = height / MaskVSubsample<maskMode>;
 
   // In lighten/darken we need 3 buffers:
-  std::vector<pixel_t> ovr_buffer;
-  std::vector<pixel_t> src_buffer;
-  std::vector<pixel_t> mask_buffer;
+  ScratchBuffer<pixel_t> ovr_buffer;
+  ScratchBuffer<pixel_t> src_buffer;
+  ScratchBuffer<pixel_t> mask_buffer;
 
   // precalculate mask buffer et al.
   if constexpr (maskMode != MASK444) {
@@ -289,11 +291,11 @@ static void layer_yuv_lighten_darken_c(
   for (int y = 0; y < cheight; ++y) {
 
     // Prepare all three pointers using the helper, full-opacity mode, no opacity_i-magicdiv baking
-    const pixel_t* ovr_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t>(ovrp, overlay_pitch, cwidth, ovr_buffer);
-    const pixel_t* src_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t>(dstp, dst_pitch, cwidth, src_buffer);
+    const pixel_t* ovr_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t>(ovrp, overlay_pitch, cwidth, ovr_buffer.data());
+    const pixel_t* src_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t>(dstp, dst_pitch, cwidth, src_buffer.data());
     const pixel_t* effective_mask_ptr = nullptr;
     if constexpr (has_alpha) {
-      effective_mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t>(maskp, mask_pitch, cwidth, mask_buffer);
+      effective_mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t>(maskp, mask_pitch, cwidth, mask_buffer.data());
     }
 
     // SIMD row kernel: does pixels [0, x) and returns x; 0 when there is none (C build). The C loop does the rest.
@@ -403,9 +405,9 @@ static void layer_yuv_lighten_darken_f_c(
   const int cheight = height / MaskVSubsample<maskMode>;
 
   // In lighten/darken we need 3 buffers:
-  std::vector<float> ovr_buffer;
-  std::vector<float> src_buffer;
-  std::vector<float> mask_buffer;
+  ScratchBuffer<float> ovr_buffer;
+  ScratchBuffer<float> src_buffer;
+  ScratchBuffer<float> mask_buffer;
 
   // precalculate mask buffer et al.
   if constexpr (maskMode != MASK444) {
@@ -418,11 +420,11 @@ static void layer_yuv_lighten_darken_f_c(
   // for subsampled color spaces first do chroma, because luma is used for decision
   // second pass will do luma only
   for (int y = 0; y < cheight; ++y) {
-    const float* ovr_ptr = prepare_effective_mask_for_row_float_c<maskMode>(ovrp, overlay_pitch, cwidth, ovr_buffer);
-    const float* src_ptr = prepare_effective_mask_for_row_float_c<maskMode>(dstp, dst_pitch, cwidth, src_buffer);
+    const float* ovr_ptr = prepare_effective_mask_for_row_float_c<maskMode>(ovrp, overlay_pitch, cwidth, ovr_buffer.data());
+    const float* src_ptr = prepare_effective_mask_for_row_float_c<maskMode>(dstp, dst_pitch, cwidth, src_buffer.data());
     const float* effective_mask_ptr = nullptr;
     if constexpr (has_alpha) {
-      effective_mask_ptr = prepare_effective_mask_for_row_float_c<maskMode>(maskp, mask_pitch, cwidth, mask_buffer);
+      effective_mask_ptr = prepare_effective_mask_for_row_float_c<maskMode>(maskp, mask_pitch, cwidth, mask_buffer.data());
     }
 
     // SIMD row kernel: does pixels [0, x) and returns x; 0 when there is none (C build). The C loop does the rest.
@@ -787,8 +789,8 @@ static void layer_yuv_mulovr_c(
   const int cwidth  = width / MaskHSubsample<maskMode>;
   const int cheight = height / MaskVSubsample<maskMode>;
 
-  std::vector<pixel_t> ovr_y_buffer;
-  std::vector<pixel_t> mask_buffer;
+  ScratchBuffer<pixel_t> ovr_y_buffer;
+  ScratchBuffer<pixel_t> mask_buffer;
   if constexpr (maskMode != MASK444) {
     ovr_y_buffer.resize(cwidth);
     if constexpr (has_alpha)
@@ -797,10 +799,10 @@ static void layer_yuv_mulovr_c(
 
   for (int y = 0; y < cheight; ++y) {
     // Spatially average overlay Y to chroma resolution (full_opacity=true: no opacity baking).
-    const pixel_t* ovr_y_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, true>(ovrp, overlay_pitch, cwidth, ovr_y_buffer);
+    const pixel_t* ovr_y_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, true>(ovrp, overlay_pitch, cwidth, ovr_y_buffer.data());
     const pixel_t* mask_ptr  = nullptr;
     if constexpr (has_alpha)
-      mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, true>(maskp, mask_pitch, cwidth, mask_buffer);
+      mask_ptr = LAYER_ROWPREP_FN<maskMode, pixel_t, true>(maskp, mask_pitch, cwidth, mask_buffer.data());
 
     // SIMD row kernel: does pixels [0, x) and returns x; 0 when there is none (C build). The C loop does the rest.
     int x = LAYER_ROW_KERNELS::yuv_mulovr<pixel_t, lumaonly, has_alpha, maskMode == MASK444>(
@@ -876,8 +878,8 @@ static void layer_yuv_mulovr_f_c(
   const int cwidth  = width / MaskHSubsample<maskMode>;
   const int cheight = height / MaskVSubsample<maskMode>;
 
-  std::vector<float> ovr_y_buffer;
-  std::vector<float> mask_buffer;
+  ScratchBuffer<float> ovr_y_buffer;
+  ScratchBuffer<float> mask_buffer;
   if constexpr (maskMode != MASK444) {
     ovr_y_buffer.resize(cwidth);
     if constexpr (has_alpha)
@@ -885,10 +887,10 @@ static void layer_yuv_mulovr_f_c(
   }
 
   for (int y = 0; y < cheight; ++y) {
-    const float* ovr_y_ptr = prepare_effective_mask_for_row_float_c<maskMode>(ovrp, overlay_pitch, cwidth, ovr_y_buffer);
+    const float* ovr_y_ptr = prepare_effective_mask_for_row_float_c<maskMode>(ovrp, overlay_pitch, cwidth, ovr_y_buffer.data());
     const float* mask_ptr  = nullptr;
     if constexpr (has_alpha)
-      mask_ptr = prepare_effective_mask_for_row_float_c<maskMode>(maskp, mask_pitch, cwidth, mask_buffer);
+      mask_ptr = prepare_effective_mask_for_row_float_c<maskMode>(maskp, mask_pitch, cwidth, mask_buffer.data());
 
     for (int x = 0; x < cwidth; ++x) {
       const float alpha_eff = has_alpha ? mask_ptr[x] * opacity : opacity;

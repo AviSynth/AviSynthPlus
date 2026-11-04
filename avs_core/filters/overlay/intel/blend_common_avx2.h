@@ -60,13 +60,13 @@ masked_merge_float_fn_t* get_overlay_blend_masked_float_fn_avx2(bool is_chroma, 
 // ---------------------------------------------------------------------------
 template<typename pixel_t, bool full_opacity = true>
 void do_fill_chroma_row_avx2(
-  std::vector<pixel_t>& buf, const pixel_t* luma_row,
+  pixel_t* buf, const pixel_t* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   int opacity_i = 0, int half = 0, MagicDiv magic = {});
 
 template<bool full_opacity = true>
 void do_fill_chroma_row_float_avx2(
-  std::vector<float>& buf, const float* luma_row,
+  float* buf, const float* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   float opacity = 0.0f);
 

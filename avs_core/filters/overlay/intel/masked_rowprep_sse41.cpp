@@ -821,7 +821,7 @@ const pixel_t* prepare_effective_mask_for_row_sse41(
   const pixel_t* maskp,
   int mask_pitch,
   int width,
-  std::vector<pixel_t>& buf,
+  pixel_t* buf,
   int opacity_i,
   int half,
   MagicDiv magic)
@@ -831,7 +831,7 @@ const pixel_t* prepare_effective_mask_for_row_sse41(
       return maskp;
     } else {
       // Copy row with opacity scaling into buf
-      pixel_t* dst = buf.data();
+      pixel_t* dst = buf;
       int x = 0;
       if constexpr (sizeof(pixel_t) == 1) {
         const __m128i v_opacity = _mm_set1_epi16((short)opacity_i);
@@ -862,7 +862,7 @@ const pixel_t* prepare_effective_mask_for_row_sse41(
     }
   }
   else {
-    pixel_t* dst = buf.data();
+    pixel_t* dst = buf;
     if constexpr (maskMode == MASK422)
       fill_mask422_sse41<pixel_t, full_opacity>(dst, maskp, width, opacity_i, half, magic);
     else if constexpr (maskMode == MASK422_MPEG2)
@@ -902,7 +902,7 @@ const float* prepare_effective_mask_for_row_float_sse41(
   const float* maskp,
   int mask_pitch,
   int width,
-  std::vector<float>& buf,
+  float* buf,
   float opacity)
 {
   if constexpr (maskMode == MASK444) {
@@ -910,7 +910,7 @@ const float* prepare_effective_mask_for_row_float_sse41(
       return maskp;
     }
     else {
-      float* dst = buf.data();
+      float* dst = buf;
       int x = 0;
       const __m128 v_opacity = _mm_set1_ps(opacity);
       for (; x <= width - 4; x += 4) {
@@ -925,7 +925,7 @@ const float* prepare_effective_mask_for_row_float_sse41(
     }
   }
   else {
-    float* dst = buf.data();
+    float* dst = buf;
     if constexpr (maskMode == MASK422)
       fill_mask422_float_sse41<full_opacity>(dst, maskp, width, opacity);
     else if constexpr (maskMode == MASK422_MPEG2)
@@ -963,8 +963,8 @@ const float* prepare_effective_mask_for_row_float_sse41(
 
 // prepare_effective_mask_for_row_sse41
 #define INST_PREP_SSE41(mm, pt) \
-  template const pt* prepare_effective_mask_for_row_sse41<mm, pt, true> (const pt*, int, int, std::vector<pt>&, int, int, MagicDiv); \
-  template const pt* prepare_effective_mask_for_row_sse41<mm, pt, false>(const pt*, int, int, std::vector<pt>&, int, int, MagicDiv);
+  template const pt* prepare_effective_mask_for_row_sse41<mm, pt, true> (const pt*, int, int, pt*, int, int, MagicDiv); \
+  template const pt* prepare_effective_mask_for_row_sse41<mm, pt, false>(const pt*, int, int, pt*, int, int, MagicDiv);
 INST_PREP_SSE41(MASK444,          uint8_t)   INST_PREP_SSE41(MASK444,          uint16_t)
 INST_PREP_SSE41(MASK420,          uint8_t)   INST_PREP_SSE41(MASK420,          uint16_t)
 INST_PREP_SSE41(MASK420_MPEG2,    uint8_t)   INST_PREP_SSE41(MASK420_MPEG2,    uint16_t)
@@ -982,8 +982,8 @@ INST_PREP_SSE41(MASK410_TOPLEFT,  uint8_t)   INST_PREP_SSE41(MASK410_TOPLEFT,  u
 
 // prepare_effective_mask_for_row_float_sse41
 #define INST_PREP_SSE41(mm) \
-  template const float* prepare_effective_mask_for_row_float_sse41<mm, true> (const float*, int, int, std::vector<float>&, float); \
-  template const float* prepare_effective_mask_for_row_float_sse41<mm, false>(const float*, int, int, std::vector<float>&, float);
+  template const float* prepare_effective_mask_for_row_float_sse41<mm, true> (const float*, int, int, float*, float); \
+  template const float* prepare_effective_mask_for_row_float_sse41<mm, false>(const float*, int, int, float*, float);
 INST_PREP_SSE41(MASK444) 
 INST_PREP_SSE41(MASK420)
 INST_PREP_SSE41(MASK420_MPEG2)

@@ -3485,7 +3485,8 @@ void resize_prepare_coeffs_AVX512_H(ResamplingProgram* p, IScriptEnvironment* en
       env->Free(SIMD_coeff);
       env->ThrowError("Could not reserve memory in a resampler.");
     }
-    std::fill_n((float*)SIMD_coeff, target_size_aligned * filter_size_aligned, 0.0f);
+    // memset, not std::fill_n: no STL template instantiated in this AVX-512 TU (see core/scratch_buffer.h). 0.0f is all-zero bits.
+    memset(SIMD_coeff, 0, sizeof(float) * target_size_aligned * filter_size_aligned);
   }
   else {
     element_size = sizeof(short);
@@ -3631,7 +3632,7 @@ void resize_prepare_coeffs_AVX512_float_H(ResamplingProgram* p, IScriptEnvironme
   float* buf = (float*)env->Allocate(sizeof(float) * buf_count, 64, AVS_NORMAL_ALLOC);
   if (!buf)
     env->ThrowError("resize_prepare_coeffs_AVX512_float_H: Could not reserve memory.");
-  std::fill_n(buf, buf_count, 0.0f);
+  memset(buf, 0, sizeof(float) * buf_count); // not std::fill_n, see above
 
   const float* src = p->pixel_coefficient_float;
   float* dst = buf;

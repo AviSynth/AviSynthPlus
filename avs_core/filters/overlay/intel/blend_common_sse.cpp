@@ -537,7 +537,7 @@ template<typename pixel_t, bool full_opacity>
 __attribute__((__target__("sse4.1")))
 #endif
 void do_fill_chroma_row_sse41(
-  std::vector<pixel_t>& buf, const pixel_t* luma_row,
+  pixel_t* buf, const pixel_t* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   int opacity_i, int half, MagicDiv magic)
 {
@@ -571,17 +571,17 @@ void do_fill_chroma_row_sse41(
 }
 
 // Explicit instantiation definitions for the four combinations used by OF_blend.cpp.
-template void do_fill_chroma_row_sse41<uint8_t,  true> (std::vector<uint8_t>&,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_sse41<uint8_t,  false>(std::vector<uint8_t>&,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_sse41<uint16_t, true> (std::vector<uint16_t>&, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_sse41<uint16_t, false>(std::vector<uint16_t>&, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_sse41<uint8_t,  true> (uint8_t*,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_sse41<uint8_t,  false>(uint8_t*,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_sse41<uint16_t, true> (uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_sse41<uint16_t, false>(uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
 
 template<bool full_opacity>
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
 void do_fill_chroma_row_float_sse41(
-  std::vector<float>& buf, const float* luma_row,
+  float* buf, const float* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   float opacity)
 {
@@ -615,8 +615,8 @@ void do_fill_chroma_row_float_sse41(
 }
 
 
-template void do_fill_chroma_row_float_sse41<true>(std::vector<float>&, const float*, int, int, MaskMode, float);
-template void do_fill_chroma_row_float_sse41<false>(std::vector<float>&, const float*, int, int, MaskMode, float);
+template void do_fill_chroma_row_float_sse41<true>(float*, const float*, int, int, MaskMode, float);
+template void do_fill_chroma_row_float_sse41<false>(float*, const float*, int, int, MaskMode, float);
 
 // and for float:
 masked_merge_float_fn_t* get_overlay_blend_masked_float_fn_sse41(bool is_chroma, MaskMode maskMode)

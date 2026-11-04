@@ -38,6 +38,7 @@
 #define __blend_common_h
 
 #include <avs/types.h>
+#include "../../core/scratch_buffer.h"
 #include <avs/config.h>
 #include <vector>
 #include "../../convert/frame_prop_enums.h"
@@ -330,7 +331,7 @@ AVS_FORCEINLINE static const pixel_t* prepare_effective_mask_for_row(
   const pixel_t* maskp,
   int mask_pitch,
   int width,
-  std::vector<pixel_t>& effective_mask_buffer,
+  pixel_t* effective_mask_buffer,
   int opacity_i = 0,
   int half = 0,
   MagicDiv magic = {}
@@ -342,7 +343,7 @@ AVS_FORCEINLINE static const pixel_t* prepare_effective_mask_for_row(
       for (int x = 0; x < width; ++x)
         effective_mask_buffer[x] = static_cast<pixel_t>(
           magic_div_rt<pixel_t>((uint32_t)maskp[x] * (uint32_t)opacity_i + (uint32_t)half, magic));
-      return effective_mask_buffer.data();
+      return effective_mask_buffer;
     }
   }
   else {
@@ -360,7 +361,7 @@ AVS_FORCEINLINE static const pixel_t* prepare_effective_mask_for_row(
         effective_mask_buffer[x] = static_cast<pixel_t>(
           magic_div_rt<pixel_t>((uint32_t)avg * (uint32_t)opacity_i + (uint32_t)half, magic));
     }
-    return effective_mask_buffer.data();
+    return effective_mask_buffer;
   }
 }
 
@@ -376,7 +377,7 @@ AVS_FORCEINLINE static const float* prepare_effective_mask_for_row_float_c(
   const float* maskp,
   int mask_pitch,
   int width,
-  std::vector<float>& effective_mask_buffer,
+  float* effective_mask_buffer,
   float opacity_f = 1.0f
 ) {
   if constexpr (maskMode == MASK444) {
@@ -385,7 +386,7 @@ AVS_FORCEINLINE static const float* prepare_effective_mask_for_row_float_c(
     } else {
       for (int x = 0; x < width; ++x)
         effective_mask_buffer[x] = maskp[x] * opacity_f;
-      return effective_mask_buffer.data();
+      return effective_mask_buffer;
     }
   }
   else {
@@ -402,7 +403,7 @@ AVS_FORCEINLINE static const float* prepare_effective_mask_for_row_float_c(
       else
         effective_mask_buffer[x] = avg * opacity_f;
     }
-    return effective_mask_buffer.data();
+    return effective_mask_buffer;
   }
 }
 
@@ -493,12 +494,12 @@ static void masked_merge_impl_c_inner(
     const int mpx = mask_pitch;
     const int mask_adv = mpx * MaskVSubsample<maskMode>;
 
-    std::vector<uint8_t> eff_buf;
+    ScratchBuffer<uint8_t> eff_buf;
     if constexpr (maskMode != MASK444 || !full_opacity) eff_buf.resize(width);
 
     for (int y = 0; y < height; y++) {
       const uint8_t* eff = prepare_effective_mask_for_row<maskMode, uint8_t, full_opacity>(
-        maskp, mpx, width, eff_buf, opacity, half, mag);
+        maskp, mpx, width, eff_buf.data(), opacity, half, mag);
       blend8_masked_c_row(
         reinterpret_cast<uint8_t*>(p1), reinterpret_cast<const uint8_t*>(p2), eff, width);
       p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;
@@ -510,13 +511,13 @@ static void masked_merge_impl_c_inner(
   const int mpx = mask_pitch / 2;
   const int mask_adv = mpx * MaskVSubsample<maskMode>;
 
-  std::vector<uint16_t> eff_buf;
+  ScratchBuffer<uint16_t> eff_buf;
   if constexpr (maskMode != MASK444 || !full_opacity) eff_buf.resize(width);
 
 #define BLEND16_LOOP_C(bpp) \
   for (int y = 0; y < height; y++) { \
     const uint16_t* eff = prepare_effective_mask_for_row<maskMode, uint16_t, full_opacity>( \
-      maskp, mpx, width, eff_buf, opacity, half, mag); \
+      maskp, mpx, width, eff_buf.data(), opacity, half, mag); \
     blend16_masked_c_row<bpp>( \
       reinterpret_cast<uint16_t*>(p1), reinterpret_cast<const uint16_t*>(p2), eff, width); \
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv; \
@@ -542,12 +543,12 @@ AVS_FORCEINLINE static void masked_merge_impl_float_c_inner(
   const int mpx = mask_pitch / sizeof(float);
   const int mask_adv = mpx * MaskVSubsample<maskMode>;
 
-  std::vector<float> eff_buf;
+  ScratchBuffer<float> eff_buf;
   if constexpr (maskMode != MASK444 || !full_opacity) eff_buf.resize(width);
 
   for (int y = 0; y < height; y++) {
     const float* eff = prepare_effective_mask_for_row_float_c<maskMode, full_opacity>(
-      maskp, mpx, width, eff_buf, opacity);
+      maskp, mpx, width, eff_buf.data(), opacity);
     blend_masked_float_c_row(
       reinterpret_cast<float*>(p1), reinterpret_cast<const float*>(p2), eff, width);
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;

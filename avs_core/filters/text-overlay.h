@@ -163,7 +163,7 @@ private:
   template<typename pixel_t, bool has_alpha>
   void ApplyRGB_packed(BYTE* buf, int pitch);
 
-  using rowprep_u16_fn_t = const uint16_t*(*)(const uint16_t*, int, int, std::vector<uint16_t>&, int, int, MagicDiv);
+  using rowprep_u16_fn_t = const uint16_t*(*)(const uint16_t*, int, int, uint16_t*, int, int, MagicDiv);
 
   void* lpAntialiasBits;
   // Row-interleaved SoA: each scanline holds [ba|ry|u|v], each sub-row w_stride wide.

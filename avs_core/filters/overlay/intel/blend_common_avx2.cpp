@@ -313,7 +313,7 @@ masked_merge_fn_t* get_overlay_blend_masked_fn_avx2(bool is_chroma, MaskMode mas
 // ---------------------------------------------------------------------------
 template<typename pixel_t, bool full_opacity>
 void do_fill_chroma_row_avx2(
-  std::vector<pixel_t>& buf, const pixel_t* luma_row,
+  pixel_t* buf, const pixel_t* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   int opacity_i, int half, MagicDiv magic)
 {
@@ -346,15 +346,15 @@ void do_fill_chroma_row_avx2(
   }
 }
 
-template void do_fill_chroma_row_avx2<uint8_t, true>(std::vector<uint8_t>&, const uint8_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_avx2<uint8_t, false>(std::vector<uint8_t>&, const uint8_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_avx2<uint16_t, true>(std::vector<uint16_t>&, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_avx2<uint16_t, false>(std::vector<uint16_t>&, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint8_t, true>(uint8_t*, const uint8_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint8_t, false>(uint8_t*, const uint8_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint16_t, true>(uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint16_t, false>(uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
 
 
 template<bool full_opacity>
 void do_fill_chroma_row_float_avx2(
-  std::vector<float>& buf, const float* luma_row,
+  float* buf, const float* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   float opacity)
 {
@@ -387,8 +387,8 @@ void do_fill_chroma_row_float_avx2(
   }
 }
 
-template void do_fill_chroma_row_float_avx2<true> (std::vector<float>&,  const float*,  int, int, MaskMode, float);
-template void do_fill_chroma_row_float_avx2<false>(std::vector<float>&,  const float*,  int, int, MaskMode, float);
+template void do_fill_chroma_row_float_avx2<true> (float*,  const float*,  int, int, MaskMode, float);
+template void do_fill_chroma_row_float_avx2<false>(float*,  const float*,  int, int, MaskMode, float);
 
 // and for float:
 masked_merge_float_fn_t* get_overlay_blend_masked_float_fn_avx2(bool is_chroma, MaskMode maskMode)

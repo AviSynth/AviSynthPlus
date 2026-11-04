@@ -197,7 +197,7 @@ static void masked_merge_neon_impl(
   const int      mask_pitch_px = mask_pitch / (int)sizeof(pixel_t);
 
   // Buffer for non-MASK444 modes: holds one row of averaged mask values.
-  std::vector<pixel_t> eff_mask_buf;
+  ScratchBuffer<pixel_t> eff_mask_buf;
   if constexpr (maskMode != MASK444)
     eff_mask_buf.resize(width);
 
@@ -214,7 +214,7 @@ static void masked_merge_neon_impl(
     for (int y = 0; y < height; y++) {
       // Pre-compute effective mask row (no-op for MASK444: returns original pointer)
       const pixel_t* eff_maskp = prepare_effective_mask_for_row_neon<maskMode, pixel_t>(
-        maskp, mask_pitch_px, width, eff_mask_buf);
+        maskp, mask_pitch_px, width, eff_mask_buf.data());
 
       const uint8_t* eff_mask = reinterpret_cast<const uint8_t*>(eff_maskp);
       const uint8_t* srcp2    = reinterpret_cast<const uint8_t*>(p2);
@@ -294,7 +294,7 @@ static void masked_merge_neon_impl(
     const int vec_width = (width / 4) * 4;
     for (int y = 0; y < height; y++) {
       const pixel_t* eff_maskp = prepare_effective_mask_for_row_neon<maskMode, pixel_t>(
-        maskp, mask_pitch_px, width, eff_mask_buf);
+        maskp, mask_pitch_px, width, eff_mask_buf.data());
 
       const uint16_t* eff_mask = reinterpret_cast<const uint16_t*>(eff_maskp);
       const uint16_t* srcp2    = reinterpret_cast<const uint16_t*>(p2);
@@ -698,14 +698,14 @@ static const float* prepare_effective_mask_for_row_float_neon(
   const float* maskp,
   int mask_pitch,
   int width,
-  std::vector<float>& buf,
+  float* buf,
   float opacity)
 {
   if constexpr (maskMode == MASK444) {
     if constexpr (full_opacity) {
       return maskp;
     } else {
-      float* dst = buf.data();
+      float* dst = buf;
       const float32x4_t v_opacity = vdupq_n_f32(opacity);
       int x = 0;
       for (; x <= width - 4; x += 4)
@@ -715,7 +715,7 @@ static const float* prepare_effective_mask_for_row_float_neon(
       return dst;
     }
   } else {
-    float* dst = buf.data();
+    float* dst = buf;
     if constexpr (maskMode == MASK422)
       fill_mask422_float_neon<full_opacity>(dst, maskp, width, opacity);
     else if constexpr (maskMode == MASK422_MPEG2)
@@ -785,12 +785,12 @@ static void masked_merge_float_neon_impl_inner(
      maskMode == MASK440 || maskMode == MASK440_TOPLEFT) ? mpx * 2 :
     mpx;
 
-  std::vector<float> eff_buf;
+  ScratchBuffer<float> eff_buf;
   if constexpr (maskMode != MASK444 || !full_opacity) eff_buf.resize(width);
 
   for (int y = 0; y < height; y++) {
     const float* eff = prepare_effective_mask_for_row_float_neon<maskMode, full_opacity>(
-      maskp, mpx, width, eff_buf, opacity);
+      maskp, mpx, width, eff_buf.data(), opacity);
     blend_masked_float_neon_row(
       reinterpret_cast<float*>(p1), reinterpret_cast<const float*>(p2), eff, width);
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;
@@ -851,7 +851,7 @@ masked_merge_float_fn_t* get_overlay_blend_masked_float_fn_neon(bool is_chroma, 
 // ---------------------------------------------------------------------------
 template<typename pixel_t, bool full_opacity>
 void do_fill_chroma_row_neon(
-  std::vector<pixel_t>& buf, const pixel_t* luma_row,
+  pixel_t* buf, const pixel_t* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   int opacity_i, int half, MagicDiv magic)
 {
@@ -884,14 +884,14 @@ void do_fill_chroma_row_neon(
   }
 }
 
-template void do_fill_chroma_row_neon<uint8_t,  true>(std::vector<uint8_t>&,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_neon<uint8_t,  false>(std::vector<uint8_t>&,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_neon<uint16_t, true> (std::vector<uint16_t>&, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_neon<uint16_t, false>(std::vector<uint16_t>&, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_neon<uint8_t,  true>(uint8_t*,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_neon<uint8_t,  false>(uint8_t*,  const uint8_t*,  int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_neon<uint16_t, true> (uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_neon<uint16_t, false>(uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
 
 template<bool full_opacity>
 void do_fill_chroma_row_float_neon(
-  std::vector<float>& buf, const float* luma_row,
+  float* buf, const float* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   float opacity)
 {
@@ -924,5 +924,5 @@ void do_fill_chroma_row_float_neon(
   }
 }
 
-template void do_fill_chroma_row_float_neon<true>(std::vector<float>&, const float*, int, int, MaskMode, float);
-template void do_fill_chroma_row_float_neon<false>(std::vector<float>&, const float*, int, int, MaskMode, float);
+template void do_fill_chroma_row_float_neon<true>(float*, const float*, int, int, MaskMode, float);
+template void do_fill_chroma_row_float_neon<false>(float*, const float*, int, int, MaskMode, float);

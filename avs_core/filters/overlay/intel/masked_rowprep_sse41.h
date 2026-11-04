@@ -47,7 +47,7 @@ const pixel_t* prepare_effective_mask_for_row_sse41(
   const pixel_t* maskp,
   int mask_pitch,
   int width,
-  std::vector<pixel_t>& buf,
+  pixel_t* buf,
   int opacity_i = 0,
   int half = 0,
   MagicDiv magic = {});
@@ -57,5 +57,5 @@ const float* prepare_effective_mask_for_row_float_sse41(
   const float* maskp,
   int mask_pitch,
   int width,
-  std::vector<float>& buf,
+  float* buf,
   float opacity = 0);

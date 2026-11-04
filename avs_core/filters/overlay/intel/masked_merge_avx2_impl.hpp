@@ -16,6 +16,7 @@
 
 // Provides simd_magic_div_32_avx2 + prepare_effective_mask_for_row_avx2.
 #include "masked_rowprep_avx2_impl.h"
+#include "../../../core/scratch_buffer.h"
 
 // ---------------------------------------------------------------------------
 // 8-bit row — mask already has opacity baked in by rowprep.
@@ -178,12 +179,12 @@ static void masked_merge_avx2_impl_inner(
     const int mpx      = mask_pitch;
     const int mask_adv = mpx * MaskVSubsample<maskMode>;
 
-    std::vector<uint8_t> eff_buf;
+    ScratchBuffer<uint8_t> eff_buf;
     if constexpr (maskMode != MASK444 || !full_opacity) eff_buf.resize(width);
 
     for (int y = 0; y < height; y++) {
       const uint8_t* eff = prepare_effective_mask_for_row_avx2<maskMode, uint8_t, full_opacity>(
-        maskp, mpx, width, eff_buf, opacity, half, mag);
+        maskp, mpx, width, eff_buf.data(), opacity, half, mag);
       blend8_masked_avx2_row(
         reinterpret_cast<uint8_t*>(p1), reinterpret_cast<const uint8_t*>(p2), eff, width);
       p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;
@@ -195,13 +196,13 @@ static void masked_merge_avx2_impl_inner(
   const int mpx      = mask_pitch / 2;
   const int mask_adv = mpx * MaskVSubsample<maskMode>;
 
-  std::vector<uint16_t> eff_buf;
+  ScratchBuffer<uint16_t> eff_buf;
   if constexpr (maskMode != MASK444 || !full_opacity) eff_buf.resize(width);
 
 #define BLEND16_LOOP_AVX2(bpp) \
   for (int y = 0; y < height; y++) { \
     const uint16_t* eff = prepare_effective_mask_for_row_avx2<maskMode, uint16_t, full_opacity>( \
-      maskp, mpx, width, eff_buf, opacity, half, mag); \
+      maskp, mpx, width, eff_buf.data(), opacity, half, mag); \
     blend16_masked_avx2_row<bpp>( \
       reinterpret_cast<uint16_t*>(p1), reinterpret_cast<const uint16_t*>(p2), eff, width); \
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv; \
@@ -235,12 +236,12 @@ static void masked_merge_float_avx2_impl_inner(
   const int mpx = mask_pitch / sizeof(float);
   const int mask_adv = mpx * MaskVSubsample<maskMode>;
 
-  std::vector<float> eff_buf;
+  ScratchBuffer<float> eff_buf;
   if constexpr (maskMode != MASK444 || !full_opacity) eff_buf.resize(width);
 
   for (int y = 0; y < height; y++) {
     const float* eff = prepare_effective_mask_for_row_float_avx2<maskMode, full_opacity>(
-      maskp, mpx, width, eff_buf, opacity);
+      maskp, mpx, width, eff_buf.data(), opacity);
     blend_masked_float_avx2_row(
       reinterpret_cast<float*>(p1), reinterpret_cast<const float*>(p2), eff, width);
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;

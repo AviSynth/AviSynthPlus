@@ -212,7 +212,7 @@ const pixel_t* prepare_effective_mask_for_row_neon(
   const pixel_t* maskp,
   int mask_pitch,
   int width,
-  std::vector<pixel_t>& buf,
+  pixel_t* buf,
   int opacity_i,
   int half,
   MagicDiv magic)
@@ -221,7 +221,7 @@ const pixel_t* prepare_effective_mask_for_row_neon(
     return maskp;
   }
   else {
-    pixel_t* dst = buf.data();
+    pixel_t* dst = buf;
     int x = 0;
     if constexpr (maskMode == MASK444) {
       for (; x + 8 <= width; x += 8) {
@@ -275,8 +275,8 @@ const pixel_t* prepare_effective_mask_for_row_neon(
 }
 
 #define INST_PREP_NEON(mm, pt) \
-  template const pt* prepare_effective_mask_for_row_neon<mm, pt, true> (const pt*, int, int, std::vector<pt>&, int, int, MagicDiv); \
-  template const pt* prepare_effective_mask_for_row_neon<mm, pt, false>(const pt*, int, int, std::vector<pt>&, int, int, MagicDiv);
+  template const pt* prepare_effective_mask_for_row_neon<mm, pt, true> (const pt*, int, int, pt*, int, int, MagicDiv); \
+  template const pt* prepare_effective_mask_for_row_neon<mm, pt, false>(const pt*, int, int, pt*, int, int, MagicDiv);
 INST_PREP_NEON(MASK444,          uint8_t)   INST_PREP_NEON(MASK444,          uint16_t)
 INST_PREP_NEON(MASK420,          uint8_t)   INST_PREP_NEON(MASK420,          uint16_t)
 INST_PREP_NEON(MASK420_MPEG2,    uint8_t)   INST_PREP_NEON(MASK420_MPEG2,    uint16_t)

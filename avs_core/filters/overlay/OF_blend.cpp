@@ -204,7 +204,7 @@ static void overlay_blend_weighted_float_c(
 // ---------------------------------------------------------------------------
 template<typename pixel_t, bool full_opacity = true>
 static void do_fill_chroma_row(
-  std::vector<pixel_t>& buf, const pixel_t* luma_row,
+  pixel_t* buf, const pixel_t* luma_row,
   int luma_pitch_pixels, int chroma_w, MaskMode mode,
   int opacity_i = 0, int half = 0, MagicDiv magic = {})
 {
@@ -239,7 +239,7 @@ static void do_fill_chroma_row(
 
 template<bool full_opacity = true>
 static void do_fill_chroma_row_f(
-  std::vector<float>& buf, const float* luma_row,
+  float* buf, const float* luma_row,
   int luma_pitch_floats, int chroma_w, MaskMode mode,
   float opacity_f = 1.0f)
 {
@@ -395,28 +395,28 @@ void OL_BlendImage::BlendImageMask(ImageOverlayInternal* base, ImageOverlayInter
 #ifdef INTEL_INTRINSICS
           if (use_avx2_rowprep_f) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_float_avx2<true> (scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_float_avx2<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row_float_avx2<false>(scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_float_avx2<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
           } else if (use_sse41_rowprep_f) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_float_sse41<true> (scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_float_sse41<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row_float_sse41<false>(scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_float_sse41<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
           } else
 #elif defined(NEON_INTRINSICS)
           if (use_neon_rowprep_f) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_float_neon<true>(scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_float_neon<true>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row_float_neon<false>(scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_float_neon<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
           } else
 #endif
           {
             if (chroma_full_opacity)
-              do_fill_chroma_row_f<true> (scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_f<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row_f<false>(scratch, lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_f<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
           }
           // Apply to each active chroma plane; opacity already baked — pass 1.0f.
           for (int i = 0; i < n_planes; i++) {
@@ -507,29 +507,29 @@ void OL_BlendImage::BlendImageMask(ImageOverlayInternal* base, ImageOverlayInter
 #ifdef INTEL_INTRINSICS
           if (use_avx2_rowprep) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_avx2<pixel_t, true> (scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_avx2<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row_avx2<pixel_t, false>(scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row_avx2<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
           } else if (use_sse41_rowprep) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_sse41<pixel_t, true> (scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_sse41<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row_sse41<pixel_t, false>(scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row_sse41<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
           } else
 #elif defined(NEON_INTRINSICS)
           if (use_neon_rowprep) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_neon<pixel_t, true>(scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_neon<pixel_t, true>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row_neon<pixel_t, false>(scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row_neon<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
           }
           else
 #endif
           {
             if (chroma_full_opacity)
-              do_fill_chroma_row<pixel_t, true> (scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
             else
-              do_fill_chroma_row<pixel_t, false>(scratch, lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
           }
           // Apply to each active chroma plane; opacity already baked — pass max_pixel_value.
           for (int i = 0; i < n_planes; i++) {
