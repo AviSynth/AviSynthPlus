@@ -244,6 +244,8 @@ static AVS_FORCEINLINE bool IsForwardedUserCacheHint(int cachehints) {
 }
 
 // fake _mm_packus_epi32 (orig is SSE4.1 only)
+// Edge case: an input < INT_MIN + 32768 wraps in the 32 bit bias subtract and gives 65535 instead of 0
+// (_mm_packus_epi32 gives 0). Not reachable from pixel arithmetic, which stays far from INT_MIN.
 [[maybe_unused]] static AVS_FORCEINLINE __m128i _MM_PACKUS_EPI32( __m128i a, __m128i b )
 {
   const __m128i val_32 = _mm_set1_epi32(0x8000);
@@ -286,17 +288,20 @@ static AVS_FORCEINLINE bool IsForwardedUserCacheHint(int cachehints) {
 }
 
 // sse2 simulation of SSE4's _mm_min_epu16
+// Uses the saturating unsigned subtract: subs_epu16(x, y) == x - min(x, y),
+// so min(x, y) == x - subs_epu16(x, y). 2 instructions (psubusw, psubw)
+// instead of the 5 of a compare + blend emulation.
 [[maybe_unused]] static AVS_FORCEINLINE __m128i _MM_MIN_EPU16(__m128i x, __m128i y)
 {
-  // Returns x where x <= y, else y:
-  return _MM_BLENDV_SI128(y, x, _MM_CMPLE_EPU16(x, y));
+  return _mm_sub_epi16(x, _mm_subs_epu16(x, y));
 }
 
 // sse2 simulation of SSE4's _mm_max_epu16
+// Same trick: subs_epu16(x, y) == max(x, y) - y, so max(x, y) == y + subs_epu16(x, y).
+// 2 instructions (psubusw, paddw) instead of the 5 of a compare + blend emulation.
 [[maybe_unused]] static AVS_FORCEINLINE __m128i _MM_MAX_EPU16(__m128i x, __m128i y)
 {
-  // Returns x where x >= y, else y:
-  return _MM_BLENDV_SI128(x, y, _MM_CMPLE_EPU16(x, y));
+  return _mm_add_epi16(y, _mm_subs_epu16(x, y));
 }
 #endif
 

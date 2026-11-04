@@ -11,6 +11,10 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Optimization: SSE2 emulation of the SSE4.1 _mm_min_epu16 / _mm_max_epu16 (used without SSE4.1 by Limiter,
+  Blur/Sharpen and the 10-14 bit resizers): 2 instructions (saturating subtract trick) instead of 5
+  (compare + blend). The pack + clamp-to-limit helpers in avs_simd_c.h (MSVC SSE2 build, e.g. the C resizer):
+  min against the biased limit right after the biased signed pack, 5 instructions instead of 9. Output is unchanged.
 - Fix #531: GCC build with LTO (-flto) failed at link time on x86/x64 Linux:
   "inlining failed in call to 'always_inline' prepare_effective_mask_for_row_float_sse41: target specific
   option mismatch". The force-inlined SSE4.1 function, defined in another source file, was called from a

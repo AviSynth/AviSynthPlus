@@ -1097,20 +1097,17 @@ public:
   __m128i clamped = _mm_min_epu16(packed, vlimit);
   _mm_storel_epi64(reinterpret_cast<__m128i*>(&result), clamped);
 #else
-  // SSE2 Fallback: Bias trick + manual unsigned min
+  // SSE2 fallback, any limit: bias into the signed range, signed pack (= packus - 32768),
+  // signed min against the biased limit (order preserving = unsigned min), unbias.
+  // Edge case: x < INT_MIN + 32768 wraps in the 32 bit bias subtract and gives limit instead of 0
+  // (the C path gives 0). Not reachable from pixel arithmetic (resizer sums stay far from INT_MIN).
   const __m128i bias = _mm_set1_epi32(32768);
   const __m128i bias16 = _mm_set1_epi16(-32768);
   __m128i biased = _mm_sub_epi32(a, bias);
   __m128i packed = _mm_packs_epi32(biased, biased);
-  __m128i unbiased = _mm_sub_epi16(packed, bias16);
-
-  __m128i vlimit = _mm_set1_epi16(static_cast<short>(limit));
-  const __m128i sign_bias = _mm_set1_epi16(-32768);
-  __m128i u_shifted = _mm_add_epi16(unbiased, sign_bias);
-  __m128i l_shifted = _mm_add_epi16(vlimit, sign_bias);
-  __m128i mask = _mm_cmpgt_epi16(u_shifted, l_shifted);
-  __m128i final = _mm_or_si128(_mm_and_si128(mask, vlimit), _mm_andnot_si128(mask, unbiased));
-  _mm_storel_epi64(reinterpret_cast<__m128i*>(&result), final);
+  __m128i vlimit_biased = _mm_set1_epi16(static_cast<short>(limit - 32768));
+  __m128i clamped = _mm_sub_epi16(_mm_min_epi16(packed, vlimit_biased), bias16);
+  _mm_storel_epi64(reinterpret_cast<__m128i*>(&result), clamped);
 #endif
 
 #else
@@ -1134,6 +1131,8 @@ public:
   _mm_storel_epi64(reinterpret_cast<__m128i*>(&result), packed);
 #else
   // SSE2 Fallback: The Bias Trick
+  // Edge case: x < INT_MIN + 32768 wraps in the 32 bit bias subtract and gives 65535 instead of 0
+  // (the C path gives 0). Not reachable from pixel arithmetic (resizer sums stay far from INT_MIN).
   const __m128i bias = _mm_set1_epi32(32768);
   const __m128i bias16 = _mm_set1_epi16(-32768);
   __m128i biased = _mm_sub_epi32(a, bias);
@@ -1206,6 +1205,8 @@ static AVS_FORCEINLINE void convert_and_saturate_int32x4x2_to_uint16x8(const Int
   // SSE2 fallback: bias trick
   // _mm_packs_epi32 does signed saturation, so bias into signed range first
   // subtract 32768, pack as signed, then the result is offset by 32768
+  // Edge case: x < INT_MIN + 32768 wraps in the 32 bit bias subtract and gives 65535 instead of 0
+  // (the C path gives 0). Not reachable from pixel arithmetic (resizer sums stay far from INT_MIN).
   const __m128i bias = _mm_set1_epi32(32768);
   const __m128i bias16 = _mm_set1_epi16(-32768); // same bit pattern, adds back
   __m128i a_biased = _mm_sub_epi32(a, bias);
@@ -1223,7 +1224,7 @@ static AVS_FORCEINLINE void convert_and_saturate_int32x4x2_to_uint16x8(const Int
 }
 
 // two 4x int32_t -> 8x uint16_t
-// like a _mm_packus_epi32 followed by a max(x,limit)
+// like a _mm_packus_epi32 followed by a min(x,limit)
 [[maybe_unused]]
 static AVS_FORCEINLINE void convert_and_saturate_int32x4x2_to_uint16x8_limit(const Int32x4& src1, const Int32x4& src2, Uint16x8& result, const uint16_t limit) {
 #if defined(_MSC_VER) && !defined(__clang__) && defined(INTEL_INTRINSICS)
@@ -1236,22 +1237,15 @@ static AVS_FORCEINLINE void convert_and_saturate_int32x4x2_to_uint16x8_limit(con
   __m128i clamped = _mm_min_epu16(packed, vlimit);
   memcpy(&result, &clamped, 16);
 #else
-  // SSE2: same bias trick for pack, then scalar min (limit path is rare/short)
+  // SSE2 fallback, any limit: bias into the signed range, signed pack (= packus - 32768),
+  // signed min against the biased limit (order preserving = unsigned min), unbias.
+  // Edge case: x < INT_MIN + 32768 wraps in the 32 bit bias subtract and gives limit instead of 0
+  // (the C path gives 0). Not reachable from pixel arithmetic (resizer sums stay far from INT_MIN).
   const __m128i bias = _mm_set1_epi32(32768);
   const __m128i bias16 = _mm_set1_epi16(-32768);
-  __m128i a_biased = _mm_sub_epi32(a, bias);
-  __m128i b_biased = _mm_sub_epi32(b, bias);
-  __m128i packed = _mm_packs_epi32(a_biased, b_biased);
-  __m128i unbiased = _mm_sub_epi16(packed, bias16);
-  // SSE2 has no _mm_min_epu16, emulate with signed comparison bias
-  __m128i vlimit = _mm_set1_epi16(static_cast<short>(limit));
-  // unsigned min: a < b unsigned  <=>  (a - 32768) < (b - 32768) signed
-  const __m128i sign_bias = _mm_set1_epi16(-32768);
-  __m128i u_shifted = _mm_add_epi16(unbiased, sign_bias);
-  __m128i l_shifted = _mm_add_epi16(vlimit, sign_bias);
-  __m128i mask = _mm_cmpgt_epi16(u_shifted, l_shifted); // 0xFFFF where unbiased > limit
-  __m128i clamped = _mm_or_si128(_mm_and_si128(mask, vlimit),
-    _mm_andnot_si128(mask, unbiased));
+  __m128i packed = _mm_packs_epi32(_mm_sub_epi32(a, bias), _mm_sub_epi32(b, bias));
+  __m128i vlimit_biased = _mm_set1_epi16(static_cast<short>(limit - 32768));
+  __m128i clamped = _mm_sub_epi16(_mm_min_epi16(packed, vlimit_biased), bias16);
   memcpy(&result, &clamped, 16);
 #endif
 #else

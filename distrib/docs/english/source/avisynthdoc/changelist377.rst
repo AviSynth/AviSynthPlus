@@ -27,6 +27,8 @@ Bugfixes
 
 Optimizations
 ~~~~~~~~~~~~~
+- Optimization: x86 SSE2 (no SSE4.1) emulation of unsigned 16 bit min/max (Limiter, Blur/Sharpen, 10-14 bit
+  resizers) and the pack + clamp-to-limit in the MSVC SSE2 build of the C resizer: fewer instructions.
 
 Documentation
 ~~~~~~~~~~~~~
