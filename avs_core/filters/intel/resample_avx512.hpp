@@ -967,7 +967,11 @@ void resize_h_planar_uint8_avx512_permutex_vstripe_mpz_ks16_pretransposed_coeffs
 {
   constexpr int PIXELS_AT_A_TIME = 32;
 
-  const int width_safe_mod = (program->safelimit_128_pixels_each64th_target.overread_possible ? program->safelimit_128_pixels_each64th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // Safe zone: 32 pixels per step: a 128 pixel window from each 32-pixel block start. Each window start must be checked
+
+  // (safelimit_128_pixels_each64th_target checked only the step start: the other windows could read past the source buffer).
+
+  const int width_safe_mod = (program->safelimit_128_pixels_each32th_target.overread_possible ? program->safelimit_128_pixels_each32th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   assert(program->filter_size_real <= 16);
   assert(program->target_size_alignment >= 32);
@@ -1294,7 +1298,11 @@ void resize_h_planar_uint8_avx512_permutex_vstripe_mpz_2s32_ks64_pretransposed_c
 
   constexpr int PIXELS_AT_A_TIME = 64;
 
-  const int width_safe_mod = (program->safelimit_128_pixels_each64th_target.overread_possible ? program->safelimit_128_pixels_each64th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // Safe zone: two 128 pixel windows, from x and x+32. Each window start must be checked
+
+  // (safelimit_128_pixels_each64th_target checked only the step start: the other windows could read past the source buffer).
+
+  const int width_safe_mod = (program->safelimit_128_pixels_each32th_target.overread_possible ? program->safelimit_128_pixels_each32th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   assert(program->filter_size_real <= 64);
   assert(program->target_size_alignment >= 64);
@@ -1501,7 +1509,11 @@ void resize_h_planar_uint8_avx512_permutex_vstripe_2s32_ks8_pretransposed_coeffs
 {
   constexpr int PIXELS_AT_A_TIME = 64;
 
-  const int width_safe_mod = (program->safelimit_128_pixels_each64th_target.overread_possible ? program->safelimit_128_pixels_each64th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // Safe zone: two 128 pixel windows, from x and x+32. Each window start must be checked
+
+  // (safelimit_128_pixels_each64th_target checked only the step start: the other windows could read past the source buffer).
+
+  const int width_safe_mod = (program->safelimit_128_pixels_each32th_target.overread_possible ? program->safelimit_128_pixels_each32th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   const int max_scanlines = program->max_scanlines;
 
@@ -2331,7 +2343,11 @@ void resize_h_planar_uint16_avx512_permutex_vstripe_mp_4s16_ks8_pretransposed_co
 
   constexpr int PIXELS_AT_A_TIME = 64;
 
-  const int width_safe_mod = (program->safelimit_64_pixels_each32th_target.overread_possible ? program->safelimit_64_pixels_each32th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // Safe zone: four 64 pixel windows, from x, x+16, x+32, x+48. Each window start must be checked
+
+  // (safelimit_64_pixels_each32th_target checked only the step start: the other windows could read past the source buffer).
+
+  const int width_safe_mod = (program->safelimit_64_pixels_each16th_target.overread_possible ? program->safelimit_64_pixels_each16th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   const int max_scanlines = program->max_scanlines;
 
@@ -2907,7 +2923,11 @@ void resize_h_planar_uint16_avx512_permutex_vstripe_mp_4s16_ks48_pretransposed_c
 
   constexpr int PIXELS_AT_A_TIME = 64;
 
-  const int width_safe_mod = (program->safelimit_64_pixels_each32th_target.overread_possible ? program->safelimit_64_pixels_each32th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
+  // Safe zone: four 64 pixel windows, from x, x+16, x+32, x+48. Each window start must be checked
+
+  // (safelimit_64_pixels_each32th_target checked only the step start: the other windows could read past the source buffer).
+
+  const int width_safe_mod = (program->safelimit_64_pixels_each16th_target.overread_possible ? program->safelimit_64_pixels_each16th_target.source_overread_beyond_targetx : width) / PIXELS_AT_A_TIME * PIXELS_AT_A_TIME;
 
   const int max_scanlines = program->max_scanlines;
 

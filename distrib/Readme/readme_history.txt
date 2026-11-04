@@ -11,6 +11,13 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: AVX-512 8 and 16 bit horizontal resizers: possible read past the end of the source buffer.
+  These permutex kernels load a 128 byte (8 bit) or 64 pixel (16 bit) source window from each pixel group
+  start, but the safe-zone limit checked only the first group of each step: 8 bit mpz_ks16 (32 pixels/step)
+  and the 2s32 kernels (second window at x+32), 16 bit 4s16 kernels (windows at x+16 and x+48). On the last
+  row this could read up to ~120 bytes past the buffer, beyond the guaranteed 64 byte slack. The values were
+  never used (output unchanged), but it could fault. Now every window start is checked.
+  Existed since 3.7.6.
 - Fix: 32 bit float horizontal resizers, AVX2 and AVX-512: random NaN output pixels near the right edge.
   The "safe zone" (fast, full-width loads) was limited by a too short source read width: e.g. the generic
   kernel reads filter_size (aligned to 8) source floats per target pixel, but checked only 16; the AVX-512

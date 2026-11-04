@@ -107,6 +107,10 @@ struct ResamplingProgram {
   SafeLimit safelimit_16_pixels_each16th_target = { false, -1, -1 };
   SafeLimit safelimit_64_pixels_each32th_target = { false, -1, -1 };
   SafeLimit safelimit_128_pixels_each64th_target = { false, -1, -1 };
+  // window loads from each sub-group start (e.g. 2s32, 4s16 or a 32 pixels/step kernel):
+  // every window start must be checked, not only the start of each full step
+  SafeLimit safelimit_64_pixels_each16th_target = { false, -1, -1 };  // avx512 uint16_t 4s16: 64 source pixels from each 16-pixel group start
+  SafeLimit safelimit_128_pixels_each32th_target = { false, -1, -1 }; // avx512 uint8_t mpz_ks16 (32 pixels/step), 2s32: 128 source pixels from each 32-pixel group start
 
   int resampler_h_detect_optimal_scanline(int src_width, int tgt_width, size_t l2_cache_size_bytes, size_t pixel_size);
   bool resize_h_planar_gather_permutex_vstripe_check(int iSamplesInTheGroup, int permutex_index_diff_limit, int kernel_size);

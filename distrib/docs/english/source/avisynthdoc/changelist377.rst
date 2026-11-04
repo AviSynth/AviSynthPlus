@@ -12,6 +12,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: 8 and 16 bit horizontal resize, AVX-512: some kernels could read up to ~120 bytes past the end of the
+  source frame buffer on the last row (possible access violation; the output was not affected).
+  Existed since 3.7.6.
 - Fix: 32 bit float horizontal resize (all resizers), AVX2 and AVX-512: near the right edge of each row the
   source was read past the row end; multiplied by zero padding coefficients, a NaN found there gave NaN
   output pixels, at random (depending on memory content). Existed since 3.7.6.

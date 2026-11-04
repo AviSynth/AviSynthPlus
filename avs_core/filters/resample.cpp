@@ -101,6 +101,9 @@ void resize_prepare_coeffs(ResamplingProgram* p, IScriptEnvironment* env, int fi
   p->safelimit_16_pixels_each16th_target.overread_possible = false;
   p->safelimit_64_pixels_each32th_target.overread_possible = false; // avx512 uint16_t 32 target pixels, handling 64 source pixels in permutex-based resizers
   p->safelimit_128_pixels_each64th_target.overread_possible = false; // avx512 uint8_t 64 target pixels, handling 128 source pixels in permutex-based resizers
+  p->safelimit_16_pixels_each8th_target.overread_possible = false;
+  p->safelimit_64_pixels_each16th_target.overread_possible = false; // avx512 uint16_t 4s16: 64 source pixels from each 16-pixel group
+  p->safelimit_128_pixels_each32th_target.overread_possible = false; // avx512 uint8_t mpz_ks16, 2s32: 128 source pixels from each 32-pixel group
   // FIXME: found out how to make it general safelimit_SOURCEREADPIXELS_pixels_each_TARGETPIXELSATATIME. Not here, in each frame proecssing for sure.
 
   // note: filter_size_real was the max(kernel_sizes[])
@@ -207,10 +210,16 @@ void resize_prepare_coeffs(ResamplingProgram* p, IScriptEnvironment* env, int fi
       checkAndSetOverread(start_pos + 8 - 1, p->safelimit_8_pixels_each8th_target, start_pos, i, p->source_size);
       checkAndSetOverread(start_pos + 16 - 1, p->safelimit_16_pixels_each8th_target, start_pos, i, p->source_size);
     }
-    if (i % 16 == 0)
+    if (i % 16 == 0) {
       checkAndSetOverread(start_pos + 16 - 1, p->safelimit_16_pixels_each16th_target, start_pos, i, p->source_size);
-    if (i % 32 == 0) // avx512 uint16_t 32 target pixels, handling 64 source pixels
+      // avx512 uint16_t 4s16: a 64 pixel window from each 16-pixel group start
+      checkAndSetOverread(start_pos + 64 - 1, p->safelimit_64_pixels_each16th_target, start_pos, i, p->source_size);
+    }
+    if (i % 32 == 0) { // avx512 uint16_t 32 target pixels, handling 64 source pixels
       checkAndSetOverread(start_pos + 64 - 1, p->safelimit_64_pixels_each32th_target, start_pos, i, p->source_size);
+      // avx512 uint8_t mpz_ks16 (32 pixels/step) and 2s32: a 128 pixel window from each 32-pixel group start
+      checkAndSetOverread(start_pos + 128 - 1, p->safelimit_128_pixels_each32th_target, start_pos, i, p->source_size);
+    }
     if (i % 64 == 0) // avx512 uint8_t 64 target pixels, handling 128 source pixels
       checkAndSetOverread(start_pos + 128 - 1, p->safelimit_128_pixels_each64th_target, start_pos, i, p->source_size);
 
