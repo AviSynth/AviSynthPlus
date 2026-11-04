@@ -810,24 +810,24 @@ PVideoFrame __stdcall Limiter::GetFrame(int n, IScriptEnvironment* env) {
     if (simd_ok && pixelsize == 2)
     {
       if (env->GetCPUFlags() & CPUF_SSE4_1) {
-        limit_plane_uint16_sse4(srcp, min_luma, max_luma, pitch, height);
+        limit_plane_uint16_sse4(srcp, min_luma, max_luma, pitch, row_size, height);
 
         limit_plane_uint16_sse4(frame->GetWritePtr(PLANAR_U), min_chroma, max_chroma,
-          frame->GetPitch(PLANAR_U), frame->GetHeight(PLANAR_U));
+          frame->GetPitch(PLANAR_U), frame->GetRowSize(PLANAR_U), frame->GetHeight(PLANAR_U));
 
         limit_plane_uint16_sse4(frame->GetWritePtr(PLANAR_V), min_chroma, max_chroma,
-          frame->GetPitch(PLANAR_V), frame->GetHeight(PLANAR_V));
+          frame->GetPitch(PLANAR_V), frame->GetRowSize(PLANAR_V), frame->GetHeight(PLANAR_V));
 
         return frame;
       }
       if (env->GetCPUFlags() & CPUF_SSE2) {
-        limit_plane_uint16_sse2(srcp, min_luma, max_luma, pitch, height);
+        limit_plane_uint16_sse2(srcp, min_luma, max_luma, pitch, row_size, height);
 
         limit_plane_uint16_sse2(frame->GetWritePtr(PLANAR_U), min_chroma, max_chroma,
-          frame->GetPitch(PLANAR_U), frame->GetHeight(PLANAR_U));
+          frame->GetPitch(PLANAR_U), frame->GetRowSize(PLANAR_U), frame->GetHeight(PLANAR_U));
 
         limit_plane_uint16_sse2(frame->GetWritePtr(PLANAR_V), min_chroma, max_chroma,
-          frame->GetPitch(PLANAR_V), frame->GetHeight(PLANAR_V));
+          frame->GetPitch(PLANAR_V), frame->GetRowSize(PLANAR_V), frame->GetHeight(PLANAR_V));
 
         return frame;
       }

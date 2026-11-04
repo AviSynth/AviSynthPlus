@@ -46,32 +46,34 @@
 #include "../core/internal.h"
 
 //min and max values are 16-bit integers either max_plane|max_plane for planar or max_luma|max_chroma for yuy2
-void limit_plane_sse2(BYTE *ptr, int min_value, int max_value, int pitch, int width, int height) {
+void limit_plane_sse2(BYTE *ptr, int min_value, int max_value, int pitch, int row_size, int height) {
   __m128i min_vector = _mm_set1_epi16(min_value);
   __m128i max_vector = _mm_set1_epi16(max_value);
-  BYTE* end_point = ptr + pitch * height;
 
-  while(ptr < end_point) {
-    __m128i src = _mm_load_si128(reinterpret_cast<const __m128i*>(ptr));
-    src = _mm_max_epu8(src, min_vector);
-    src = _mm_min_epu8(src, max_vector);
-    _mm_store_si128(reinterpret_cast<__m128i*>(ptr), src);
-    ptr += 16;
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < row_size; x += 16) {
+      __m128i src = _mm_load_si128(reinterpret_cast<const __m128i*>(ptr + x));
+      src = _mm_max_epu8(src, min_vector);
+      src = _mm_min_epu8(src, max_vector);
+      _mm_store_si128(reinterpret_cast<__m128i*>(ptr + x), src);
+    }
+    ptr += pitch;
   }
 }
 
 //min and max values are 16-bit unsigned integers
-void limit_plane_uint16_sse2(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int height) {
+void limit_plane_uint16_sse2(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int row_size, int height) {
   __m128i min_vector = _mm_set1_epi16(min_value);
   __m128i max_vector = _mm_set1_epi16(max_value);
-  BYTE* end_point = ptr + pitch * height;
 
-  while(ptr < end_point) {
-    __m128i src = _mm_load_si128(reinterpret_cast<const __m128i*>(ptr));
-    src = _MM_MAX_EPU16(src, min_vector);
-    src = _MM_MIN_EPU16(src, max_vector);
-    _mm_store_si128(reinterpret_cast<__m128i*>(ptr), src);
-    ptr += 16;
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < row_size; x += 16) {
+      __m128i src = _mm_load_si128(reinterpret_cast<const __m128i*>(ptr + x));
+      src = _MM_MAX_EPU16(src, min_vector);
+      src = _MM_MIN_EPU16(src, max_vector);
+      _mm_store_si128(reinterpret_cast<__m128i*>(ptr + x), src);
+    }
+    ptr += pitch;
   }
 }
 
@@ -79,18 +81,19 @@ void limit_plane_uint16_sse2(BYTE *ptr, unsigned int min_value, unsigned int max
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-void limit_plane_uint16_sse4(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int height)
+void limit_plane_uint16_sse4(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int row_size, int height)
 {
   __m128i min_vector = _mm_set1_epi16(min_value);
   __m128i max_vector = _mm_set1_epi16(max_value);
-  BYTE* end_point = ptr + pitch * height;
 
-  while(ptr < end_point) {
-    __m128i src = _mm_load_si128(reinterpret_cast<const __m128i*>(ptr));
-    src = _mm_max_epu16(src, min_vector);
-    src = _mm_min_epu16(src, max_vector);
-    _mm_store_si128(reinterpret_cast<__m128i*>(ptr), src);
-    ptr += 16;
+  for (int y = 0; y < height; y++) {
+    for (int x = 0; x < row_size; x += 16) {
+      __m128i src = _mm_load_si128(reinterpret_cast<const __m128i*>(ptr + x));
+      src = _mm_max_epu16(src, min_vector);
+      src = _mm_min_epu16(src, max_vector);
+      _mm_store_si128(reinterpret_cast<__m128i*>(ptr + x), src);
+    }
+    ptr += pitch;
   }
 }
 

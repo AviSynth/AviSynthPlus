@@ -37,12 +37,12 @@
 
 #include <avisynth.h>
 
-void limit_plane_sse2(BYTE *ptr, int min_value, int max_value, int pitch, int width, int height);
-void limit_plane_uint16_sse2(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int height);
+void limit_plane_sse2(BYTE *ptr, int min_value, int max_value, int pitch, int row_size, int height);
+void limit_plane_uint16_sse2(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int row_size, int height);
 #if defined(GCC) || defined(CLANG)
 __attribute__((__target__("sse4.1")))
 #endif
-void limit_plane_uint16_sse4(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int height);
+void limit_plane_uint16_sse4(BYTE *ptr, unsigned int min_value, unsigned int max_value, int pitch, int row_size, int height);
 #ifdef X86_32
 void limit_plane_isse(BYTE *ptr, int min_value, int max_value, int pitch, int width, int height);
 #endif
