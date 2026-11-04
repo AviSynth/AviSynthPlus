@@ -12,6 +12,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: YUV to planar RGB (and RGB to YUV/Y) conversion to 10-14 bit, AVX2: values above 32767 before the
+  final clamp were not clamped (e.g. 14 bit target, B channel at high Y and near-maximum U gave ~32800
+  instead of 16383). Existed since 3.7.6.
 - Fix: ConvertToYUV444/ConvertToY (and the other planar RGB to YUV/Y conversions) from 32 bit float RGB
   to 8-16 bit: the output range scaling depended on uninitialized memory, giving full or limited range
   scaling at random (e.g. 10 bit full range 910 instead of 913), different from run to run.

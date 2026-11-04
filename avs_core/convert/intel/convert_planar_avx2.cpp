@@ -1179,8 +1179,8 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
             else if constexpr (sizeof(pixel_t_dst) == 2) {
               // x->16 bits
               if constexpr (lessthan16bit_target) {
-                p1 = _mm256_min_epi16(p1, limit);
-                p2 = _mm256_min_epi16(p2, limit);
+                p1 = _mm256_min_epu16(p1, limit);
+                p2 = _mm256_min_epu16(p2, limit);
               }
               if constexpr (sizeof(pixel_t) == 1) {
                 // 8->16 bits:
@@ -1409,8 +1409,9 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
             else {
               // X->16 bits
               if constexpr (lessthan16bit_target) {
-                p1 = _mm256_min_epi16(p1, limit);
-                p2 = _mm256_min_epi16(p2, limit);
+                // unsigned min: packus_epi32 gives 0..65535, a signed min would let 32768..65535 through
+                p1 = _mm256_min_epu16(p1, limit);
+                p2 = _mm256_min_epu16(p2, limit);
               }
               if constexpr (sizeof(pixel_t) == 1) {
                 // 8->16 bits:

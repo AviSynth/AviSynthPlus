@@ -11,6 +11,12 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion with 10-14 bit integer output: missing clamp.
+  The result was packed with unsigned saturation (0..65535) and then clamped with a signed 16 bit min, so
+  values 32768..65535 (negative as signed) passed the max-pixel-value clamp.
+  With valid input this happens at 14 bit target only: e.g. YUV444P14 limited, Y=15285, U=V=16181 gave B=32847
+  instead of 16383. Out-of-range input (e.g. ConvertBits(truerange=false)) can trigger it at 10-12 bit too.
+  SSE2 and C were correct. Existed since 3.7.6.
 - Fix: planar RGB to YUV/Y conversion from 32 bit float source to 8-16 bit integer (ConvertToYUV444,
   ConvertToY, ConvertToYUV420/422 ...): the conversion matrix for a float source did not set its integer
   offsets, and the converters (C, SSE2, AVX2) decided full/limited destination range from "offset_out == 0".
