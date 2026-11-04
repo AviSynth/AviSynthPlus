@@ -212,7 +212,7 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
   const int max_pixel_value_target = (1 << bits_per_pixel_target) - 1;
 
   bits_conv_constants conversion_ranges;
-  const bool full_scale_d = m.offset_out == 0;
+  const bool full_scale_d = m.full_scale_d;
   get_bits_conv_constants(conversion_ranges, false, full_scale_d, full_scale_d, bits_per_pixel, bits_per_pixel_target);
 
   constexpr int int_arithmetic_shift = 1 << INT_ARITH_SHIFT;
@@ -775,7 +775,7 @@ void convert_yuv_to_planarrgb_sse2(BYTE* (&dstp)[3], int(&dstPitch)[3], const BY
       return;
     }
 
-    const bool full_d = m.offset_out == 0;
+    const bool full_d = m.full_scale_d;
     if (bits_per_pixel_target >= 8 && bits_per_pixel <= 16) {
       if (bits_per_pixel_target == 8) {
         if (full_d)

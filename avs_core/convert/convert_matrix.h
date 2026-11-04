@@ -64,6 +64,11 @@ struct ConversionMatrix {
   float target_span_f;
   float target_span_f_32;
   float offset_out_f_32;
+
+  // Destination range is full (set by the builders from _ColorRange_Out).
+  // Do not derive it from offset_out == 0: for a 32 bit float source the integer offsets are 0 in both
+  // ranges (16/255 rounds to 0), so a limited destination would be taken for full.
+  bool full_scale_d;
 };
 
 bool GetKrKb(int matrix, double& Kr, double& Kb);

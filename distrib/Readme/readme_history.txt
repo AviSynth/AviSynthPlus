@@ -11,6 +11,14 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261031 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: planar RGB to YUV/Y conversion from 32 bit float source to 8-16 bit integer (ConvertToYUV444,
+  ConvertToY, ConvertToYUV420/422 ...): the conversion matrix for a float source did not set its integer
+  offsets, and the converters (C, SSE2, AVX2) decided full/limited destination range from "offset_out == 0".
+  So the range scaling depended on leftover memory: e.g. RGBPS to 10 bit PC.709 gave 913 or 910
+  (x1023 or x1020), Rec709 848 or 845, varying from run to run and between C and SIMD.
+  The matrix now carries the destination range explicitly and starts from all zero.
+  (YUV->RGB from float with limited RGB output was also misread as full range, offset 16/255 rounded to 0.)
+  Existed since 3.7.6.
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:
   memory overwrite. The "can store 32 floats" check used the source row size, the float destination row
   is 2-4x wider. On narrow clips (e.g. width < 16, or the last 32-pixel block of a row) up to 64 bytes per row

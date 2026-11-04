@@ -66,6 +66,10 @@
 
 static void BuildMatrix_Rgb2Yuv_core(double Kr, double Kb, int int_arith_shift, bool full_scale_s, bool full_scale_d, int bits_per_pixel, ConversionMatrix& matrix)
 {
+  // Start from all zero: the integer fields are not computed for a 32 bit float source,
+  // they must not keep garbage from the (heap allocated) owner.
+  matrix = ConversionMatrix{};
+  matrix.full_scale_d = full_scale_d;
   bits_conv_constants luma, chroma;
   bits_conv_constants luma_to_32bit;
 
@@ -209,6 +213,10 @@ static void BuildMatrix_Rgb2Yuv_core(double Kr, double Kb, int int_arith_shift, 
 */
 static void BuildMatrix_Yuv2Rgb_core(double Kr, double Kb, int int_arith_shift, bool full_scale_s, bool full_scale_d, int bits_per_pixel, ConversionMatrix& matrix)
 {
+  // Start from all zero: the integer fields are not computed for a 32 bit float source,
+  // they must not keep garbage from the (heap allocated) owner.
+  matrix = ConversionMatrix{};
+  matrix.full_scale_d = full_scale_d;
   float Sy_f, Suv_f, Oy_f, Orgb_f;
 
   bits_conv_constants luma, chroma;

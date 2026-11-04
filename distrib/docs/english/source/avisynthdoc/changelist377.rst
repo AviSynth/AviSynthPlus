@@ -12,6 +12,10 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: ConvertToYUV444/ConvertToY (and the other planar RGB to YUV/Y conversions) from 32 bit float RGB
+  to 8-16 bit: the output range scaling depended on uninitialized memory, giving full or limited range
+  scaling at random (e.g. 10 bit full range 910 instead of 913), different from run to run.
+  Existed since 3.7.6.
 - Fix: YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit to 32 bit float, AVX2: memory
   overwrite past the end of the rows (and the last row past the plane) on narrow clips, corrupting the
   first row of the next plane. Existed since 3.7.6.

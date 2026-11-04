@@ -494,7 +494,7 @@ static void convert_yuv_to_planarrgb_avx2_internal(BYTE* (&dstp)[3], int(&dstPit
   const int max_pixel_value_target = (1 << bits_per_pixel_target) - 1;
 
   bits_conv_constants conversion_ranges;
-  const bool full_scale_d = m.offset_out == 0;
+  const bool full_scale_d = m.full_scale_d;
   // matrix is handling only the same-bit-depth factor. Output result must be scaled as if
   // we further correct it with a post-matrix scaling for bit depth conversion which depends only
   // on the destination limite/full
@@ -1497,7 +1497,7 @@ void convert_yuv_to_planarrgb_avx2(BYTE* (&dstp)[3], int(&dstPitch)[3], const BY
       return;
     }
 
-    const bool full_d = m.offset_out == 0;
+    const bool full_d = m.full_scale_d;
 
     if (bits_per_pixel_target >= 8 && bits_per_pixel <= 16) {
       // int->int conversion with range conversion (limited<->full), or upscale with no range conversion (full->full or limited->limited)
