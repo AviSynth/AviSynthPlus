@@ -19,6 +19,13 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Subtitle (``gdi=true``), 10-16 bit YUV: levels were level * 257 instead of a limited range shift: white Y was
+  60393 instead of 60160, neutral U 32895 instead of 32768 at 16 bit. 8 bit output is the same as before, see
+  :doc:`Subtitle <corefilters/subtitle>`. Existed since the 10-16 bit support of text overlay (2016).
+- Fix: Subtitle (``gdi=true``), 10-16 bit, RGB as well: overflow on a bright background. At 16 bit the edge of white
+  text on white wrapped around to dark pixels. Existed since the 10-16 bit support of text overlay (2016).
+- Fix: Subtitle (``gdi=true``), 32 bit float: chroma was off by half an 8 bit step, neutral chroma was 0.0019 instead
+  of 0.0; levels now reach level / 255, white in RGB is 1.0. Existed since the float support of text overlay.
 - Fix: Histogram ``color2``, 10-16 bit limited range, ``bits`` below the clip bit depth: U or V at the top of the range
   (e.g. 1022 and 1023 at 10 bit, ``bits=8``) was plotted outside the panel, overwriting another plane or memory past
   the frame. Existed since 3.7.6.

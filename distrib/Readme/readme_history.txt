@@ -11,6 +11,15 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: Subtitle (gdi=true), 10-16 bit YUV: the colour addends of the text have a *256.99 scale (right for the 8 bit >>8,
+  right for full range RGB, 255 is 65535), so limited range got Y*257: 16 bit white 60393 instead of 60160, neutral U
+  32895 instead of 32768. Now they are scaled back to a plain shift, exact at full coverage for all 8 bit levels.
+  8 bit and RGB 10-16 bit output is not changed, apart from the next point.
+- Fix: Subtitle (gdi=true), 10-16 bit, planar and packed RGB as well: base alpha + colour weight can be above 256, so a
+  bright background overflowed: 16 bit values wrapped around to dark pixels at text edges, 10-14 bit went above maximum.
+  Clamped. At 8 bit the truncation hides it, this stays as is.
+- Fix: Subtitle (gdi=true), 32 bit float: chroma subtracted 0.5 from 128/255, neutral chroma was 0.0019 (half an 8 bit
+  step). The addends are now scaled to level/255: Y follows ConvertBits, RGB white is 1.0 (was 0.99995).
 - Fix: Histogram "color2", 10-16 bit limited range, bits below the clip bit depth: rounding moved U or V at the top of
   the range (10 bit, bits=8: 1022 and 1023) to position 256, plotted outside the panel: the row spilled into the next
   plane, or past the end of the frame if the panel is the last row. Clamped now, as the other paths do. Existed since 3.7.6.

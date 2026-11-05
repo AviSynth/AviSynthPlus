@@ -470,13 +470,61 @@ It results in: ::
     Text("Load bdf font", font="spleen-12x24.bdf", align=6)
 
 
+Colour levels above 8 bit
+-------------------------
+
+``Subtitle`` with ``gdi=true`` calculates the text colour for 8 bit, then applies it to the clip's bit depth:
+
++----------------------------+-----------------------------------------------------------------------+
+| Format                     | Text colour at full coverage                                          |
++============================+=======================================================================+
+| 8 bit                      | the 8 bit level                                                       |
++----------------------------+-----------------------------------------------------------------------+
+| YUV(A), Y, 10-16 bit       | limited range rule: level shifted up, 235 is 60160 at 16 bit,         |
+|                            | neutral chroma 128 is 32768                                           |
++----------------------------+-----------------------------------------------------------------------+
+| RGB, 10-16 bit             | full range rule: level * 257 at 16 bit, 255 is about 65535            |
++----------------------------+-----------------------------------------------------------------------+
+| YUV(A), Y, 32 bit float    | same as ConvertBits gives for that level, neutral chroma is 0.0       |
++----------------------------+-----------------------------------------------------------------------+
+| RGB, 32 bit float          | level / 255                                                           |
++----------------------------+-----------------------------------------------------------------------+
+
+Results before and since AviSynth+ 3.7.7, each pixel fully covered by ``Subtitle("MMM", size=64, text_color=c,
+halo_color=$FF000000)``. ``Text`` is not affected. 8 bit formats give the same output as before. RGB 10-16 bit is the
+same as well, except for the overflow in the last row. The last row is the darkest pixel of the frame:
+with white text on white it should stay close to 65535.
+
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+| Source clip                                                    | ``c``      | Plane     | Before | Since 3.7.7 |
++================================================================+============+===========+========+=============+
+| ``BlankClip(pixel_type="YUV444P16", color_yuv=$108080)``       | ``$FFFFFF``| Y         | 60393  | 60160       |
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+| ``BlankClip(pixel_type="YUV444P16", color_yuv=$108080)``       | ``$FFFFFF``| U         | 32895  | 32768       |
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+| ``BlankClip(pixel_type="YUV444P16", color_yuv=$108080)``       | ``$FF0000``| V         | 61678  | 61440       |
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+| ``BlankClip(pixel_type="YUV444P10", color_yuv=$108080)``       | ``$FFFFFF``| Y         | 943    | 940         |
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+| ``BlankClip(pixel_type="YUV444P10", color_yuv=$108080)``       | ``$FFFFFF``| U         | 513    | 512         |
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+| ``BlankClip(pixel_type="YUV444PS", color_yuv=$108080)``        | ``$FFFFFF``| U         | 0.00194| 0.0         |
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+| ``BlankClip(pixel_type="RGBP16", color=$FFFFFF)``              | ``$FFFFFF``| R, darkest| 0      | 65313       |
++----------------------------------------------------------------+------------+-----------+--------+-------------+
+
 Changelog
 ---------
 
 +-----------------+--------------------------------------------------------------------------+
 | Version         | Changes                                                                  |
 +=================+==========================================================================+
-| AviSynth+ 3.7.7 | | ``Subtitle`` and ``Text``: the chroma uses the low-pass mask kernels   |
+| AviSynth+ 3.7.7 | | Fix: ``Subtitle`` (``gdi=true``), YUV 10-16 bit: limited range levels. |
+|                 | | Fix: ``Subtitle`` (``gdi=true``), 10-16 bit: overflow on a bright      |
+|                 |   background, text edges were dark or out of range.                      |
+|                 | | Fix: ``Subtitle`` (``gdi=true``), 32 bit float: chroma was off by half |
+|                 |   an 8 bit step. See `Colour levels above 8 bit`_.                       |
+|                 | | ``Subtitle`` and ``Text``: the chroma uses the low-pass mask kernels   |
 |                 |   of :doc:`Overlay <overlay>` (no point samples or 4:1 box kernels).     |
 |                 | | Chroma samples beside the text blocks are drawn as well.               |
 |                 | | Fix: ``Text`` on 4:1:0: chroma misplaced for y not divisible by 4.     |

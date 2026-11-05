@@ -421,6 +421,17 @@ void Antialiaser::Apply(const VideoInfo& vi, PVideoFrame* frame, int pitch)
   }
 }
 
+// The GetAlphaRect colour addends are 8 bit level * coverage * 256.99 (33024 * 255 / 32768 at full coverage).
+// The 8 bit blend's >>8 needs this scale, and it is 257 for full range RGB at higher bit depths as well.
+// Limited range YUV is a plain shift: back to level * coverage * 256. Ratio 32768 / 32895. The addend is truncated,
+// rounding up makes all 256 levels exact at full coverage.
+static AVS_FORCEINLINE int text_addend_to_limited(int addend) {
+  return (int)((addend * (int64_t)16712443 + 16760439) >> 24);
+}
+
+// Float: addends to 8 bit level / 255 at full coverage. 33024 * 255 * 255 / 32768
+static constexpr float text_addend_to_float = 1.0f / 65533.0078125f;
+
 // Hoping that bits_per_pixel template make it quicker
 template<MaskMode maskMode, int bits_per_pixel>
 void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU, BYTE* bufV, bool isRGB)
@@ -461,8 +472,11 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
       uint16_t* p = reinterpret_cast<uint16_t*>(buf_row);
       for (int x = xl; x <= xr; ++x) {
         const int ba = ba_y[x];
-        if (ba != 256)
-          p[x] = (uint16_t)((p[x] * ba + (ry_y[x] << (bits_per_pixel - 8))) >> 8);
+        if (ba != 256) {
+          const int addend = isRGB ? ry_y[x] << (bits_per_pixel - 8) : (text_addend_to_limited(ry_y[x]) << (bits_per_pixel - 8)) + 128;
+          // ba + addend's weight can be slightly above 256
+          p[x] = (uint16_t)std::min((p[x] * ba + addend) >> 8, (1 << bits_per_pixel) - 1);
+        }
       }
       buf_row   += pitch;
       y_row_ptr += 4 * w_stride;
@@ -475,7 +489,7 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
       for (int x = xl; x <= xr; ++x) {
         const int ba = ba_y[x];
         if (ba != 256)
-          p[x] = p[x] * ba / 256.0f + ry_y[x] / 65536.0f;
+          p[x] = p[x] * ba / 256.0f + ry_y[x] * text_addend_to_float;
       }
       buf_row   += pitch;
       y_row_ptr += 4 * w_stride;
@@ -533,8 +547,10 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
       for (int xs = xl_uv; xs <= xr_uv; ++xs) {
         const int ba = ba_row[xs];
         if (ba != 256) {
-          pU[xs] = (uint16_t)((pU[xs] * ba + (u_row[xs] << (bits_per_pixel - 8))) >> 8);
-          pV[xs] = (uint16_t)((pV[xs] * ba + (v_row[xs] << (bits_per_pixel - 8))) >> 8);
+          const int addend_u = isRGB ? u_row[xs] << (bits_per_pixel - 8) : (text_addend_to_limited(u_row[xs]) << (bits_per_pixel - 8)) + 128;
+          const int addend_v = isRGB ? v_row[xs] << (bits_per_pixel - 8) : (text_addend_to_limited(v_row[xs]) << (bits_per_pixel - 8)) + 128;
+          pU[xs] = (uint16_t)std::min((pU[xs] * ba + addend_u) >> 8, (1 << bits_per_pixel) - 1);
+          pV[xs] = (uint16_t)std::min((pV[xs] * ba + addend_v) >> 8, (1 << bits_per_pixel) - 1);
         }
       }
       bufU_row   += pitchUV;
@@ -543,9 +559,8 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
     }
   } else { // float UV
     // 32-bit float UV neutral chroma is 0.0f
-    const float middle_shift = isRGB ? 0.0f : 0.5f; // yes, correction needed in and out
+    const float middle_shift = isRGB ? 0.0f : -uv8tof(0); // 128/255, the addends are not signed. Correction needed in and out
     constexpr float scale_1_per_256 = 1.0f / 256.0f;
-    constexpr float scale_1_per_65536 = 1.0f / 65536.0f;
     for (int y = yb_uv; y <= yt_uv; y += stepY) {
       const uint16_t* ba_row = rowprep_fns[maskMode](uv_row_ptr,                soa_row_pitch, uv_width, y, h - 1 - y, buf_ba.data(), 0, 0, {});
       const uint16_t* u_row  = rowprep_fns[maskMode](uv_row_ptr + 2 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, buf_u.data(),  0, 0, {});
@@ -556,8 +571,8 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
         const int ba = ba_row[xs];
         if (ba != 256) {
           const float ba_f = ba * scale_1_per_256;
-          pU[xs] = (pU[xs] + middle_shift) * ba_f + u_row[xs] * scale_1_per_65536 - middle_shift;
-          pV[xs] = (pV[xs] + middle_shift) * ba_f + v_row[xs] * scale_1_per_65536 - middle_shift;
+          pU[xs] = (pU[xs] + middle_shift) * ba_f + u_row[xs] * text_addend_to_float - middle_shift;
+          pV[xs] = (pV[xs] + middle_shift) * ba_f + v_row[xs] * text_addend_to_float - middle_shift;
         }
       }
       bufU_row   += pitchUV;
@@ -626,9 +641,11 @@ void Antialiaser::ApplyRGB_packed(BYTE* buf, int pitch)
       const int ba = ba_row[x];
       if (ba != 256) {
         pixel_t* buf2 = reinterpret_cast<pixel_t*>(buf) + (x * pixel_step);
-        buf2[0] = (pixel_t)((buf2[0] * ba + (bv_row[x] << alpha_shift)) >> 8);  // B
-        buf2[1] = (pixel_t)((buf2[1] * ba + (gu_row[x] << alpha_shift)) >> 8);  // G
-        buf2[2] = (pixel_t)((buf2[2] * ba + (ry_row[x] << alpha_shift)) >> 8);  // R
+        // ba + addend's weight can be slightly above 256; no effect at 8 bit
+        constexpr int max_pixel = sizeof(pixel_t) == 1 ? 255 : 65535;
+        buf2[0] = (pixel_t)std::min((buf2[0] * ba + (bv_row[x] << alpha_shift)) >> 8, max_pixel);  // B
+        buf2[1] = (pixel_t)std::min((buf2[1] * ba + (gu_row[x] << alpha_shift)) >> 8, max_pixel);  // G
+        buf2[2] = (pixel_t)std::min((buf2[2] * ba + (ry_row[x] << alpha_shift)) >> 8, max_pixel);  // R
       }
     }
     buf     -= pitch;  // packed RGB is bottom-up
