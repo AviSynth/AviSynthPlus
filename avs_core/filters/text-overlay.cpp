@@ -160,7 +160,7 @@ extern const AVSFunction Text_filters[] = {
 
 // Select the best rowprep function for soa_mask_mode (SoA = Structure of Arrays,
 // the row-interleaved layout used by soa_buf/ApplyPlanar_SoA below) at construction time.
-using rowprep_u16_fn_t = const uint16_t*(*)(const uint16_t*, int, int, uint16_t*, int, int, MagicDiv);
+using rowprep_u16_fn_t = const uint16_t*(*)(const uint16_t*, int, int, int, int, uint16_t*, int, int, MagicDiv);
 
 static rowprep_u16_fn_t select_rowprep_u16(MaskMode mode, int64_t cpuFlags)
 {
@@ -175,11 +175,11 @@ static rowprep_u16_fn_t select_rowprep_u16(MaskMode mode, int64_t cpuFlags)
     case MASK420_TOPLEFT: return prepare_effective_mask_for_row_avx2<MASK420_TOPLEFT, uint16_t, true>;
     case MASK422:         return prepare_effective_mask_for_row_avx2<MASK422,         uint16_t, true>;
     case MASK422_MPEG2:   return prepare_effective_mask_for_row_avx2<MASK422_MPEG2,   uint16_t, true>;
-    case MASK422_TOPLEFT: return prepare_effective_mask_for_row_avx2<MASK422_TOPLEFT, uint16_t, true>;
     case MASK440:         return prepare_effective_mask_for_row_avx2<MASK440,         uint16_t, true>;
     case MASK440_TOPLEFT: return prepare_effective_mask_for_row_avx2<MASK440_TOPLEFT, uint16_t, true>;
     case MASK410:         return prepare_effective_mask_for_row_avx2<MASK410,         uint16_t, true>;
     case MASK410_TOPLEFT: return prepare_effective_mask_for_row_avx2<MASK410_TOPLEFT, uint16_t, true>;
+    case MASK410_MPEG2  : return prepare_effective_mask_for_row_avx2<MASK410_MPEG2  , uint16_t, true>;
     default: break;
     }
   }
@@ -193,11 +193,11 @@ static rowprep_u16_fn_t select_rowprep_u16(MaskMode mode, int64_t cpuFlags)
     case MASK420_TOPLEFT: return prepare_effective_mask_for_row_sse41<MASK420_TOPLEFT, uint16_t, true>;
     case MASK422:         return prepare_effective_mask_for_row_sse41<MASK422,         uint16_t, true>;
     case MASK422_MPEG2:   return prepare_effective_mask_for_row_sse41<MASK422_MPEG2,   uint16_t, true>;
-    case MASK422_TOPLEFT: return prepare_effective_mask_for_row_sse41<MASK422_TOPLEFT, uint16_t, true>;
     case MASK440:         return prepare_effective_mask_for_row_sse41<MASK440,         uint16_t, true>;
     case MASK440_TOPLEFT: return prepare_effective_mask_for_row_sse41<MASK440_TOPLEFT, uint16_t, true>;
     case MASK410:         return prepare_effective_mask_for_row_sse41<MASK410,         uint16_t, true>;
     case MASK410_TOPLEFT: return prepare_effective_mask_for_row_sse41<MASK410_TOPLEFT, uint16_t, true>;
+    case MASK410_MPEG2  : return prepare_effective_mask_for_row_sse41<MASK410_MPEG2  , uint16_t, true>;
     default: break;
     }
   }
@@ -212,11 +212,11 @@ static rowprep_u16_fn_t select_rowprep_u16(MaskMode mode, int64_t cpuFlags)
     case MASK420_TOPLEFT: return prepare_effective_mask_for_row_neon<MASK420_TOPLEFT, uint16_t, true>;
     case MASK422:         return prepare_effective_mask_for_row_neon<MASK422,         uint16_t, true>;
     case MASK422_MPEG2:   return prepare_effective_mask_for_row_neon<MASK422_MPEG2,   uint16_t, true>;
-    case MASK422_TOPLEFT: return prepare_effective_mask_for_row_neon<MASK422_TOPLEFT, uint16_t, true>;
     case MASK440:         return prepare_effective_mask_for_row_neon<MASK440,         uint16_t, true>;
     case MASK440_TOPLEFT: return prepare_effective_mask_for_row_neon<MASK440_TOPLEFT, uint16_t, true>;
     case MASK410:         return prepare_effective_mask_for_row_neon<MASK410,         uint16_t, true>;
     case MASK410_TOPLEFT: return prepare_effective_mask_for_row_neon<MASK410_TOPLEFT, uint16_t, true>;
+    case MASK410_MPEG2  : return prepare_effective_mask_for_row_neon<MASK410_MPEG2  , uint16_t, true>;
     default: break;
     }
   }
@@ -232,11 +232,11 @@ static rowprep_u16_fn_t select_rowprep_u16(MaskMode mode, int64_t cpuFlags)
   case MASK420_TOPLEFT: return prepare_effective_mask_for_row<MASK420_TOPLEFT, uint16_t, true>;
   case MASK422:         return prepare_effective_mask_for_row<MASK422,         uint16_t, true>;
   case MASK422_MPEG2:   return prepare_effective_mask_for_row<MASK422_MPEG2,   uint16_t, true>;
-  case MASK422_TOPLEFT: return prepare_effective_mask_for_row<MASK422_TOPLEFT, uint16_t, true>;
   case MASK440:         return prepare_effective_mask_for_row<MASK440,         uint16_t, true>;
   case MASK440_TOPLEFT: return prepare_effective_mask_for_row<MASK440_TOPLEFT, uint16_t, true>;
   case MASK410:         return prepare_effective_mask_for_row<MASK410,         uint16_t, true>;
   case MASK410_TOPLEFT: return prepare_effective_mask_for_row<MASK410_TOPLEFT, uint16_t, true>;
+  case MASK410_MPEG2  : return prepare_effective_mask_for_row<MASK410_MPEG2  , uint16_t, true>;
   default: break;
   }
   return nullptr;
@@ -410,12 +410,12 @@ void Antialiaser::Apply(const VideoInfo& vi, PVideoFrame* frame, int pitch)
     case MASK440_TOPLEFT: CALL_SOA(MASK440_TOPLEFT); break;
     case MASK410:         CALL_SOA(MASK410);         break;
     case MASK410_TOPLEFT: CALL_SOA(MASK410_TOPLEFT); break;
+    case MASK410_MPEG2  : CALL_SOA(MASK410_MPEG2  ); break;
     case MASK420:         CALL_SOA(MASK420);         break;
     case MASK420_MPEG2:   CALL_SOA(MASK420_MPEG2);   break;
     case MASK420_TOPLEFT: CALL_SOA(MASK420_TOPLEFT); break;
     case MASK422:         CALL_SOA(MASK422);         break;
     case MASK422_MPEG2:   CALL_SOA(MASK422_MPEG2);   break;
-    case MASK422_TOPLEFT: CALL_SOA(MASK422_TOPLEFT); break;
     }
 #undef CALL_SOA
   }
@@ -425,15 +425,10 @@ void Antialiaser::Apply(const VideoInfo& vi, PVideoFrame* frame, int pitch)
 template<MaskMode maskMode, int bits_per_pixel>
 void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU, BYTE* bufV, bool isRGB)
 {
-  constexpr int shiftX =
-    (maskMode == MASK444 || maskMode == MASK440 || maskMode == MASK440_TOPLEFT) ? 0 :
-    (maskMode == MASK411 || maskMode == MASK411_TOPLEFT || maskMode == MASK410 || maskMode == MASK410_TOPLEFT) ? 2 : 1;
-  constexpr int shiftY =
-    (maskMode == MASK410 || maskMode == MASK410_TOPLEFT) ? 2 :
-    (maskMode == MASK420 || maskMode == MASK420_MPEG2 || maskMode == MASK420_TOPLEFT ||
-     maskMode == MASK440 || maskMode == MASK440_TOPLEFT) ? 1 : 0;
-  constexpr int stepX = 1 << shiftX;
-  constexpr int stepY = 1 << shiftY;
+  constexpr int stepX = MaskHSubsample<maskMode>;
+  constexpr int stepY = MaskVSubsample<maskMode>;
+  constexpr int shiftX = stepX == 4 ? 2 : stepX == 2 ? 1 : 0;
+  constexpr int shiftY = stepY == 4 ? 2 : stepY == 2 ? 1 : 0;
 
   if (dirty) {
     GetAlphaRect();
@@ -491,27 +486,32 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
 
   // === U/G and V/B planes — plane 2=u, 3=v; chroma-placement-aware downsampling ===
   const int uv_width = w >> shiftX;
-  const int xl_uv    = xl >> shiftX;
-  const int xr_uv    = xr >> shiftX;
+  // One chroma block of margin around the dirty rectangle: the chroma mask filters reach into the
+  // neighbouring blocks (see MaskMode in blend_common.h), so text at the rectangle's edge also changes
+  // the chroma just outside it. Clamped to the plane; rows: first luma rows of the chroma rows.
+  const int xl_uv    = std::max((xl >> shiftX) - 1, 0);
+  const int xr_uv    = std::min((xr >> shiftX) + 1, uv_width - 1);
+  const int yb_uv    = std::max(yb - stepY, 0);
+  const int yt_uv    = std::min(yt + stepY, h - 1);
   // row preparation functions take full-width luma mask rows and downsample to UV width with correct chroma placement, returning a pointer to the prepared row (which may be buf_ba or an internal static buffer).
   // rowprep output buffers (unused for MASK444 — rowprep returns input ptr directly).
   std::vector<uint16_t>& buf_ba = uv_buf_ba;
   std::vector<uint16_t>& buf_u  = uv_buf_u;
   std::vector<uint16_t>& buf_v  = uv_buf_v;
 
-  const uint16_t* uv_row_ptr = soa_buf + yb * 4 * w_stride;
-  BYTE* bufU_row = bufU + pitchUV * (yb >> shiftY);
-  BYTE* bufV_row = bufV + pitchUV * (yb >> shiftY);
+  const uint16_t* uv_row_ptr = soa_buf + yb_uv * 4 * w_stride;
+  BYTE* bufU_row = bufU + pitchUV * (yb_uv >> shiftY);
+  BYTE* bufV_row = bufV + pitchUV * (yb_uv >> shiftY);
 
   // mask_pitch for 420 modes: next luma row of same plane is 4*w_stride elements ahead in SoA layout
   const int soa_row_pitch = 4 * w_stride;
 
   // +1 * w_stride was already handled: Y
   if constexpr (bits_per_pixel == 8) {
-    for (int y = yb; y <= yt; y += stepY) {
-      const uint16_t* ba_row = rowprep_fns[maskMode](uv_row_ptr,                soa_row_pitch, uv_width, buf_ba.data(), 0, 0, {});
-      const uint16_t* u_row  = rowprep_fns[maskMode](uv_row_ptr + 2 * w_stride, soa_row_pitch, uv_width, buf_u.data(),  0, 0, {});
-      const uint16_t* v_row  = rowprep_fns[maskMode](uv_row_ptr + 3 * w_stride, soa_row_pitch, uv_width, buf_v.data(),  0, 0, {});
+    for (int y = yb_uv; y <= yt_uv; y += stepY) {
+      const uint16_t* ba_row = rowprep_fns[maskMode](uv_row_ptr,                soa_row_pitch, uv_width, y, h - 1 - y, buf_ba.data(), 0, 0, {});
+      const uint16_t* u_row  = rowprep_fns[maskMode](uv_row_ptr + 2 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, buf_u.data(),  0, 0, {});
+      const uint16_t* v_row  = rowprep_fns[maskMode](uv_row_ptr + 3 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, buf_v.data(),  0, 0, {});
       for (int xs = xl_uv; xs <= xr_uv; ++xs) {
         const int ba = ba_row[xs];
         if (ba != 256) {
@@ -524,10 +524,10 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
       uv_row_ptr += stepY * 4 * w_stride;
     }
   } else if constexpr (bits_per_pixel >= 10 && bits_per_pixel <= 16) {
-    for (int y = yb; y <= yt; y += stepY) {
-      const uint16_t* ba_row = rowprep_fns[maskMode](uv_row_ptr,                soa_row_pitch, uv_width, buf_ba.data(), 0, 0, {});
-      const uint16_t* u_row  = rowprep_fns[maskMode](uv_row_ptr + 2 * w_stride, soa_row_pitch, uv_width, buf_u.data(),  0, 0, {});
-      const uint16_t* v_row  = rowprep_fns[maskMode](uv_row_ptr + 3 * w_stride, soa_row_pitch, uv_width, buf_v.data(),  0, 0, {});
+    for (int y = yb_uv; y <= yt_uv; y += stepY) {
+      const uint16_t* ba_row = rowprep_fns[maskMode](uv_row_ptr,                soa_row_pitch, uv_width, y, h - 1 - y, buf_ba.data(), 0, 0, {});
+      const uint16_t* u_row  = rowprep_fns[maskMode](uv_row_ptr + 2 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, buf_u.data(),  0, 0, {});
+      const uint16_t* v_row  = rowprep_fns[maskMode](uv_row_ptr + 3 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, buf_v.data(),  0, 0, {});
       uint16_t* pU = reinterpret_cast<uint16_t*>(bufU_row);
       uint16_t* pV = reinterpret_cast<uint16_t*>(bufV_row);
       for (int xs = xl_uv; xs <= xr_uv; ++xs) {
@@ -546,10 +546,10 @@ void Antialiaser::ApplyPlanar_SoA(BYTE* buf, int pitch, int pitchUV, BYTE* bufU,
     const float middle_shift = isRGB ? 0.0f : 0.5f; // yes, correction needed in and out
     constexpr float scale_1_per_256 = 1.0f / 256.0f;
     constexpr float scale_1_per_65536 = 1.0f / 65536.0f;
-    for (int y = yb; y <= yt; y += stepY) {
-      const uint16_t* ba_row = rowprep_fns[maskMode](uv_row_ptr,                soa_row_pitch, uv_width, buf_ba.data(), 0, 0, {});
-      const uint16_t* u_row  = rowprep_fns[maskMode](uv_row_ptr + 2 * w_stride, soa_row_pitch, uv_width, buf_u.data(),  0, 0, {});
-      const uint16_t* v_row  = rowprep_fns[maskMode](uv_row_ptr + 3 * w_stride, soa_row_pitch, uv_width, buf_v.data(),  0, 0, {});
+    for (int y = yb_uv; y <= yt_uv; y += stepY) {
+      const uint16_t* ba_row = rowprep_fns[maskMode](uv_row_ptr,                soa_row_pitch, uv_width, y, h - 1 - y, buf_ba.data(), 0, 0, {});
+      const uint16_t* u_row  = rowprep_fns[maskMode](uv_row_ptr + 2 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, buf_u.data(),  0, 0, {});
+      const uint16_t* v_row  = rowprep_fns[maskMode](uv_row_ptr + 3 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, buf_v.data(),  0, 0, {});
       float* pU = reinterpret_cast<float*>(bufU_row);
       float* pV = reinterpret_cast<float*>(bufV_row);
       for (int xs = xl_uv; xs <= xr_uv; ++xs) {
@@ -577,8 +577,9 @@ void Antialiaser::ApplyYUY2(BYTE* buf, int pitch, MaskMode maskMode) {
     xl &= -2; xr |= 1;
   }
   const int uv_width = w >> 1;
-  const int xl_uv = xl >> 1;
-  const int xr_uv = xr >> 1;
+  // one chroma pixel of margin, see ApplyPlanar_SoA
+  const int xl_uv = std::max((xl >> 1) - 1, 0);
+  const int xr_uv = std::min((xr >> 1) + 1, uv_width - 1);
   const int soa_row_pitch = 4 * w_stride;
   const uint16_t* row_ptr = soa_buf + yb * soa_row_pitch;
   buf += pitch * yb;
@@ -591,9 +592,9 @@ void Antialiaser::ApplyYUY2(BYTE* buf, int pitch, MaskMode maskMode) {
       if (ba != 256)
         buf[x * 2] = BYTE((buf[x * 2] * ba + ry_y[x]) >> 8);
     }
-    const uint16_t* ba_row = rowprep_fns[maskMode](row_ptr,                soa_row_pitch, uv_width, uv_buf_ba.data(), 0, 0, {});
-    const uint16_t* u_row  = rowprep_fns[maskMode](row_ptr + 2 * w_stride, soa_row_pitch, uv_width, uv_buf_u.data(),  0, 0, {});
-    const uint16_t* v_row  = rowprep_fns[maskMode](row_ptr + 3 * w_stride, soa_row_pitch, uv_width, uv_buf_v.data(),  0, 0, {});
+    const uint16_t* ba_row = rowprep_fns[maskMode](row_ptr,                soa_row_pitch, uv_width, y, h - 1 - y, uv_buf_ba.data(), 0, 0, {});
+    const uint16_t* u_row  = rowprep_fns[maskMode](row_ptr + 2 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, uv_buf_u.data(),  0, 0, {});
+    const uint16_t* v_row  = rowprep_fns[maskMode](row_ptr + 3 * w_stride, soa_row_pitch, uv_width, y, h - 1 - y, uv_buf_v.data(),  0, 0, {});
     for (int xs = xl_uv; xs <= xr_uv; ++xs) {
       const int ba = ba_row[xs];
       if (ba != 256) {

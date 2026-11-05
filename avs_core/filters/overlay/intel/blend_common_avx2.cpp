@@ -294,13 +294,13 @@ masked_merge_fn_t* get_overlay_blend_masked_fn_avx2(bool is_chroma, MaskMode mas
   case MASK420_TOPLEFT:  DISPATCH_OVERLAY_BLEND_AVX2(MASK420_TOPLEFT)
   case MASK422:          DISPATCH_OVERLAY_BLEND_AVX2(MASK422)
   case MASK422_MPEG2:    DISPATCH_OVERLAY_BLEND_AVX2(MASK422_MPEG2)
-  case MASK422_TOPLEFT:  DISPATCH_OVERLAY_BLEND_AVX2(MASK422_TOPLEFT)
   case MASK411:          DISPATCH_OVERLAY_BLEND_AVX2(MASK411)
   case MASK411_TOPLEFT:  DISPATCH_OVERLAY_BLEND_AVX2(MASK411_TOPLEFT)
   case MASK440:          DISPATCH_OVERLAY_BLEND_AVX2(MASK440)
   case MASK440_TOPLEFT:  DISPATCH_OVERLAY_BLEND_AVX2(MASK440_TOPLEFT)
   case MASK410:          DISPATCH_OVERLAY_BLEND_AVX2(MASK410)
   case MASK410_TOPLEFT:  DISPATCH_OVERLAY_BLEND_AVX2(MASK410_TOPLEFT)
+  case MASK410_MPEG2  :  DISPATCH_OVERLAY_BLEND_AVX2(MASK410_MPEG2  )
   case MASK_MODE_COUNT: break;
   }
 #undef DISPATCH_OVERLAY_BLEND_AVX2
@@ -314,81 +314,81 @@ masked_merge_fn_t* get_overlay_blend_masked_fn_avx2(bool is_chroma, MaskMode mas
 template<typename pixel_t, bool full_opacity>
 void do_fill_chroma_row_avx2(
   pixel_t* buf, const pixel_t* luma_row,
-  int luma_pitch_pixels, int chroma_w, MaskMode mode,
+  int luma_pitch_pixels, int chroma_w, int rows_above, int rows_below, MaskMode mode,
   int opacity_i, int half, MagicDiv magic)
 {
   switch (mode) {
   case MASK411:
-    prepare_effective_mask_for_row_avx2<MASK411, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK411, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK420:
-    prepare_effective_mask_for_row_avx2<MASK420, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK420, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK420_MPEG2:
-    prepare_effective_mask_for_row_avx2<MASK420_MPEG2, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK420_MPEG2, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK420_TOPLEFT:
-    prepare_effective_mask_for_row_avx2<MASK420_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK420_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK422:
-    prepare_effective_mask_for_row_avx2<MASK422, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK422, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK422_MPEG2:
-    prepare_effective_mask_for_row_avx2<MASK422_MPEG2, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
-  case MASK422_TOPLEFT:
-    prepare_effective_mask_for_row_avx2<MASK422_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK422_MPEG2, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK440:
-    prepare_effective_mask_for_row_avx2<MASK440, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK440, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK410:
-    prepare_effective_mask_for_row_avx2<MASK410, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK410, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK411_TOPLEFT:
-    prepare_effective_mask_for_row_avx2<MASK411_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK411_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK440_TOPLEFT:
-    prepare_effective_mask_for_row_avx2<MASK440_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK440_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK410_TOPLEFT:
-    prepare_effective_mask_for_row_avx2<MASK410_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row_avx2<MASK410_TOPLEFT, pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
+  case MASK410_MPEG2  :
+    prepare_effective_mask_for_row_avx2<MASK410_MPEG2  , pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   default: break;
   }
 }
 
-template void do_fill_chroma_row_avx2<uint8_t, true>(uint8_t*, const uint8_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_avx2<uint8_t, false>(uint8_t*, const uint8_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_avx2<uint16_t, true>(uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
-template void do_fill_chroma_row_avx2<uint16_t, false>(uint16_t*, const uint16_t*, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint8_t, true>(uint8_t*, const uint8_t*, int, int, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint8_t, false>(uint8_t*, const uint8_t*, int, int, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint16_t, true>(uint16_t*, const uint16_t*, int, int, int, int, MaskMode, int, int, MagicDiv);
+template void do_fill_chroma_row_avx2<uint16_t, false>(uint16_t*, const uint16_t*, int, int, int, int, MaskMode, int, int, MagicDiv);
 
 
 template<bool full_opacity>
 void do_fill_chroma_row_float_avx2(
   float* buf, const float* luma_row,
-  int luma_pitch_pixels, int chroma_w, MaskMode mode,
+  int luma_pitch_pixels, int chroma_w, int rows_above, int rows_below, MaskMode mode,
   float opacity)
 {
   switch (mode) {
   case MASK411:
-    prepare_effective_mask_for_row_float_avx2<MASK411,          full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2<MASK411,          full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK420:
-    prepare_effective_mask_for_row_float_avx2<MASK420,          full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2<MASK420,          full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK420_MPEG2:
-    prepare_effective_mask_for_row_float_avx2<MASK420_MPEG2,    full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2<MASK420_MPEG2,    full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK420_TOPLEFT:
-    prepare_effective_mask_for_row_float_avx2<MASK420_TOPLEFT,  full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2<MASK420_TOPLEFT,  full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK422:
-    prepare_effective_mask_for_row_float_avx2<MASK422,          full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2<MASK422,          full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK422_MPEG2:
-    prepare_effective_mask_for_row_float_avx2<MASK422_MPEG2,    full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
-  case MASK422_TOPLEFT:
-    prepare_effective_mask_for_row_float_avx2<MASK422_TOPLEFT,  full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2<MASK422_MPEG2,    full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK440:
-    prepare_effective_mask_for_row_float_avx2 < MASK440, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2 < MASK440, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK410:
-    prepare_effective_mask_for_row_float_avx2 < MASK410, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2 < MASK410, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK411_TOPLEFT:
-    prepare_effective_mask_for_row_float_avx2 < MASK411_TOPLEFT, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2 < MASK411_TOPLEFT, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK440_TOPLEFT:
-    prepare_effective_mask_for_row_float_avx2 < MASK440_TOPLEFT, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2 < MASK440_TOPLEFT, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   case MASK410_TOPLEFT:
-    prepare_effective_mask_for_row_float_avx2 < MASK410_TOPLEFT, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity); break;
+    prepare_effective_mask_for_row_float_avx2 < MASK410_TOPLEFT, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
+  case MASK410_MPEG2  :
+    prepare_effective_mask_for_row_float_avx2 < MASK410_MPEG2  , full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity); break;
   default: break;
   }
 }
 
-template void do_fill_chroma_row_float_avx2<true> (float*,  const float*,  int, int, MaskMode, float);
-template void do_fill_chroma_row_float_avx2<false>(float*,  const float*,  int, int, MaskMode, float);
+template void do_fill_chroma_row_float_avx2<true> (float*,  const float*,  int, int, int, int, MaskMode, float);
+template void do_fill_chroma_row_float_avx2<false>(float*,  const float*,  int, int, int, int, MaskMode, float);
 
 // and for float:
 masked_merge_float_fn_t* get_overlay_blend_masked_float_fn_avx2(bool is_chroma, MaskMode maskMode)
@@ -404,13 +404,13 @@ masked_merge_float_fn_t* get_overlay_blend_masked_float_fn_avx2(bool is_chroma, 
   case MASK420_TOPLEFT:  DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK420_TOPLEFT)
   case MASK422:          DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK422)
   case MASK422_MPEG2:    DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK422_MPEG2)
-  case MASK422_TOPLEFT:  DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK422_TOPLEFT)
   case MASK411:          DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK411)
   case MASK411_TOPLEFT:  DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK411_TOPLEFT)
   case MASK440:          DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK440)
   case MASK440_TOPLEFT:  DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK440_TOPLEFT)
   case MASK410:          DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK410)
   case MASK410_TOPLEFT:  DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK410_TOPLEFT)
+  case MASK410_MPEG2  :  DISPATCH_OVERLAY_BLEND_FLOAT_AVX2(MASK410_MPEG2  )
   case MASK_MODE_COUNT: break;
   }
 #undef DISPATCH_OVERLAY_BLEND_FLOAT_AVX2

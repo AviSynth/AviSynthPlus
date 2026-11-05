@@ -46,6 +46,8 @@ const pixel_t* prepare_effective_mask_for_row_neon(
   const pixel_t* maskp,
   int mask_pitch,
   int width,
+  int rows_above,
+  int rows_below,
   pixel_t* buf,
   int opacity_i = 0,
   int half = 0,

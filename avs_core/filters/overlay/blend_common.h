@@ -104,19 +104,29 @@ AVS_FORCEINLINE static int magic_div_rt(uint32_t tmp, const MagicDiv& magic) {
 //   before blending chroma planes.
 // ============================================================
 
+// Mask downsampling kernels per chroma siting. Each axis uses one of these filters (weights are
+// symmetric; offsets are luma positions relative to the first luma sample of the chroma block):
+//   ratio 1                : [1]                              offset  0
+//   ratio 2, centred       : [1 1]          /2  (box)          offsets 0..1
+//   ratio 2, co-sited      : [1 2 1]        /4                 offsets -1..1
+//   ratio 4, centred       : [1 3 5 7 7 5 3 1] /32 (triangle)  offsets -2..5
+//   ratio 4, co-sited      : [1 2 3 4 3 2 1]   /16 (tent)      offsets -3..3
+// The ratio 4 filters are the bilinear (triangle) downsampling filters, so 4:1:1 and 4:1:0 masks are
+// low-pass filtered instead of point-sampled; the ratio 2 centred box is kept (area average).
+// Mask edges are clamped (the first/last luma row and column are replicated).
 enum MaskMode {
-  MASK410, // 4:1:0, 1 chroma pixel for 16 luma pixels (4x4 block), CENTER
-  MASK410_TOPLEFT,  // 4:1:0, point-sample top-left luma only (now the default; no standard siting exists)
-  MASK440, // 4:4:0, 1 chroma pixel for 2 luma pixels (1x2 block), CENTER
-  MASK440_TOPLEFT,  // 4:4:0, point-sample top luma only (now the default; no standard siting exists)
-  MASK411, // center
-  MASK411_TOPLEFT,  // 4:1:1, point-sample left luma only (now the default; no standard siting exists)
-  MASK420, // center
-  MASK420_MPEG2,
-  MASK420_TOPLEFT,  // co-sited H+V (UHD/HDR HEVC, AV1 'colocated'): point-sample top-left luma only
-  MASK422, // center
-  MASK422_MPEG2,
-  MASK422_TOPLEFT,  // co-sited H (same as MPEG-2): point-sample left luma only (faster, some aliasing)
+  MASK410,          // 4:1:0, centred H+V: 8x8 triangle, /1024
+  MASK410_MPEG2,    // 4:1:0, left-sited H, centred V: 7x8 (tent x triangle), /512
+  MASK410_TOPLEFT,  // 4:1:0, co-sited H+V: 7x7 tent, /256
+  MASK440,          // 4:4:0, centred V: 2-row box, /2
+  MASK440_TOPLEFT,  // 4:4:0, top-sited V: [1 2 1] over rows -1..1, /4
+  MASK411,          // 4:1:1, centred H: 8-tap triangle, /32
+  MASK411_TOPLEFT,  // 4:1:1, left-sited H (left, top_left, bottom_left): 7-tap tent, /16
+  MASK420,          // 4:2:0, centred H+V: 2x2 box
+  MASK420_MPEG2,    // 4:2:0, left-sited H, centred V: [1 2 1] x 2-row box
+  MASK420_TOPLEFT,  // 4:2:0, co-sited H+V: [1 2 1] x [1 2 1] (3x3), /16
+  MASK422,          // 4:2:2, centred H: 2-tap box
+  MASK422_MPEG2,    // 4:2:2, left-sited H: [1 2 1]; also used for top_left (same horizontal siting)
   MASK444,
   MASK_MODE_COUNT // array size sentinel, not a mode
 };
@@ -125,7 +135,7 @@ enum MaskMode {
 // number of luma/alpha (fullres) rows correspond to one chroma row.
 template<MaskMode maskMode>
 constexpr int MaskVSubsample =
-  (maskMode == MASK410 || maskMode == MASK410_TOPLEFT) ? 4 :
+  (maskMode == MASK410 || maskMode == MASK410_MPEG2 || maskMode == MASK410_TOPLEFT) ? 4 :
   (maskMode == MASK420 || maskMode == MASK420_MPEG2 || maskMode == MASK420_TOPLEFT ||
    maskMode == MASK440 || maskMode == MASK440_TOPLEFT) ? 2 : 1;
 
@@ -133,8 +143,126 @@ constexpr int MaskVSubsample =
 // number of luma/alpha (fullres) columns correspond to one chroma column.
 template<MaskMode maskMode>
 constexpr int MaskHSubsample =
-  (maskMode == MASK411 || maskMode == MASK411_TOPLEFT || maskMode == MASK410 || maskMode == MASK410_TOPLEFT) ? 4 :
+  (maskMode == MASK411 || maskMode == MASK411_TOPLEFT ||
+   maskMode == MASK410 || maskMode == MASK410_MPEG2 || maskMode == MASK410_TOPLEFT) ? 4 :
   (maskMode == MASK444 || maskMode == MASK440 || maskMode == MASK440_TOPLEFT) ? 1 : 2;
+
+// Runtime version of MaskVSubsample, for callers that select the mask mode at runtime.
+AVS_FORCEINLINE static int MaskVSubsampleRt(MaskMode m) {
+  switch (m) {
+  case MASK410: case MASK410_MPEG2: case MASK410_TOPLEFT: return 4;
+  case MASK420: case MASK420_MPEG2: case MASK420_TOPLEFT: case MASK440: case MASK440_TOPLEFT: return 2;
+  default: return 1;
+  }
+}
+
+// Row context for the row preparation of chroma row y (height: number of chroma rows):
+// how many mask (luma) rows exist above the block's first row, and below it. Vertical filters clamp to them.
+AVS_FORCEINLINE static int mask_rows_above(int y, int vsubsample) { return y * vsubsample; }
+AVS_FORCEINLINE static int mask_rows_below(int y, int height, int vsubsample) { return (height - y) * vsubsample - 1; }
+
+// ------------------------------------------------------------
+// Separable mask kernels (4:2:0 top_left, 4:4:0, 4:1:1, 4:1:0)
+// ------------------------------------------------------------
+// Each filter is a cascade of box sums, evaluated with additions only, in a fixed order:
+//   [1 2 1] = box2 * box2, [1 2 3 4 3 2 1] = box4 * box4, [1 3 5 7 7 5 3 1] = box2 * box4 * box4.
+// Vertical pass first (per column), then horizontal (per output pixel); the weight sum is a power of two,
+// so the integer result is (sum + half) >> shift and the float result sum * 2^-shift.
+// The SIMD versions evaluate the same cascade on vectors (same additions, same order), so integer AND float
+// results are bit-identical to C.
+// Overflow: the largest weight sum is 1024 (8x8): 65535 * 1024 < 2^31, int32 is enough.
+enum MaskFilter { MF_ID, MF_BOX2, MF_121, MF_TENT7, MF_TRI8 };
+
+template<MaskFilter F> constexpr int MaskFilterFirst = F == MF_121 ? -1 : F == MF_TENT7 ? -3 : F == MF_TRI8 ? -2 : 0;
+template<MaskFilter F> constexpr int MaskFilterTaps = F == MF_ID ? 1 : F == MF_BOX2 ? 2 : F == MF_121 ? 3 : F == MF_TENT7 ? 7 : 8;
+template<MaskFilter F> constexpr int MaskFilterLog2 = F == MF_ID ? 0 : F == MF_BOX2 ? 1 : F == MF_121 ? 2 : F == MF_TENT7 ? 4 : 5;
+
+template<MaskMode maskMode>
+constexpr bool MaskIsSeparable =
+  maskMode == MASK410 || maskMode == MASK410_MPEG2 || maskMode == MASK410_TOPLEFT ||
+  maskMode == MASK440 || maskMode == MASK440_TOPLEFT || maskMode == MASK411 || maskMode == MASK411_TOPLEFT ||
+  maskMode == MASK420_TOPLEFT;
+
+// Horizontal and vertical filter of every mode. The 4:2:0 / 4:2:2 box and mpeg2 modes are listed as well
+// (BitmapText's chroma renderer uses them), but their row preparation keeps the dedicated
+// calculate_effective_mask kernels; MaskIsSeparable selects the modes of the separable engine.
+template<MaskMode maskMode>
+constexpr MaskFilter MaskHFilter =
+  (maskMode == MASK410 || maskMode == MASK411) ? MF_TRI8 :
+  (maskMode == MASK410_MPEG2 || maskMode == MASK410_TOPLEFT || maskMode == MASK411_TOPLEFT) ? MF_TENT7 :
+  (maskMode == MASK420_TOPLEFT || maskMode == MASK420_MPEG2 || maskMode == MASK422_MPEG2) ? MF_121 :
+  (maskMode == MASK420 || maskMode == MASK422) ? MF_BOX2 : MF_ID;
+
+template<MaskMode maskMode>
+constexpr MaskFilter MaskVFilter =
+  (maskMode == MASK410 || maskMode == MASK410_MPEG2) ? MF_TRI8 :
+  (maskMode == MASK410_TOPLEFT) ? MF_TENT7 :
+  (maskMode == MASK440 || maskMode == MASK420 || maskMode == MASK420_MPEG2) ? MF_BOX2 :
+  (maskMode == MASK440_TOPLEFT || maskMode == MASK420_TOPLEFT) ? MF_121 : MF_ID;
+
+template<MaskMode maskMode>
+constexpr int MaskSepShift = MaskFilterLog2<MaskHFilter<maskMode>> + MaskFilterLog2<MaskVFilter<maskMode>>;
+
+// Box-cascade evaluation of filter F over v[0 .. taps-1]; add(a, b) is the addition (scalar or SIMD).
+template<MaskFilter F, typename T, typename Add>
+AVS_FORCEINLINE static T mask_filter_cascade(const T* v, Add add) {
+  if constexpr (F == MF_ID) {
+    return v[0];
+  }
+  else if constexpr (F == MF_BOX2) {
+    return add(v[0], v[1]);
+  }
+  else if constexpr (F == MF_121) {
+    return add(add(v[0], v[1]), add(v[1], v[2]));
+  }
+  else if constexpr (F == MF_TENT7) {
+    const T s0 = add(add(add(v[0], v[1]), v[2]), v[3]);
+    const T s1 = add(add(add(v[1], v[2]), v[3]), v[4]);
+    const T s2 = add(add(add(v[2], v[3]), v[4]), v[5]);
+    const T s3 = add(add(add(v[3], v[4]), v[5]), v[6]);
+    return add(add(add(s0, s1), s2), s3);
+  }
+  else { // MF_TRI8 = tent over v[0..6] + tent over v[1..7]
+    return add(mask_filter_cascade<MF_TENT7, T>(v, add), mask_filter_cascade<MF_TENT7, T>(v + 1, add));
+  }
+}
+
+// The clamped row pointers of the vertical filter (rows_above/rows_below: see mask_rows_above/below).
+template<MaskMode maskMode, typename sample_t>
+AVS_FORCEINLINE static void mask_sep_rows(const sample_t* maskp, int mask_pitch, int rows_above, int rows_below,
+  const sample_t* (&rows)[8])
+{
+  constexpr MaskFilter VF = MaskVFilter<maskMode>;
+  for (int j = 0; j < MaskFilterTaps<VF>; j++) {
+    int dy = MaskFilterFirst<VF> + j;
+    dy = dy < -rows_above ? -rows_above : (dy > rows_below ? rows_below : dy);
+    rows[j] = maskp + (ptrdiff_t)dy * mask_pitch;
+  }
+}
+
+// Weighted (not yet normalized) sum for chroma pixel x. acc_t: int32_t for integer, float for float samples.
+// luma_width: mask row width, columns are clamped to 0 .. luma_width-1.
+template<MaskMode maskMode, typename sample_t, typename acc_t>
+AVS_FORCEINLINE static acc_t mask_sep_sum(const sample_t* const (&rows)[8], int x, int luma_width) {
+  constexpr MaskFilter HF = MaskHFilter<maskMode>;
+  constexpr MaskFilter VF = MaskVFilter<maskMode>;
+  constexpr int H = MaskHSubsample<maskMode>;
+  auto add = [](acc_t a, acc_t b) { return a + b; };
+  acc_t colsum[8];
+  for (int k = 0; k < MaskFilterTaps<HF>; k++) {
+    int c = x * H + MaskFilterFirst<HF> + k;
+    c = c < 0 ? 0 : (c > luma_width - 1 ? luma_width - 1 : c);
+    acc_t v[8];
+    for (int j = 0; j < MaskFilterTaps<VF>; j++)
+      v[j] = (acc_t)rows[j][c];
+    colsum[k] = mask_filter_cascade<VF, acc_t>(v, add);
+  }
+  return mask_filter_cascade<HF, acc_t>(colsum, add);
+}
+
+// ------------------------------------------------------------
+// Box / [1 2 1] kernels of 4:2:0 (centre, mpeg2) and 4:2:2 (centre, mpeg2)
+// ------------------------------------------------------------
 
 // Generic center-placement box average over an HxV luma block,
 // where H = MaskHSubsample<maskMode> and V = MaskVSubsample<maskMode>.
@@ -163,43 +291,26 @@ AVS_FORCEINLINE static float calculate_effective_mask_center_f(const float* ptr,
   return sum * inv_count;
 }
 
-// Generic TOPLEFT-placement point sample: co-sited horizontally and vertically, so only the
-// single top-left luma sample of the H-wide block is used (row offset 0 - V is irrelevant here).
-// H = MaskHSubsample<maskMode>. Used by MASK420_TOPLEFT/MASK422_TOPLEFT (real MPEG/HEVC/AV1
-// conventions) and by MASK410/440/411 and MASK410/440/411_TOPLEFT (no standard siting)
-template<MaskMode maskMode, typename pixel_t>
-AVS_FORCEINLINE static pixel_t calculate_effective_mask_topleft(const pixel_t* ptr, int x) {
-  constexpr int H = MaskHSubsample<maskMode>;
-  return ptr[x * H];
-}
-
 // Mask downsampling kernel variants — shared by Overlay, Layer and Subtitle (GDI).
 // Selected from the clip's chroma location by chromaLocationToMaskPlacement below.
-// PLACEMENT_MPEG2   (0): co-sited H, centred V   (H.262/MPEG-2, H.264 default; triangle filter)
-// PLACEMENT_MPEG1   (1): centred H+V             (MPEG-1 / JPEG; box filter)
-// PLACEMENT_TOPLEFT (2): co-sited H+V            (UHD/HDR HEVC, AV1 'colocated'; point sample, faster)
-// Note: unlike ConvertToYUV4xx and the resizers, which always apply a proper filter
-// (chromaresample; the top_left placement there only sets the filter's center),
-// TOPLEFT for masks means a point sample: a single luma sample of the block.
-// This is deliberate, for performance, and acceptable for a mask.
+// PLACEMENT_MPEG2   (0): left-sited H, centred V  (H.262/MPEG-2, H.264 default)
+// PLACEMENT_MPEG1   (1): centred H+V              (MPEG-1 / JPEG)
+// PLACEMENT_TOPLEFT (2): co-sited H+V             (UHD/HDR HEVC, AV1 'colocated')
+// The siting sets the position of the filter, the filter itself is always a low-pass (see MaskMode).
 enum { PLACEMENT_MPEG2 = 0, PLACEMENT_MPEG1 = 1, PLACEMENT_TOPLEFT = 2 };
 
-// Maps a chroma location (ChromaLocation_e) to the implemented mask downsampling kernel variant.
-// When the exact kernel is not implemented, it takes the nearest one (on a tie: 4:2:0 keeps the
-// horizontal position, 4:1:0 takes the point sample):
-// - 4:2:0, 4:2:2, 4:1:1: horizontally centered (center, top, bottom) -> MPEG1;
+// Maps a chroma location (ChromaLocation_e) to the implemented mask kernel variant. When the exact
+// kernel is not implemented, the nearest one is taken:
+// - 4:2:0, 4:2:2, 4:1:1, 4:1:0: horizontally centered (center, top, bottom) -> MPEG1;
 //   top_left -> TOPLEFT; left, bottom_left, dv (U/V average is left) -> MPEG2.
-// - 4:4:0 (vertical only): top_left, top -> TOPLEFT (point); left, center, bottom_left,
-//   bottom, dv -> MPEG1 (2-row box average).
-// - 4:1:0: center, bottom -> MPEG1 (4x4 box average); others -> TOPLEFT (point).
+// - 4:4:0 (vertical only): top_left, top -> TOPLEFT; left, center, bottom_left, bottom, dv -> MPEG1.
 // resolveChromaMaskMode then picks the format's actual kernel for the variant; formats
-// without a separate one use the nearest they have (e.g. 4:1:1 MPEG2 -> its point sample).
+// without a separate one use the nearest they have (4:2:2 top_left -> its MPEG2 kernel: same siting;
+// 4:1:1 MPEG2 and TOPLEFT -> its left-sited kernel).
 template<typename TVideoInfo>
 AVS_FORCEINLINE static int chromaLocationToMaskPlacement(int chromaloc, const TVideoInfo& vi) {
   if (vi.Is440())
     return (chromaloc == AVS_CHROMA_TOP_LEFT || chromaloc == AVS_CHROMA_TOP) ? PLACEMENT_TOPLEFT : PLACEMENT_MPEG1;
-  if (vi.Is410())
-    return (chromaloc == AVS_CHROMA_CENTER || chromaloc == AVS_CHROMA_BOTTOM) ? PLACEMENT_MPEG1 : PLACEMENT_TOPLEFT;
   switch (chromaloc) {
   case AVS_CHROMA_CENTER:
   case AVS_CHROMA_TOP:
@@ -219,16 +330,16 @@ AVS_FORCEINLINE static MaskMode resolveChromaMaskMode(int placement, const TVide
   if (vi.Is440())
     return (placement == PLACEMENT_MPEG1) ? MASK440 : MASK440_TOPLEFT;
   if (vi.Is410())
-    return (placement == PLACEMENT_MPEG1) ? MASK410 : MASK410_TOPLEFT;
+    return (placement == PLACEMENT_MPEG1) ? MASK410 : (placement == PLACEMENT_TOPLEFT) ? MASK410_TOPLEFT : MASK410_MPEG2;
   if (vi.Is420())
     return (placement == PLACEMENT_MPEG1) ? MASK420 : (placement == PLACEMENT_TOPLEFT) ? MASK420_TOPLEFT : MASK420_MPEG2;
   if (vi.Is422() || vi.IsYUY2()) // YUY2: packed 4:2:2
-    return (placement == PLACEMENT_MPEG1) ? MASK422 : (placement == PLACEMENT_TOPLEFT) ? MASK422_TOPLEFT : MASK422_MPEG2;
+    return (placement == PLACEMENT_MPEG1) ? MASK422 : MASK422_MPEG2;
   return MASK444; // Is444() / IsY() / RGB
 }
 
-// Compute the effective mask value at luma position x for a single chroma pixel,
-// according to chroma subsampling placement.
+// Effective mask value at chroma position x for the 4:2:0 / 4:2:2 box and mpeg2 modes
+// (the separable modes are computed by mask_sep_sum).
 // right_value: in/out sliding-window state, used only for MPEG2 modes.
 template<MaskMode maskMode, typename pixel_t>
 AVS_FORCEINLINE static pixel_t calculate_effective_mask(
@@ -237,16 +348,15 @@ AVS_FORCEINLINE static pixel_t calculate_effective_mask(
   int pitch,
   int& right_value  // in/out for MPEG2 sliding window modes; int to avoid truncation of 2-pixel sums
 ) {
+  static_assert(!MaskIsSeparable<maskMode>, "separable modes: use mask_sep_sum");
   if constexpr (maskMode == MASK444) {
     // +------+
     // | 1.0  |
     // +------+
     return ptr[x];
   }
-  else if constexpr (maskMode == MASK410 || maskMode == MASK440 || maskMode == MASK411 ||
-                      maskMode == MASK420 || maskMode == MASK422) {
-    // Generic CENTER box average (see calculate_effective_mask_center above): covers
-    // 4:1:0 (4x4 block), 4:4:0 (1x2), 4:1:1 (4x1), 4:2:0 (2x2) and 4:2:2 (2x1).
+  else if constexpr (maskMode == MASK420 || maskMode == MASK422) {
+    // Generic CENTER box average (see calculate_effective_mask_center above): 4:2:0 (2x2), 4:2:2 (2x1).
     return calculate_effective_mask_center<maskMode, pixel_t>(ptr, x, pitch);
   }
   else if constexpr (maskMode == MASK420_MPEG2) {
@@ -259,12 +369,6 @@ AVS_FORCEINLINE static pixel_t calculate_effective_mask(
     const int mid = ptr[x * 2] + ptr[x * 2 + pitch];
     right_value = ptr[x * 2 + 1] + ptr[x * 2 + 1 + pitch];
     return (left + 2 * mid + right_value + 4) >> 3;
-  }
-  else if constexpr (maskMode == MASK420_TOPLEFT || maskMode == MASK422_TOPLEFT ||
-                      maskMode == MASK410_TOPLEFT || maskMode == MASK440_TOPLEFT || maskMode == MASK411_TOPLEFT) {
-    // Generic TOPLEFT point sample (see calculate_effective_mask_topleft above):
-    // co-sited, take only the top-left luma sample of the block.
-    return calculate_effective_mask_topleft<maskMode, pixel_t>(ptr, x);
   }
   else if constexpr (maskMode == MASK422_MPEG2) {
     // ------+------+-------+
@@ -285,11 +389,11 @@ AVS_FORCEINLINE static float calculate_effective_mask_f(
   int pitch,
   float& right_value  // in/out for MPEG2 sliding window modes
 ) {
+  static_assert(!MaskIsSeparable<maskMode>, "separable modes: use mask_sep_sum");
   if constexpr (maskMode == MASK444) {
     return ptr[x];
   }
-  else if constexpr (maskMode == MASK410 || maskMode == MASK440 || maskMode == MASK411 ||
-                      maskMode == MASK420 || maskMode == MASK422) {
+  else if constexpr (maskMode == MASK420 || maskMode == MASK422) {
     // Generic CENTER box average — see calculate_effective_mask_center_f above.
     return calculate_effective_mask_center_f<maskMode>(ptr, x, pitch);
   }
@@ -299,16 +403,48 @@ AVS_FORCEINLINE static float calculate_effective_mask_f(
     right_value = ptr[x * 2 + 1] + ptr[x * 2 + 1 + pitch];
     return (left + 2.0f * mid + right_value) * 0.125f;
   }
-  else if constexpr (maskMode == MASK420_TOPLEFT || maskMode == MASK422_TOPLEFT ||
-                      maskMode == MASK410_TOPLEFT || maskMode == MASK440_TOPLEFT || maskMode == MASK411_TOPLEFT) {
-    // Generic TOPLEFT point sample — see calculate_effective_mask_topleft above.
-    return calculate_effective_mask_topleft<maskMode, float>(ptr, x);
-  }
   else if constexpr (maskMode == MASK422_MPEG2) {
     float left = right_value;
     const float mid = ptr[x * 2];
     right_value = ptr[x * 2 + 1];
     return (left + 2.0f * mid + right_value) * 0.25f;
+  }
+}
+
+// Separable modes, a complete row: integer (C reference; the SIMD versions match it bit by bit).
+template<MaskMode maskMode, typename pixel_t, bool full_opacity>
+static void mask_sep_row_c(const pixel_t* maskp, int mask_pitch, int width, int rows_above, int rows_below,
+  pixel_t* dst, int opacity_i, int half, MagicDiv magic)
+{
+  constexpr int shift = MaskSepShift<maskMode>;
+  const pixel_t* rows[8];
+  mask_sep_rows<maskMode, pixel_t>(maskp, mask_pitch, rows_above, rows_below, rows);
+  const int luma_width = width * MaskHSubsample<maskMode>;
+  for (int x = 0; x < width; ++x) {
+    const int32_t sum = mask_sep_sum<maskMode, pixel_t, int32_t>(rows, x, luma_width);
+    const int avg = (sum + ((1 << shift) >> 1)) >> shift;
+    if constexpr (full_opacity)
+      dst[x] = (pixel_t)avg;
+    else
+      dst[x] = static_cast<pixel_t>(magic_div_rt<pixel_t>((uint32_t)avg * (uint32_t)opacity_i + (uint32_t)half, magic));
+  }
+}
+
+// Separable modes, a complete row: float.
+template<MaskMode maskMode, bool full_opacity>
+static void mask_sep_row_float_c(const float* maskp, int mask_pitch, int width, int rows_above, int rows_below,
+  float* dst, float opacity_f)
+{
+  constexpr float scale = 1.0f / (float)(1 << MaskSepShift<maskMode>);
+  const float* rows[8];
+  mask_sep_rows<maskMode, float>(maskp, mask_pitch, rows_above, rows_below, rows);
+  const int luma_width = width * MaskHSubsample<maskMode>;
+  for (int x = 0; x < width; ++x) {
+    const float avg = mask_sep_sum<maskMode, float, float>(rows, x, luma_width) * scale;
+    if constexpr (full_opacity)
+      dst[x] = avg;
+    else
+      dst[x] = avg * opacity_f;
   }
 }
 
@@ -325,12 +461,16 @@ AVS_FORCEINLINE static float calculate_effective_mask_f(
 //   Caller must have allocated effective_mask_buffer (even for MASK444).
 //
 // mask_pitch is in pixels (caller has divided by sizeof(pixel_t)).
+// rows_above / rows_below: mask rows available above / below maskp (mask_rows_above/below), for the
+// vertical filters' edge clamping; ignored by the modes without vertical neighbours.
 // opacity_i, half, magic are ignored when full_opacity == true.
 template<MaskMode maskMode, typename pixel_t, bool full_opacity = true>
 AVS_FORCEINLINE static const pixel_t* prepare_effective_mask_for_row(
   const pixel_t* maskp,
   int mask_pitch,
   int width,
+  int rows_above,
+  int rows_below,
   pixel_t* effective_mask_buffer,
   int opacity_i = 0,
   int half = 0,
@@ -345,6 +485,11 @@ AVS_FORCEINLINE static const pixel_t* prepare_effective_mask_for_row(
           magic_div_rt<pixel_t>((uint32_t)maskp[x] * (uint32_t)opacity_i + (uint32_t)half, magic));
       return effective_mask_buffer;
     }
+  }
+  else if constexpr (MaskIsSeparable<maskMode>) {
+    mask_sep_row_c<maskMode, pixel_t, full_opacity>(maskp, mask_pitch, width, rows_above, rows_below,
+      effective_mask_buffer, opacity_i, half, magic);
+    return effective_mask_buffer;
   }
   else {
     int mask_right = 0;  // int: MASK420_MPEG2 stores a 2-pixel sum (up to 510 for 8-bit), pixel_t would truncate
@@ -371,12 +516,15 @@ AVS_FORCEINLINE static const pixel_t* prepare_effective_mask_for_row(
 // full_opacity == false: bakes opacity_f into every output element.
 //   MASK444: copies row scaled by opacity_f; buffer must be allocated by caller.
 // mask_pitch is in floats (caller has divided by sizeof(float)).
+// rows_above / rows_below: as in prepare_effective_mask_for_row.
 // opacity_f is ignored when full_opacity == true.
 template<MaskMode maskMode, bool full_opacity = true>
 AVS_FORCEINLINE static const float* prepare_effective_mask_for_row_float_c(
   const float* maskp,
   int mask_pitch,
   int width,
+  int rows_above,
+  int rows_below,
   float* effective_mask_buffer,
   float opacity_f = 1.0f
 ) {
@@ -388,6 +536,11 @@ AVS_FORCEINLINE static const float* prepare_effective_mask_for_row_float_c(
         effective_mask_buffer[x] = maskp[x] * opacity_f;
       return effective_mask_buffer;
     }
+  }
+  else if constexpr (MaskIsSeparable<maskMode>) {
+    mask_sep_row_float_c<maskMode, full_opacity>(maskp, mask_pitch, width, rows_above, rows_below,
+      effective_mask_buffer, opacity_f);
+    return effective_mask_buffer;
   }
   else {
     float mask_right = 0.0f;
@@ -499,7 +652,8 @@ static void masked_merge_impl_c_inner(
 
     for (int y = 0; y < height; y++) {
       const uint8_t* eff = prepare_effective_mask_for_row<maskMode, uint8_t, full_opacity>(
-        maskp, mpx, width, eff_buf.data(), opacity, half, mag);
+        maskp, mpx, width, mask_rows_above(y, MaskVSubsample<maskMode>), mask_rows_below(y, height, MaskVSubsample<maskMode>),
+        eff_buf.data(), opacity, half, mag);
       blend8_masked_c_row(
         reinterpret_cast<uint8_t*>(p1), reinterpret_cast<const uint8_t*>(p2), eff, width);
       p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;
@@ -517,7 +671,8 @@ static void masked_merge_impl_c_inner(
 #define BLEND16_LOOP_C(bpp) \
   for (int y = 0; y < height; y++) { \
     const uint16_t* eff = prepare_effective_mask_for_row<maskMode, uint16_t, full_opacity>( \
-      maskp, mpx, width, eff_buf.data(), opacity, half, mag); \
+      maskp, mpx, width, mask_rows_above(y, MaskVSubsample<maskMode>), mask_rows_below(y, height, MaskVSubsample<maskMode>), \
+      eff_buf.data(), opacity, half, mag); \
     blend16_masked_c_row<bpp>( \
       reinterpret_cast<uint16_t*>(p1), reinterpret_cast<const uint16_t*>(p2), eff, width); \
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv; \
@@ -548,7 +703,8 @@ AVS_FORCEINLINE static void masked_merge_impl_float_c_inner(
 
   for (int y = 0; y < height; y++) {
     const float* eff = prepare_effective_mask_for_row_float_c<maskMode, full_opacity>(
-      maskp, mpx, width, eff_buf.data(), opacity);
+      maskp, mpx, width, mask_rows_above(y, MaskVSubsample<maskMode>), mask_rows_below(y, height, MaskVSubsample<maskMode>),
+      eff_buf.data(), opacity);
     blend_masked_float_c_row(
       reinterpret_cast<float*>(p1), reinterpret_cast<const float*>(p2), eff, width);
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;

@@ -205,34 +205,34 @@ static void overlay_blend_weighted_float_c(
 template<typename pixel_t, bool full_opacity = true>
 static void do_fill_chroma_row(
   pixel_t* buf, const pixel_t* luma_row,
-  int luma_pitch_pixels, int chroma_w, MaskMode mode,
+  int luma_pitch_pixels, int chroma_w, int rows_above, int rows_below, MaskMode mode,
   int opacity_i = 0, int half = 0, MagicDiv magic = {})
 {
   switch (mode) {
   case MASK411:
-    prepare_effective_mask_for_row<MASK411,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK411,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK420:
-    prepare_effective_mask_for_row<MASK420,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK420,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK420_MPEG2:
-    prepare_effective_mask_for_row<MASK420_MPEG2,    pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK420_MPEG2,    pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK420_TOPLEFT:
-    prepare_effective_mask_for_row<MASK420_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK420_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK422:
-    prepare_effective_mask_for_row<MASK422,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK422,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK422_MPEG2:
-    prepare_effective_mask_for_row<MASK422_MPEG2,    pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
-  case MASK422_TOPLEFT:
-    prepare_effective_mask_for_row<MASK422_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK422_MPEG2,    pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK440:
-    prepare_effective_mask_for_row<MASK440,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK440,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK410:
-    prepare_effective_mask_for_row<MASK410,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK410,          pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK411_TOPLEFT:
-    prepare_effective_mask_for_row<MASK411_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK411_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK440_TOPLEFT:
-    prepare_effective_mask_for_row<MASK440_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK440_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   case MASK410_TOPLEFT:
-    prepare_effective_mask_for_row<MASK410_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, buf, opacity_i, half, magic); break;
+    prepare_effective_mask_for_row<MASK410_TOPLEFT,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
+  case MASK410_MPEG2  :
+    prepare_effective_mask_for_row<MASK410_MPEG2  ,  pixel_t, full_opacity>(luma_row, luma_pitch_pixels, chroma_w, rows_above, rows_below, buf, opacity_i, half, magic); break;
   default: break;
   }
 }
@@ -240,34 +240,34 @@ static void do_fill_chroma_row(
 template<bool full_opacity = true>
 static void do_fill_chroma_row_f(
   float* buf, const float* luma_row,
-  int luma_pitch_floats, int chroma_w, MaskMode mode,
+  int luma_pitch_floats, int chroma_w, int rows_above, int rows_below, MaskMode mode,
   float opacity_f = 1.0f)
 {
   switch (mode) {
   case MASK411:
-    prepare_effective_mask_for_row_float_c<MASK411,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK411,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK420:
-    prepare_effective_mask_for_row_float_c<MASK420,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK420,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK420_MPEG2:
-    prepare_effective_mask_for_row_float_c<MASK420_MPEG2,    full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK420_MPEG2,    full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK420_TOPLEFT:
-    prepare_effective_mask_for_row_float_c<MASK420_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK420_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK422:
-    prepare_effective_mask_for_row_float_c<MASK422,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK422,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK422_MPEG2:
-    prepare_effective_mask_for_row_float_c<MASK422_MPEG2,    full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
-  case MASK422_TOPLEFT:
-    prepare_effective_mask_for_row_float_c<MASK422_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK422_MPEG2,    full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK440:
-    prepare_effective_mask_for_row_float_c<MASK440,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK440,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK410:
-    prepare_effective_mask_for_row_float_c<MASK410,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK410,          full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK411_TOPLEFT:
-    prepare_effective_mask_for_row_float_c<MASK411_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK411_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK440_TOPLEFT:
-    prepare_effective_mask_for_row_float_c<MASK440_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK440_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   case MASK410_TOPLEFT:
-    prepare_effective_mask_for_row_float_c<MASK410_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, buf, opacity_f); break;
+    prepare_effective_mask_for_row_float_c<MASK410_TOPLEFT,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
+  case MASK410_MPEG2  :
+    prepare_effective_mask_for_row_float_c<MASK410_MPEG2  ,  full_opacity>(luma_row, luma_pitch_floats, chroma_w, rows_above, rows_below, buf, opacity_f); break;
   default: break;
   }
 }
@@ -366,11 +366,10 @@ void OL_BlendImage::BlendImageMask(ImageOverlayInternal* base, ImageOverlayInter
         // 4 for 4:1:0
         // 2 for 4:2:0 and 4:4:0
         // 1 for others (4:1:1/4:2:2, no vertical subsampling).
-        const int luma_mask_advance =
-          (chroma_maskMode == MASK410 || chroma_maskMode == MASK410_TOPLEFT) ? luma_mask_pitch_floats * 4 :
-          (chroma_maskMode == MASK420 || chroma_maskMode == MASK420_MPEG2 || chroma_maskMode == MASK420_TOPLEFT ||
-           chroma_maskMode == MASK440 || chroma_maskMode == MASK440_TOPLEFT) ? luma_mask_pitch_floats * 2 :
-          luma_mask_pitch_floats;
+        // rows_above / rows_below of the row preparation: y * chroma_vsub and h - 1 - y * chroma_vsub
+        // (the last chroma row may start at or beyond h with yAccum; the vertical filters clamp to the mask)
+        const int chroma_vsub = MaskVSubsampleRt(chroma_maskMode);
+        const int luma_mask_advance = luma_mask_pitch_floats * chroma_vsub;
         const int scratch_pitch = chroma_w * (int)sizeof(float);
         std::vector<float> scratch(chroma_w);
 
@@ -395,28 +394,28 @@ void OL_BlendImage::BlendImageMask(ImageOverlayInternal* base, ImageOverlayInter
 #ifdef INTEL_INTRINSICS
           if (use_avx2_rowprep_f) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_float_avx2<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_float_avx2<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row_float_avx2<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_float_avx2<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_f);
           } else if (use_sse41_rowprep_f) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_float_sse41<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_float_sse41<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row_float_sse41<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_float_sse41<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_f);
           } else
 #elif defined(NEON_INTRINSICS)
           if (use_neon_rowprep_f) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_float_neon<true>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_float_neon<true>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row_float_neon<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_float_neon<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_f);
           } else
 #endif
           {
             if (chroma_full_opacity)
-              do_fill_chroma_row_f<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_f<true> (scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row_f<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, chroma_maskMode, opacity_f);
+              do_fill_chroma_row_f<false>(scratch.data(), lmask, luma_mask_pitch_floats, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_f);
           }
           // Apply to each active chroma plane; opacity already baked — pass 1.0f.
           for (int i = 0; i < n_planes; i++) {
@@ -474,11 +473,10 @@ void OL_BlendImage::BlendImageMask(ImageOverlayInternal* base, ImageOverlayInter
         // 4 for 4:1:0
         // 2 for 4:2:0 and 4:4:0
         // 1 for others (4:1:1/4:2:2, no vertical subsampling)
-        const int luma_mask_advance =
-          (chroma_maskMode == MASK410 || chroma_maskMode == MASK410_TOPLEFT) ? luma_mask_pitch_pixels * 4 :
-          (chroma_maskMode == MASK420 || chroma_maskMode == MASK420_MPEG2 || chroma_maskMode == MASK420_TOPLEFT ||
-           chroma_maskMode == MASK440 || chroma_maskMode == MASK440_TOPLEFT) ? luma_mask_pitch_pixels * 2 :
-          luma_mask_pitch_pixels;
+        // rows_above / rows_below of the row preparation: y * chroma_vsub and h - 1 - y * chroma_vsub
+        // (the last chroma row may start at or beyond h with yAccum; the vertical filters clamp to the mask)
+        const int chroma_vsub = MaskVSubsampleRt(chroma_maskMode);
+        const int luma_mask_advance = luma_mask_pitch_pixels * chroma_vsub;
         const int scratch_pitch = chroma_w * (int)sizeof(pixel_t);
         std::vector<pixel_t> scratch(chroma_w);
 
@@ -507,29 +505,29 @@ void OL_BlendImage::BlendImageMask(ImageOverlayInternal* base, ImageOverlayInter
 #ifdef INTEL_INTRINSICS
           if (use_avx2_rowprep) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_avx2<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_avx2<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row_avx2<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row_avx2<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_i, half_val, mag);
           } else if (use_sse41_rowprep) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_sse41<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_sse41<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row_sse41<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row_sse41<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_i, half_val, mag);
           } else
 #elif defined(NEON_INTRINSICS)
           if (use_neon_rowprep) {
             if (chroma_full_opacity)
-              do_fill_chroma_row_neon<pixel_t, true>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row_neon<pixel_t, true>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row_neon<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row_neon<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_i, half_val, mag);
           }
           else
 #endif
           {
             if (chroma_full_opacity)
-              do_fill_chroma_row<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode);
+              do_fill_chroma_row<pixel_t, true> (scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode);
             else
-              do_fill_chroma_row<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, chroma_maskMode, opacity_i, half_val, mag);
+              do_fill_chroma_row<pixel_t, false>(scratch.data(), lmask, luma_mask_pitch_pixels, chroma_w, y * chroma_vsub, h - 1 - y * chroma_vsub, chroma_maskMode, opacity_i, half_val, mag);
           }
           // Apply to each active chroma plane; opacity already baked — pass max_pixel_value.
           for (int i = 0; i < n_planes; i++) {

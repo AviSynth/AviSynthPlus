@@ -44,6 +44,7 @@
 // Unlike Intel (no SIMD for 4:1:0, 4:4:0 and 4:1:1 top-left), all 13 modes have a NEON kernel.
 
 #include "masked_rowprep_neon.h"
+#include "masked_rowprep_sep_neon.h" // separable kernels
 #include <arm_neon.h>
 #include <cstdint>
 
@@ -51,15 +52,15 @@ namespace {
 
 // 8 averaged mask values in 16 bit lanes for chroma x .. x+7.
 // prev: MPEG2 sliding window, the previous odd sample (4:2:2) or 2-row sum (4:2:0), all lanes; only lane 7 is used.
+// 4:2:2 and 4:2:0 box / mpeg2 only; the separable modes are in masked_rowprep_sep_neon.h.
 template<MaskMode maskMode>
 static AVS_FORCEINLINE uint16x8_t avg8_u8(const uint8_t* row0, int pitch, int x, uint16x8_t& prev)
 {
+  static_assert(maskMode == MASK422 || maskMode == MASK422_MPEG2 || maskMode == MASK420 || maskMode == MASK420_MPEG2,
+    "avg8_u8: 4:2:2 / 4:2:0 box and mpeg2 modes only");
   if constexpr (maskMode == MASK422) {
     const uint8x8x2_t v = vld2_u8(row0 + x * 2);
     return vmovl_u8(vrhadd_u8(v.val[0], v.val[1]));
-  }
-  else if constexpr (maskMode == MASK422_TOPLEFT || maskMode == MASK420_TOPLEFT) {
-    return vmovl_u8(vld2_u8(row0 + x * 2).val[0]);
   }
   else if constexpr (maskMode == MASK422_MPEG2) {
     const uint8x8x2_t v = vld2_u8(row0 + x * 2);
@@ -83,27 +84,6 @@ static AVS_FORCEINLINE uint16x8_t avg8_u8(const uint8_t* row0, int pitch, int x,
     // (left + 2*mid + right + 4) >> 3, max 4*510
     return vrshrq_n_u16(vaddq_u16(vaddq_u16(left, odd), vshlq_n_u16(even, 1)), 3);
   }
-  else if constexpr (maskMode == MASK411) {
-    const uint8x8x4_t v = vld4_u8(row0 + x * 4);
-    return vrshrq_n_u16(vaddq_u16(vaddl_u8(v.val[0], v.val[1]), vaddl_u8(v.val[2], v.val[3])), 2);
-  }
-  else if constexpr (maskMode == MASK411_TOPLEFT || maskMode == MASK410_TOPLEFT) {
-    return vmovl_u8(vld4_u8(row0 + x * 4).val[0]);
-  }
-  else if constexpr (maskMode == MASK440) {
-    return vmovl_u8(vrhadd_u8(vld1_u8(row0 + x), vld1_u8(row0 + pitch + x)));
-  }
-  else if constexpr (maskMode == MASK440_TOPLEFT) {
-    return vmovl_u8(vld1_u8(row0 + x));
-  }
-  else { // MASK410: 4x4 box, max 16*255
-    uint16x8_t s = vdupq_n_u16(0);
-    for (int r = 0; r < 4; r++) {
-      const uint8x8x4_t v = vld4_u8(row0 + r * pitch + x * 4);
-      s = vaddq_u16(s, vaddq_u16(vaddl_u8(v.val[0], v.val[1]), vaddl_u8(v.val[2], v.val[3])));
-    }
-    return vrshrq_n_u16(s, 4);
-  }
 }
 
 // 16 bit pixels: sums in 32 bit lanes where they can exceed 16 bits.
@@ -111,12 +91,11 @@ static AVS_FORCEINLINE uint16x8_t avg8_u8(const uint8_t* row0, int pitch, int x,
 template<MaskMode maskMode>
 static AVS_FORCEINLINE uint16x8_t avg8_u16(const uint16_t* row0, int pitch, int x, uint32x4_t& prev_hi)
 {
+  static_assert(maskMode == MASK422 || maskMode == MASK422_MPEG2 || maskMode == MASK420 || maskMode == MASK420_MPEG2,
+    "avg8_u16: 4:2:2 / 4:2:0 box and mpeg2 modes only");
   if constexpr (maskMode == MASK422) {
     const uint16x8x2_t v = vld2q_u16(row0 + x * 2);
     return vrhaddq_u16(v.val[0], v.val[1]);
-  }
-  else if constexpr (maskMode == MASK422_TOPLEFT || maskMode == MASK420_TOPLEFT) {
-    return vld2q_u16(row0 + x * 2).val[0];
   }
   else if constexpr (maskMode == MASK422_MPEG2 || maskMode == MASK420_MPEG2) {
     uint32x4_t even_lo, even_hi, odd_lo, odd_hi;
@@ -143,27 +122,6 @@ static AVS_FORCEINLINE uint16x8_t avg8_u16(const uint16_t* row0, int pitch, int 
     const uint32x4_t s_lo = vpadalq_u16(vpaddlq_u16(vld1q_u16(row0 + x * 2)), vld1q_u16(row0 + pitch + x * 2));
     const uint32x4_t s_hi = vpadalq_u16(vpaddlq_u16(vld1q_u16(row0 + x * 2 + 8)), vld1q_u16(row0 + pitch + x * 2 + 8));
     return vcombine_u16(vrshrn_n_u32(s_lo, 2), vrshrn_n_u32(s_hi, 2));
-  }
-  else if constexpr (maskMode == MASK411 || maskMode == MASK410) {
-    uint32x4_t s_lo = vdupq_n_u32(0), s_hi = vdupq_n_u32(0);
-    constexpr int rows = maskMode == MASK410 ? 4 : 1;
-    for (int r = 0; r < rows; r++) {
-      const uint16x8x4_t v = vld4q_u16(row0 + r * pitch + x * 4);
-      s_lo = vaddq_u32(s_lo, vaddq_u32(vaddl_u16(vget_low_u16(v.val[0]), vget_low_u16(v.val[1])),
-                                       vaddl_u16(vget_low_u16(v.val[2]), vget_low_u16(v.val[3]))));
-      s_hi = vaddq_u32(s_hi, vaddq_u32(vaddl_high_u16(v.val[0], v.val[1]), vaddl_high_u16(v.val[2], v.val[3])));
-    }
-    constexpr int sh = maskMode == MASK410 ? 4 : 2; // 16 or 4 samples
-    return vcombine_u16(vrshrn_n_u32(s_lo, sh), vrshrn_n_u32(s_hi, sh));
-  }
-  else if constexpr (maskMode == MASK411_TOPLEFT || maskMode == MASK410_TOPLEFT) {
-    return vld4q_u16(row0 + x * 4).val[0];
-  }
-  else if constexpr (maskMode == MASK440) {
-    return vrhaddq_u16(vld1q_u16(row0 + x), vld1q_u16(row0 + pitch + x));
-  }
-  else { // MASK440_TOPLEFT
-    return vld1q_u16(row0 + x);
   }
 }
 
@@ -212,6 +170,8 @@ const pixel_t* prepare_effective_mask_for_row_neon(
   const pixel_t* maskp,
   int mask_pitch,
   int width,
+  int rows_above,
+  int rows_below,
   pixel_t* buf,
   int opacity_i,
   int half,
@@ -219,6 +179,11 @@ const pixel_t* prepare_effective_mask_for_row_neon(
 {
   if constexpr (maskMode == MASK444 && full_opacity) {
     return maskp;
+  }
+  else if constexpr (MaskIsSeparable<maskMode>) {
+    // separable kernels (4:2:0 top_left, 4:4:0, 4:1:1, 4:1:0), masked_rowprep_sep_neon.h
+    mask_sep_row_neon<maskMode, pixel_t, full_opacity>(maskp, mask_pitch, width, rows_above, rows_below, buf, opacity_i, half, magic);
+    return buf;
   }
   else {
     pixel_t* dst = buf;
@@ -275,19 +240,19 @@ const pixel_t* prepare_effective_mask_for_row_neon(
 }
 
 #define INST_PREP_NEON(mm, pt) \
-  template const pt* prepare_effective_mask_for_row_neon<mm, pt, true> (const pt*, int, int, pt*, int, int, MagicDiv); \
-  template const pt* prepare_effective_mask_for_row_neon<mm, pt, false>(const pt*, int, int, pt*, int, int, MagicDiv);
+  template const pt* prepare_effective_mask_for_row_neon<mm, pt, true> (const pt*, int, int, int, int, pt*, int, int, MagicDiv); \
+  template const pt* prepare_effective_mask_for_row_neon<mm, pt, false>(const pt*, int, int, int, int, pt*, int, int, MagicDiv);
 INST_PREP_NEON(MASK444,          uint8_t)   INST_PREP_NEON(MASK444,          uint16_t)
 INST_PREP_NEON(MASK420,          uint8_t)   INST_PREP_NEON(MASK420,          uint16_t)
 INST_PREP_NEON(MASK420_MPEG2,    uint8_t)   INST_PREP_NEON(MASK420_MPEG2,    uint16_t)
 INST_PREP_NEON(MASK420_TOPLEFT,  uint8_t)   INST_PREP_NEON(MASK420_TOPLEFT,  uint16_t)
 INST_PREP_NEON(MASK422,          uint8_t)   INST_PREP_NEON(MASK422,          uint16_t)
 INST_PREP_NEON(MASK422_MPEG2,    uint8_t)   INST_PREP_NEON(MASK422_MPEG2,    uint16_t)
-INST_PREP_NEON(MASK422_TOPLEFT,  uint8_t)   INST_PREP_NEON(MASK422_TOPLEFT,  uint16_t)
 INST_PREP_NEON(MASK411,          uint8_t)   INST_PREP_NEON(MASK411,          uint16_t)
 INST_PREP_NEON(MASK411_TOPLEFT,  uint8_t)   INST_PREP_NEON(MASK411_TOPLEFT,  uint16_t)
 INST_PREP_NEON(MASK440,          uint8_t)   INST_PREP_NEON(MASK440,          uint16_t)
 INST_PREP_NEON(MASK440_TOPLEFT,  uint8_t)   INST_PREP_NEON(MASK440_TOPLEFT,  uint16_t)
 INST_PREP_NEON(MASK410,          uint8_t)   INST_PREP_NEON(MASK410,          uint16_t)
 INST_PREP_NEON(MASK410_TOPLEFT,  uint8_t)   INST_PREP_NEON(MASK410_TOPLEFT,  uint16_t)
+INST_PREP_NEON(MASK410_MPEG2  ,  uint8_t)   INST_PREP_NEON(MASK410_MPEG2  ,  uint16_t)
 #undef INST_PREP_NEON

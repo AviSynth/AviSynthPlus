@@ -168,7 +168,7 @@ static AVS_FORCEINLINE void masked_merge_sse41_impl_inner(
 
     for (int y = 0; y < height; y++) {
       const uint8_t* eff = prepare_effective_mask_for_row_sse41<maskMode, uint8_t, full_opacity>(
-        maskp, mpx, width, eff_buf.data(), opacity, half, mag);
+        maskp, mpx, width, mask_rows_above(y, MaskVSubsample<maskMode>), mask_rows_below(y, height, MaskVSubsample<maskMode>), eff_buf.data(), opacity, half, mag);
       blend8_masked_sse41_row(
         reinterpret_cast<uint8_t*>(p1), reinterpret_cast<const uint8_t*>(p2), eff, width);
       p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;
@@ -186,7 +186,7 @@ static AVS_FORCEINLINE void masked_merge_sse41_impl_inner(
 #define BLEND16_LOOP(bpp) \
   for (int y = 0; y < height; y++) { \
     const uint16_t* eff = prepare_effective_mask_for_row_sse41<maskMode, uint16_t, full_opacity>( \
-      maskp, mpx, width, eff_buf.data(), opacity, half, mag); \
+      maskp, mpx, width, mask_rows_above(y, MaskVSubsample<maskMode>), mask_rows_below(y, height, MaskVSubsample<maskMode>), eff_buf.data(), opacity, half, mag); \
     blend16_masked_sse41_row<bpp>( \
       reinterpret_cast<uint16_t*>(p1), reinterpret_cast<const uint16_t*>(p2), eff, width); \
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv; \
@@ -225,7 +225,7 @@ static void masked_merge_float_sse41_impl_inner(
 
   for (int y = 0; y < height; y++) {
     const float* eff = prepare_effective_mask_for_row_float_sse41<maskMode, full_opacity>(
-      maskp, mpx, width, eff_buf.data(), opacity);
+      maskp, mpx, width, mask_rows_above(y, MaskVSubsample<maskMode>), mask_rows_below(y, height, MaskVSubsample<maskMode>), eff_buf.data(), opacity);
     blend_masked_float_sse41_row(
       reinterpret_cast<float*>(p1), reinterpret_cast<const float*>(p2), eff, width);
     p1 += p1_pitch; p2 += p2_pitch; maskp += mask_adv;

@@ -110,13 +110,13 @@ masked_merge_float_fn_t* get_overlay_blend_masked_float_fn_neon(bool is_chroma, 
 template<typename pixel_t, bool full_opacity = true>
 void do_fill_chroma_row_neon(
   pixel_t* buf, const pixel_t* luma_row,
-  int luma_pitch_pixels, int chroma_w, MaskMode mode,
+  int luma_pitch_pixels, int chroma_w, int rows_above, int rows_below, MaskMode mode,
   int opacity_i = 0, int half = 0, MagicDiv magic = {});
 
 template<bool full_opacity = true>
 void do_fill_chroma_row_float_neon(
   float* buf, const float* luma_row,
-  int luma_pitch_pixels, int chroma_w, MaskMode mode,
+  int luma_pitch_pixels, int chroma_w, int rows_above, int rows_below, MaskMode mode,
   float opacity = 0.0f);
 
 #endif // __blend_common_neon_h
