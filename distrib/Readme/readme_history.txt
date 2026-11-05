@@ -11,6 +11,9 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: YToUV without Y clip, 32 bit float: the grey Y plane was 126/256. The value now comes from the common bit
+  depth conversion constants (8 bit limited range to the actual bit depth, like ConvertBits), which gives 126/255.
+  10-16 bits stay 126 << (bits-8). Existed since AviSynth+ r2487.
 - Fix: YToUV with YUVA U clip and no Y clip: the output stayed YUVA, but nothing wrote its alpha plane, so it had
   the content of the reused frame buffer. Now fully opaque, like Y is filled with grey in this case.
   Existed since AviSynth+ r2487.

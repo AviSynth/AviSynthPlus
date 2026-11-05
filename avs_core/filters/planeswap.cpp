@@ -739,20 +739,22 @@ PVideoFrame __stdcall SwapYToUV::GetFrame(int n, IScriptEnvironment* env) {
   }
 
   // if no Y script was given, fill Y plane with neutral value
-  // Luma = 126 (0x7e)
+  // Luma = 126 (0x7e) in 8 bit limited range, converted to the actual bit depth like ConvertBits does
+  // the calculation may be overkill for integers, but we like the rules.
+  bits_conv_constants d;
+  get_bits_conv_constants(d, false /*chroma*/, false /*fulls*/, false /*fulld*/, 8, vi.BitsPerComponent());
+  const float luma_val = (0x7e - d.src_offset_i) * d.mul_factor + d.dst_offset;
+
   BYTE* dstp = dst->GetWritePtr(PLANAR_Y);
   int rowsize = dst->GetRowSize(PLANAR_Y);
   int pitch = dst->GetPitch(PLANAR_Y);
 
   if (vi.ComponentSize() == 1)  // 8bit
-    fill_plane<BYTE>(dstp, vi.height, rowsize, pitch, 0x7e);
-  else if (vi.ComponentSize() == 2) { // 16bit
-    uint16_t luma_val = 0x7e << (vi.BitsPerComponent() - 8);
-    fill_plane<uint16_t>(dstp, vi.height, rowsize, pitch, luma_val);
-  }
-  else { // 32bit(float)
-    fill_plane<float>(dstp, vi.height, rowsize, pitch, 126.0f / 256);
-  }
+    fill_plane<BYTE>(dstp, vi.height, rowsize, pitch, (BYTE)(luma_val + 0.5f));
+  else if (vi.ComponentSize() == 2) // 16bit
+    fill_plane<uint16_t>(dstp, vi.height, rowsize, pitch, (uint16_t)(luma_val + 0.5f));
+  else // 32bit(float)
+    fill_plane<float>(dstp, vi.height, rowsize, pitch, luma_val);
 
   // No Y clip means no alpha clip either. A YUVA clipU keeps its format, so make the alpha plane fully opaque.
   if (vi.IsYUVA()) {

@@ -19,6 +19,8 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: YToUV without ``clipY``, 32 bit float: the grey Y plane was 126/256, now 126/255, the same as 8 bit limited
+  range 126 converted by ConvertBits. Existed since AviSynth+ r2487.
 - Fix: YToUV with YUVA ``clipU`` and no ``clipY``: the alpha plane of the output was left unset, now it is fully opaque.
   Existed since AviSynth+ r2487.
 - Fix: YToUV accepted clips which do not fit the output frame, and wrote past the plane rows: different bit depth,

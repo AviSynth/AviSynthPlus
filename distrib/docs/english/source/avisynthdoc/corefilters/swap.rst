@@ -150,7 +150,9 @@ All clips must have the same bit depth. Which plane is copied, and what is rejec
       compatible with YUV420 and YUV422 color formats.
 
     If ``clipY`` is not given, the Y channel of the output clip will be set to
-    grey (0x7e). If ``clipU`` is YUVA, the output clip is YUVA as well, and its alpha
+    grey: 126 (0x7e) in 8 bit limited range, converted to the actual bit depth like
+    :doc:`ConvertBits <convertbits>` does, e.g. 32256 at 16 bits and 126/255 at 32 bit
+    float. If ``clipU`` is YUVA, the output clip is YUVA as well, and its alpha
     channel will be fully opaque (255 at 8 bits, 1.0 for 32 bit float).
 
 .. describe:: clipA
@@ -190,6 +192,8 @@ after its format, e.g. ``y16`` is a Y16 clip:
     | ``YToUV(y8, y8, y8, rgbp8)`` | G plane copied to A                 | error            |
     +------------------------------+-------------------------------------+------------------+
     | ``YToUV(yuva, yuva)``        | A plane left unset                  | A plane opaque   |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y32, y32)``          | Y plane 126/256                     | Y plane 126/255  |
     +------------------------------+-------------------------------------+------------------+
 
 
@@ -272,6 +276,7 @@ Changelog
     |                 |  and formats which do not fit the output.    |
     |                 || YToUV: ``clipA`` RGB32, RGB64: alpha plane. |
     |                 || YToUV: no ``clipY``, YUVA: opaque alpha.    |
+    |                 || YToUV: no ``clipY``, float: Y is 126/255.   |
     +-----------------+----------------------------------------------+
     | AviSynth+ r2487 || Added parameter ``clipA`` to YToUV.         |
     |                 || Added YUVA support to SwapUV.               |
