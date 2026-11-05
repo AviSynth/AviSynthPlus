@@ -1484,14 +1484,19 @@ static bool add_set_bits(const uint8_t* row, int bit_first, int bit_last, int we
     unsigned v = row[byte];
     if (v == 0)
       continue;
-    if (byte == byte_first)
-      v &= 0xFFu >> (bit_first % 8); // bits are msb first
     if (byte == byte_last)
       v &= (0xFF00u >> (bit_last % 8 + 1)) & 0xFFu;
+    int i = byte * 8 - bit_of_col0;
+    if (byte == byte_first) {
+      // bits are msb first. Bits before bit_first may be before col[0]: skip them, not only mask them out.
+      const int skip = bit_first % 8;
+      v = (v << skip) & 0xFFu;
+      i += skip;
+    }
     any = any || v != 0;
     // The actual bit is always moved to the 0x80 position. It decides whether weight is added or not, without a
     // branch: v >> 7 is 0 or 1, its negative is a mask of all zeros or all ones, so "weight & mask" is 0 or weight.
-    for (int i = byte * 8 - bit_of_col0; v != 0; v = (v << 1) & 0xFFu, i++)
+    for (; v != 0; v = (v << 1) & 0xFFu, i++)
       col[i] += weight & -(int)(v >> 7);
   }
   return any;
