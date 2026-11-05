@@ -11,6 +11,9 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: YToUV with YUVA U clip and no Y clip: the output stayed YUVA, but nothing wrote its alpha plane, so it had
+  the content of the reused frame buffer. Now fully opaque, like Y is filled with grey in this case.
+  Existed since AviSynth+ r2487.
 - Fix: YToUV accepted clips which do not fit the output frame. BitBlt uses the row size of the source, so wider
   samples wrote past the plane rows, narrower ones left a part of them unset. Now errors: V or Y clip of different
   bit depth, packed or planar RGB; A clip RGB24, RGB48, planar RGB without alpha (G plane was copied) or YUY2.

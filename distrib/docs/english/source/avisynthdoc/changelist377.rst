@@ -19,6 +19,8 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: YToUV with YUVA ``clipU`` and no ``clipY``: the alpha plane of the output was left unset, now it is fully opaque.
+  Existed since AviSynth+ r2487.
 - Fix: YToUV accepted clips which do not fit the output frame, and wrote past the plane rows: different bit depth,
   packed or planar RGB for V or Y; RGB24, RGB48, planar RGB without alpha or YUY2 for A. These are errors now.
   RGB32 and RGB64 as ``clipA`` give their alpha plane; see :doc:`Swap filters <corefilters/swap>`.

@@ -754,6 +754,20 @@ PVideoFrame __stdcall SwapYToUV::GetFrame(int n, IScriptEnvironment* env) {
     fill_plane<float>(dstp, vi.height, rowsize, pitch, 126.0f / 256);
   }
 
+  // No Y clip means no alpha clip either. A YUVA clipU keeps its format, so make the alpha plane fully opaque.
+  if (vi.IsYUVA()) {
+    dstp = dst->GetWritePtr(PLANAR_A);
+    rowsize = dst->GetRowSize(PLANAR_A);
+    pitch = dst->GetPitch(PLANAR_A);
+
+    if (vi.ComponentSize() == 1)  // 8bit
+      fill_plane<BYTE>(dstp, vi.height, rowsize, pitch, 255);
+    else if (vi.ComponentSize() == 2) // 16bit
+      fill_plane<uint16_t>(dstp, vi.height, rowsize, pitch, (uint16_t)((1 << vi.BitsPerComponent()) - 1));
+    else // 32bit(float)
+      fill_plane<float>(dstp, vi.height, rowsize, pitch, 1.0f);
+  }
+
   return dst;
 }
 
