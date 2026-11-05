@@ -89,8 +89,31 @@ YToUV
 **YToUV** combines up to 4 independent clips to create a new YUV(A) clip.
 The Y channel of each of the supplied clips are then copied onto the respective
 channel of the output clip. Note that all of the parameters are unnamed, however,
-only the first two clips are mandatory. Only Y, YA or YUV(A) color formats are
-accepted (only the Y plane of the clips is used; alpha of ``clipA`` if it has one).
+only the first two clips are mandatory.
+
+All clips must have the same bit depth. Which plane is copied, and what is rejected:
+
+.. table::
+    :widths: auto
+
+    +---------------+----------------------+---------------+
+    | Source format | clipU, clipV, clipY  | clipA         |
+    +===============+======================+===============+
+    | Y, YUV        | Y plane              | Y plane       |
+    +---------------+----------------------+---------------+
+    | YA, YUVA      | Y plane              | alpha plane   |
+    +---------------+----------------------+---------------+
+    | YUY2          | all three YUY2 or    | rejected      |
+    |               | none of them         |               |
+    +---------------+----------------------+---------------+
+    | planar RGB    | rejected             | rejected      |
+    +---------------+----------------------+---------------+
+    | planar RGBA   | rejected             | alpha plane   |
+    +---------------+----------------------+---------------+
+    | RGB32, RGB64  | rejected             | alpha plane   |
+    +---------------+----------------------+---------------+
+    | RGB24, RGB48  | rejected             | rejected      |
+    +---------------+----------------------+---------------+
 
 .. rubric:: Syntax and Parameters
 
@@ -107,9 +130,12 @@ accepted (only the Y plane of the clips is used; alpha of ``clipA`` if it has on
     | ``clipU`` determines the color format of the output clip unless ``clipY``
       is defined.
 
+    | Both clips must have the same bit depth.
+
 .. describe:: clipY
 
-    Source clip; If ``clipY`` is given, the Y channel is copied onto the Y
+    Source clip; must have the same bit depth as ``clipU``.
+    If ``clipY`` is given, the Y channel is copied onto the Y
     channel of the output clip. The dimensions of this clip determines the
     color format of the output clip, for example:
 
@@ -128,8 +154,40 @@ accepted (only the Y plane of the clips is used; alpha of ``clipA`` if it has on
 
 .. describe:: clipA
 
-    Source clip; if ``clipA`` is given, the Y channel is copied onto the A
-    channel of the output clip. Dimensions must be identical to ``clipY``.
+    Source clip; if ``clipA`` is given, its plane listed in the table above is copied
+    onto the A channel of the output clip. Dimensions and bit depth must be identical
+    to ``clipY``.
+
+Since 3.7.7, clips which do not fit the output frame are rejected, and packed RGB with
+alpha gives its alpha as ``clipA``. Each clip below is named
+after its format, e.g. ``y16`` is a Y16 clip:
+
+.. table::
+    :widths: auto
+
+    +------------------------------+-------------------------------------+------------------+
+    | Script                       | Before                              | Now              |
+    +==============================+=====================================+==================+
+    | ``YToUV(y8, y16)``           | V row written at double width       | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y16, y8)``           | half of each V row left unset       | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y10, y16)``          | V values of the wrong bit depth     | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y8, rgb24)``         | V row written at triple width       | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y8, rgbp8)``         | G plane copied to V                 | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y8, y8, y16)``       | Y row written at double width       | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y8, y8, y8, rgb32)`` | A row written at four times width   | alpha copied     |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y8, y8, y8, rgb24)`` | A row written at triple width       | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y8, y8, y8, yuy2)``  | A row written at double width       | error            |
+    +------------------------------+-------------------------------------+------------------+
+    | ``YToUV(y8, y8, y8, rgbp8)`` | G plane copied to A                 | error            |
+    +------------------------------+-------------------------------------+------------------+
 
 
 Examples
@@ -207,6 +265,10 @@ Changelog
     +-----------------+----------------------------------------------+
     | Version         | Changes                                      |
     +=================+==============================================+
+    | AviSynth+ 3.7.7 || YToUV: reject clips of different bit depth  |
+    |                 |  and formats which do not fit the output.    |
+    |                 || YToUV: ``clipA`` RGB32, RGB64: alpha plane. |
+    +-----------------+----------------------------------------------+
     | AviSynth+ r2487 || Added parameter ``clipA`` to YToUV.         |
     |                 || Added YUVA support to SwapUV.               |
     |                 || Added support for 10-16 bits and float.     |
@@ -221,7 +283,7 @@ Changelog
     | AviSynth 2.5.0  | Added UToY, VToY, YToUV.                     |
     +-----------------+----------------------------------------------+
 
-$Date: 2026/10/02 10:00:00 $
+$Date: 2026/11/05 12:00:00 $
 
 .. _chroma subsampling:
     https://en.wikipedia.org/wiki/Chroma_subsampling

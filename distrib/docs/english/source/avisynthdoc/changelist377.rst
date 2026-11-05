@@ -19,6 +19,11 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: YToUV accepted clips which do not fit the output frame, and wrote past the plane rows: different bit depth,
+  packed or planar RGB for V or Y; RGB24, RGB48, planar RGB without alpha or YUY2 for A. These are errors now.
+  RGB32 and RGB64 as ``clipA`` give their alpha plane; see :doc:`Swap filters <corefilters/swap>`.
+  Existed since AviSynth+ r2487.
+  (`AviSynthPlus-UT issue #8 <https://github.com/HomeOfAviSynthPlusEvolution/AviSynthPlus-UT/issues/8>`_)
 - Fix: Overlay and Layer, 32 bit float, AVX2, ``left``-sited mask: 4:2:2 read wrong mask samples in the vector loop,
   4:2:0 read mask samples 4 positions off in the scalar tail. Existed since 3.7.6.
 - Fix: Text and Subtitle(gdi=false) on 4:1:0: chroma was misplaced if ``y`` was not divisible by 4. Existed since 3.7.6.

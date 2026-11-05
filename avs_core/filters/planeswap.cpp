@@ -554,7 +554,12 @@ SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScr
     env->ThrowError("YToUV: Only Y, YA, YUV or YUVA data accepted");
   }
 
+  // The planes are copied as they are, so a source with other sample storage would not fit the output frame
   const VideoInfo& vi2 = clip->GetVideoInfo();
+  if (!vi2.IsYUV() && !vi2.IsYUVA())
+    env->ThrowError("YToUV: V clip: only Y, YA, YUV or YUVA data accepted");
+  if (vi.BitsPerComponent() != vi2.BitsPerComponent())
+    env->ThrowError("YToUV: different U and V clip bit depth");
   if (vi.height != vi2.height)
     env->ThrowError("YToUV: Clips do not have the same height (U & V mismatch) !");
   if (vi.width != vi2.width)
@@ -585,6 +590,10 @@ SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScr
 
   // Y clip parameter exists, Y channel will be copied from that
   const VideoInfo& vi3 = clipY->GetVideoInfo();
+  if (!vi3.IsYUV() && !vi3.IsYUVA())
+    env->ThrowError("YToUV: Y clip: only Y, YA, YUV or YUVA data accepted");
+  if (vi.BitsPerComponent() != vi3.BitsPerComponent())
+    env->ThrowError("YToUV: different U and Y clip bit depth");
   if (vi.IsYUY2() != vi3.IsYUY2())
     env->ThrowError("YToUV: YUY2 Clips must have same colorspace (UV & Y mismatch) !");
 
@@ -598,7 +607,12 @@ SwapYToUV::SwapYToUV(PClip _child, PClip _clip, PClip _clipY, PClip _clipA, IScr
   }
 
   if (clipA) {
+    // packed RGB with alpha: an intermediate ExtractA gives a greyscale clip in top-down row order
+    if (clipA->GetVideoInfo().IsRGB32() || clipA->GetVideoInfo().IsRGB64())
+      clipA = new SwapUVToY(clipA, SwapUVToY::AToY8, env);
     const VideoInfo& vi4 = clipA->GetVideoInfo();
+    if (!(vi4.IsYUV() || vi4.IsYUVA() || vi4.IsPlanarRGBA()) || vi4.IsYUY2())
+      env->ThrowError("YToUV: A clip: only Y, YA, YUV, YUVA, planar RGBA, RGB32 or RGB64 data accepted");
     if (vi4.width != vi3.width || vi4.height != vi3.height) // Y width == A width
       env->ThrowError("YToUV: different Y and A clip dimensions");
     if(vi4.BitsPerComponent() != vi3.BitsPerComponent())
@@ -709,8 +723,9 @@ PVideoFrame __stdcall SwapYToUV::GetFrame(int n, IScriptEnvironment* env) {
     src->GetReadPtr(PLANAR_Y), src->GetPitch(PLANAR_Y), src->GetRowSize(PLANAR_Y), src->GetHeight(PLANAR_Y));
 
   if (clipA) {
-    int source_plane = (clipA->GetVideoInfo().IsPlanarRGBA() ||
-      clipA->GetVideoInfo().IsYUVA()) ? PLANAR_A : PLANAR_Y;
+    const VideoInfo& vi4 = clipA->GetVideoInfo();
+    // own alpha plane if any (IsYUVA includes YA)
+    const int source_plane = (vi4.IsPlanarRGBA() || vi4.IsYUVA()) ? PLANAR_A : PLANAR_Y;
     src = clipA->GetFrame(n, env);
     env->BitBlt(dst->GetWritePtr(PLANAR_A), dst->GetPitch(PLANAR_A),
       src->GetReadPtr(source_plane), src->GetPitch(source_plane), src->GetRowSize(source_plane), src->GetHeight(source_plane));

@@ -11,6 +11,12 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: YToUV accepted clips which do not fit the output frame. BitBlt uses the row size of the source, so wider
+  samples wrote past the plane rows, narrower ones left a part of them unset. Now errors: V or Y clip of different
+  bit depth, packed or planar RGB; A clip RGB24, RGB48, planar RGB without alpha (G plane was copied) or YUY2.
+  Bit depth of A was already compared to Y. RGB32 and RGB64 as A clip work now through an intermediate ExtractA.
+  Existed since AviSynth+ r2487.
+  https://github.com/HomeOfAviSynthPlusEvolution/AviSynthPlus-UT/issues/8
 - Overlay, Layer, Subtitle, Text: chroma mask (and text chroma) kernels are low-pass filters, no point samples.
   Per axis: 2:1 centred [1 1]; 2:1 co-sited [1 2 1]; 4:1 centred (triangle) [1 3 5 7 7 5 3 1]/32, luma offsets
   -2..5; 4:1 co-sited (tent) [1 2 3 4 3 2 1]/16, offsets -3..3.
