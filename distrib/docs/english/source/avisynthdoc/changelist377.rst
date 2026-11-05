@@ -19,6 +19,11 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: ConvertToXXXX with ``interlaced=true``, 4:2:0 or 4:1:0 involved: heights which do not give an integral number
+  of chroma rows per field (e.g. 720x486 to 4:2:0) were accepted, and the last chroma row was read from outside the
+  source frame. Now an error: height must be mod4, or mod8 if 4:1:0 is involved; see
+  :doc:`Convert <corefilters/convert>`. Existed since AviSynth 2.6.
+  (`AviSynthPlus-UT issue #5 <https://github.com/HomeOfAviSynthPlusEvolution/AviSynthPlus-UT/issues/5>`_)
 - Fix: YToUV without ``clipY``, 32 bit float: the grey Y plane was 126/256, now 126/255, the same as 8 bit limited
   range 126 converted by ConvertBits. Existed since AviSynth+ r2487.
 - Fix: YToUV with YUVA ``clipU`` and no ``clipY``: the alpha plane of the output was left unset, now it is fully opaque.

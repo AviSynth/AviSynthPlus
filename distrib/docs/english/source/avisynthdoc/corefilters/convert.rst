@@ -545,6 +545,19 @@ Syntax and parameters
     More about that can be found here:
     :doc:`Color conversions and interlaced / field-based video <../advancedtopics/interlaced_fieldbased>`.
 
+    When ``interlaced=true`` has an effect, chroma is processed by fields, so each field must have an
+    integral number of chroma rows. Y sources have no chroma to process, they are not affected:
+
+    +------------------------------------------------+-----------------------------+
+    | Conversion                                     | Height must be divisible by |
+    +================================================+=============================+
+    | 4:2:0 <-> not subsampled vertically, or 4:4:0  | 4                           |
+    +------------------------------------------------+-----------------------------+
+    | 4:2:0 <-> 4:1:0                                | 8                           |
+    +------------------------------------------------+-----------------------------+
+
+    Since v3.7.7 other heights are an error, crop the clip first (e.g. 720x486 to 720x484 or 720x480).
+
 .. describe:: ChromaInPlacement, ChromaOutPlacement
 
     string  ChromaInPlacement = (see below)
@@ -809,6 +822,9 @@ Color conversions
 +----------+------------------------------------------------------------+
 | Changes: |                                                            |
 +==========+============================================================+
+| v3.7.7   | Error on interlaced=true if the fields would not have an   |
+|          | integral number of chroma rows                             |
++----------+------------------------------------------------------------+
 | v3.7.6   || Add "quality" parameter to ConvertToXXXX                  |
 |          || Add "bits" parameter to ConvertToXXXX                     |
 |          || Document ":same" in matrix specifier                      |
@@ -838,4 +854,4 @@ Color conversions
 | v2.50    | ConvertToYV12                                              |
 +----------+------------------------------------------------------------+
 
-$Date: 2026/09/25 21:05:00 $
+$Date: 2026/11/05 12:00:00 $

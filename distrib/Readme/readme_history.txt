@@ -11,6 +11,13 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: ConvertToXXXX with interlaced=true, 4:2:0 involved: uv_height/2 was rounded down, so with e.g. 8x6 YV24 or
+  720x486 YUY2 to 4:2:0 the woven chroma had one row less than the output plane, and BitBlt copied that row from
+  outside the source frame. Now an error: "height isn't mod4", mod8 when 4:2:0 <-> 4:1:0. This also replaces the
+  misleading "SeparateFields: height must be even" and "Resize: Height must be greater than 0" errors.
+  Y sources are not affected. zimg (VapourSynth resize), fmtconv and SeparateFields have the same rule.
+  Existed since AviSynth 2.6.
+  https://github.com/HomeOfAviSynthPlusEvolution/AviSynthPlus-UT/issues/5
 - Fix: YToUV without Y clip, 32 bit float: the grey Y plane was 126/256. The value now comes from the common bit
   depth conversion constants (8 bit limited range to the actual bit depth, like ConvertBits), which gives 126/255.
   10-16 bits stay 126 << (bits-8). Existed since AviSynth+ r2487.

@@ -1488,6 +1488,12 @@ ConvertToPlanarGeneric::ConvertToPlanarGeneric(
   if (vi.height & ymask)
     env->ThrowError("Convert: Cannot convert if height isn't mod%d!", ysOut);
 
+  // Chroma is processed by fields: each field must have an integral number of chroma rows on both sides.
+  // Otherwise the woven chroma has fewer rows than the output plane.
+  const int ysField = 2 * std::max(ysIn, ysOut);
+  if (interlaced && (vi.height & (ysField - 1)))
+    env->ThrowError("Convert: Cannot convert with interlaced=true if height isn't mod%d!", ysField);
+
   int uv_width  = vi.width  >> vi.GetPlaneWidthSubsampling(PLANAR_U);
   int uv_height = vi.height >> vi.GetPlaneHeightSubsampling(PLANAR_U);
 
