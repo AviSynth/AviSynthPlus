@@ -11,6 +11,10 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: undefined behaviour on 32 bit float clips: 1 << 32 in setup code (Levels, Tweak, MaskHS, Limiter, ColorKeyMask,
+  Layer, Invert, BlankClip, AddAlphaPlane, YUV-RGB converters, conditional functions). The shift now runs only up to
+  16 bits. Float paths did not use the result, output is unchanged on x86. Histogram "luma" float: left shift of a
+  negative value.
 - Fix: Histogram "levels", 32 bit float, limited range: the source offset was missing from the luma position: x*255+16,
   so bars were 16 levels too high and levels above 239 piled up in the last bar. The population scale follows the
   largest bar, so the others shrank to 2 pixels. Chroma, RGB and full range were right.

@@ -139,7 +139,7 @@ static PVideoFrame CreateBlankFrame(const VideoInfo& vi, int color, int mode, co
   // RGB 8->16 bit: not << 8 like YUV but 0..255 -> 0..65535 or 0..1023 for 10 bit
   int pixelsize = vi.ComponentSize();
   int bits_per_pixel = vi.BitsPerComponent();
-  int max_pixel_value = (1 << bits_per_pixel) - 1;
+  int max_pixel_value = bits_per_pixel <= 16 ? (1 << bits_per_pixel) - 1 : 0; // float: n/a
   auto rgbcolor8to16 = [](uint8_t color8, int max_pixel_value) { return (uint16_t)(color8 * max_pixel_value / 255); };
 
   // int color holds the "old" 8 bit color values that are scaled automatically to the right bitmap

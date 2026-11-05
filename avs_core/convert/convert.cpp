@@ -474,7 +474,7 @@ AddAlphaPlane::AddAlphaPlane(PClip _child, PClip _alphaClip, float _mask_f, bool
   // mask parameter. If none->max opacity
 
   if (!alphaClip) {
-    int max_pixel_value = (1 << bits_per_pixel) - 1; // n/a for float
+    int max_pixel_value = bits_per_pixel <= 16 ? (1 << bits_per_pixel) - 1 : 0; // n/a for float
     if (!isMaskDefined) {
       mask_f = 1.0f;
       mask = max_pixel_value;

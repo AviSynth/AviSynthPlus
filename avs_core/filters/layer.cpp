@@ -263,7 +263,7 @@ ColorKeyMask::ColorKeyMask(PClip _child, int _color, int _tolB, int _tolG, int _
     env->ThrowError("ColorKeyMask: requires RGB32, RGB64 or Planar RGBA input");
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent();
-  max_pixel_value = (1 << bits_per_pixel) - 1;
+  max_pixel_value = bits_per_pixel <= 16 ? (1 << bits_per_pixel) - 1 : 0; // float: n/a
 
   auto rgbcolor8to16 = [](uint8_t color8, int max_pixel_value) { return (uint16_t)(color8 * max_pixel_value / 255); };
 
@@ -617,7 +617,7 @@ Invert::Invert(PClip _child, const char* _channels, IScriptEnvironment* env)
   }
   else {
     mask = 0xffffffff;
-    mask64 = (1 << bits_per_pixel) - 1;
+    mask64 = bits_per_pixel <= 16 ? (1 << bits_per_pixel) - 1 : 0; // float: n/a
     mask64 |= (mask64 << 48) | (mask64 << 32) | (mask64 << 16); // works for 10 bit, too
     // RGB24/48 is special case no use of this mask
   }
@@ -2365,11 +2365,13 @@ PVideoFrame __stdcall Layer::GetFrame(int n, IScriptEnvironment* env)
     separate_maskp = mask_frame->GetReadPtr(PLANAR_Y) + separate_mask_pitch * ysrc + xsrc * vi.ComponentSize();
   }
 
-  const int mylevel = hasAlpha ? (int)(opacity * ((1 << bits_per_pixel) + 1) + 0.5f) : (int)(opacity * (1 << bits_per_pixel) + 0.5f);
+  // integer paths only, float uses opacity
+  const int level_scale = bits_per_pixel <= 16 ? 1 << bits_per_pixel : 0;
+  const int mylevel = hasAlpha ? (int)(opacity * (level_scale + 1) + 0.5f) : (int)(opacity * level_scale + 0.5f);
 
   // For functions using magic-div (/max_val) arithmetic,
   // opacity_i in [0..max_pixel_value], same convention as masked_merge.
-  const int opacity_i = (int)(opacity * ((1 << bits_per_pixel) - 1) + 0.5f);
+  const int opacity_i = (int)(opacity * (level_scale - 1) + 0.5f);
 
   // The inner-loop functions that consume mylevel use a power-of-two shift (>> bpp) for the
   // blend, not division by max_val.  With a ÷(max_val+1) = ÷256 (@8bit) divisor, a weight

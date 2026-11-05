@@ -209,7 +209,7 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
   const float out_offset_f = m.offset_out_f_32;
   const int half_pixel_offset = 1 << (bits_per_pixel - 1);
   const int half_pixel_offset_target = 1 << (bits_per_pixel_target - 1);
-  const int max_pixel_value_target = (1 << bits_per_pixel_target) - 1;
+  const int max_pixel_value_target = bits_per_pixel_target <= 16 ? (1 << bits_per_pixel_target) - 1 : 0; // float: n/a
 
   bits_conv_constants conversion_ranges;
   const bool full_scale_d = m.full_scale_d;

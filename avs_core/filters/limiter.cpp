@@ -70,7 +70,7 @@ Limiter::Limiter(PClip _child, float _min_luma, float _max_luma, float _min_chro
 
   pixelsize = vi.ComponentSize();
   bits_per_pixel = vi.BitsPerComponent(); // 8,10..16
-  int pixel_max = (1 << bits_per_pixel) - 1; // 255, 1023, 4095, 16383, 65535
+  int pixel_max = bits_per_pixel <= 16 ? (1 << bits_per_pixel) - 1 : 0; // 255, 1023, 4095, 16383, 65535; float: n/a
 
   const bool isFloat = bits_per_pixel == 32;
   int tv_range_low   = isFloat ? 16 : (16 << (bits_per_pixel - 8)); // 16

@@ -776,7 +776,7 @@ AVSValue MinMaxPlane::MinMax(AVSValue clip, void* , double threshold, int offset
   }
 
   const int bits_per_pixel = vi.BitsPerComponent();
-  const int max_pixel_value = (1 << bits_per_pixel) - 1;
+  const int max_pixel_value = bits_per_pixel <= 16 ? (1 << bits_per_pixel) - 1 : 0; // float: n/a
 
   const int buffersize = pixelsize == 4 ? 65536 : (1 << bits_per_pixel); // 65536 for float, too, reason for 10-14 bits: avoid overflow
   uint32_t* accum_buf = new uint32_t[buffersize];

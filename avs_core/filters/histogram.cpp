@@ -593,7 +593,7 @@ PVideoFrame Histogram::DrawModeLuma(int n, IScriptEnvironment* env) {
         for (int x = 0; x < w; x++) {
           const float pixel_f = reinterpret_cast<float*>(srcp)[x];
           const int pixel_i = (int)(pixel_f * 255.0f + 0.5f);
-          const int pixel = pixel_i << 4; // *16
+          const int pixel = (int)((unsigned)pixel_i << 4); // *16, also below 0.0
           int pixel_out = BYTE((pixel & 256) ? (255 - (pixel & 0xff)) : pixel & 0xff);
           const float pixel_out_f = pixel_out / 255.0f;
           reinterpret_cast<float*>(srcp)[x] = pixel_out_f;
