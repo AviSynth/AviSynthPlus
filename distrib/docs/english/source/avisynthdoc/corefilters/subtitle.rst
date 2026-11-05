@@ -211,16 +211,14 @@ versions of a frame at once, and you want to label them to remember which is whi
     kernels, the same way as the mask kernels of :doc:`Overlay <overlay>` and
     :doc:`Layer <layer>` (see the kernel table in Overlay's ``placement``):
 
-    Both renderers (``gdi=true`` and ``gdi=false``, the latter same as ``Text``) have
-    the same kernel variants: "mpeg2"-like (left-cosited H, centred V; 1-2-1 filter),
-    "mpeg1"-like (centred; box average) and "top_left"-like. 4:1:1, 4:4:0 and 4:1:0
-    have no "mpeg2"-like kernel. The "top_left"-like kernel is a point sample (a single
-    luma sample of the block) with ``gdi=true``; with ``gdi=false`` it is a 1-2-1 filter
-    centred on the top-left luma sample on 4:2:0 (3x3) and 4:4:0 (vertical), the same
-    as ``"left"`` on 4:2:2/YUY2, and a point sample on 4:1:1/4:1:0.
+    Both renderers (``gdi=true`` and ``gdi=false``, the latter same as ``Text``) use the
+    same kernels: the low-pass filters of the mask kernel table, for all subsampled
+    formats. E.g. ``"top"`` and ``"bottom"`` use the centred kernel on
+    4:2:0/4:2:2/4:1:1/4:1:0, and on 4:4:0 ``"left"`` (``"mpeg2"``) equals ``"center"``.
+    YUY2 is handled like 4:2:2.
 
-    E.g. ``"top"`` and ``"bottom"`` use the centred kernel on 4:2:0/4:2:2/4:1:1, and on
-    4:4:0 ``"left"`` (``"mpeg2"``) equals ``"center"``. YUY2 is handled like 4:2:2.
+    Every chroma sample is drawn which is reached by the kernel, also those beside the
+    chroma blocks of the text. At the frame edges the luma positions are clamped.
 
     Default (not given or ``"auto"``): the clip's ``_ChromaLocation`` frame property
     (read from frame 0; subsampled YUV incl. YUY2), otherwise the per-format default of ConvertToXXXX:
@@ -234,8 +232,7 @@ versions of a frame at once, and you want to label them to remember which is whi
     | When *false*, the built-in bitmap font (Terminus) is used — same rendering
       as the ``Text`` filter. Faster and cross-platform compatible but limited:
       ``font_filename``, ``font_width``, ``font_angle``, ``interlaced``, ``noaa``
-      and ``font`` (font name) are ignored. ``placement`` works with both; only the
-      ``"top_left"``-like kernel differs (see ``placement``).
+      and ``font`` (font name) are ignored. ``placement`` works the same with both.
 
     Default: true
 
@@ -342,13 +339,10 @@ of specifying ``lsp`` parameter.
     Valid values are the same as in ``ChromaInPlacement`` and ``ChromaOutPlacement``
     in the :doc:`Convert <convert>` functions.
 
-    Any placement is accepted, and silently mapped to the implemented chroma kernels
-    with the kernel table of :doc:`Overlay <overlay>`'s ``placement``: "mpeg2"-like
-    (``"left"``, 1-2-1 filter; 4:2:0/4:2:2/YUY2 only), "mpeg1"-like (centred, box average)
-    and "top_left"-like (1-2-1 filter centred on the top-left luma sample: 3x3 on 4:2:0,
-    vertical on 4:4:0; equals ``"left"`` on 4:2:2/YUY2; point sample on 4:1:1/4:1:0).
-    E.g. ``"top"`` and ``"bottom"`` are centred on
-    4:2:0/4:2:2/4:1:1, and on 4:4:0 ``"left"`` (``"mpeg2"``) equals ``"center"``.
+    Any placement is accepted, and silently mapped to the implemented chroma kernels:
+    the low-pass filters of the mask kernel table of :doc:`Overlay <overlay>`'s ``placement``.
+    E.g. ``"top"`` and ``"bottom"`` are centred on 4:2:0/4:2:2/4:1:1/4:1:0, and on 4:4:0
+    ``"left"`` (``"mpeg2"``) equals ``"center"``.
 
     Default (not given or ``"auto"``): the clip's ``_ChromaLocation`` frame property
     (read from frame 0; subsampled YUV incl. YUY2), otherwise the per-format default of ConvertToXXXX:
@@ -482,6 +476,12 @@ Changelog
 +-----------------+--------------------------------------------------------------------------+
 | Version         | Changes                                                                  |
 +=================+==========================================================================+
+| AviSynth+ 3.7.7 | | ``Subtitle`` and ``Text``: the chroma uses the low-pass mask kernels   |
+|                 |   of :doc:`Overlay <overlay>` (no point samples or 4:1 box kernels).     |
+|                 | | Chroma samples beside the text blocks are drawn as well.               |
+|                 | | Fix: ``Text`` on 4:1:0: chroma misplaced for y not divisible by 4.     |
+|                 | | ``Text``: faster, mainly without halo and fading.                      |
++-----------------+--------------------------------------------------------------------------+
 | AviSynth+ 3.7.6 || Add ``placement`` parameter to ``Subtitle``: chroma placement for all   |
 |                 |  subsampled YUV formats incl. YUY2; ConvertToXXXX ``ChromaInPlacement``  |
 |                 |  names and default (``_ChromaLocation``, else format default). Values    |

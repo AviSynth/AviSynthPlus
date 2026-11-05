@@ -3,6 +3,13 @@ Changes from 3.7.6 to 3.7.7
 
 Additions, changes
 ~~~~~~~~~~~~~~~~~~
+- Overlay, Layer, Subtitle, Text: chroma of subsampled formats: low-pass filter kernels instead of point samples.
+  ``top_left`` on 4:2:0 (3x3), 4:2:2 and 4:4:0: ``[1 2 1]``. 4:1:1 and 4:1:0: ``[1 2 3 4 3 2 1]/16`` (co-sited) and
+  ``[1 3 5 7 7 5 3 1]/32`` (centred) per axis, also instead of the centred box; 4:1:0 ``left``, ``bottom_left``,
+  ``DV`` get a new 7x8 kernel, ``top`` is centred. Mask edges are clamped. Output changes for these
+  placements; see :doc:`Overlay <corefilters/overlay>` ``placement``.
+- Text and Subtitle: all chroma samples reached by the kernel are drawn, also those
+  beside the chroma blocks of the text.
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -12,6 +19,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Overlay and Layer, 32 bit float, AVX2, ``left``-sited mask: 4:2:2 read wrong mask samples in the vector loop,
+  4:2:0 read mask samples 4 positions off in the scalar tail. Existed since 3.7.6.
+- Fix: Text and Subtitle(gdi=false) on 4:1:0: chroma was misplaced if ``y`` was not divisible by 4. Existed since 3.7.6.
 - Fix: 8 and 16 bit horizontal resize, AVX-512: some kernels could read up to ~120 bytes past the end of the
   source frame buffer on the last row (possible access violation; the output was not affected).
   Existed since 3.7.6.
@@ -47,6 +57,8 @@ Bugfixes
 
 Optimizations
 ~~~~~~~~~~~~~
+- Optimization: Text and Subtitle(gdi=false): luma loops skip empty bitmap bytes, chroma visits only the set bits
+  of the bitmap. About 20-35% quicker (19 lines of text, frame copies excluded) without halo and fading.
 - Optimization: x86 SSE2 (no SSE4.1) emulation of unsigned 16 bit min/max (Limiter, Blur/Sharpen, 10-14 bit
   resizers) and the pack + clamp-to-limit in the MSVC SSE2 build of the C resizer: fewer instructions.
 

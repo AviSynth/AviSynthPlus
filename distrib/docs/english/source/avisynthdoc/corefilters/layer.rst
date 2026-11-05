@@ -274,10 +274,11 @@ Note that some modes can be similar to :doc:`Overlay <overlay>`, but the two fil
 
     Used in "mul", "mulovr", "darken", "lighten", "add" and "subtract" modes with planar YUV
     color spaces to correctly filter the luma-resolution alpha mask down to chroma
-    resolution for the U and V planes. Only three filter kernels are implemented, the
-    placement is silently mapped to the nearest one; the "mpeg2"-like kernel is a
-    left-cosited H, centred V triangle filter, the "mpeg1"-like one a box filter, the
-    "top_left"-like one a point sample (fastest). See the kernel table in
+    resolution for the U and V planes. Three filter kernels are implemented per format, the
+    placement is silently mapped to the nearest one: the "mpeg2"-like kernel is left-cosited
+    horizontally and centred vertically, the "mpeg1"-like one is centred, the "top_left"-like
+    one is co-sited on the top-left luma sample. All of them are low-pass filters, mask edges
+    are clamped. See the kernel tables and the before/after examples in
     :doc:`Overlay <overlay>`'s ``placement`` documentation (Layer shares the same
     chroma-mask logic).
 
@@ -321,6 +322,11 @@ Changelog
 +-----------------+---------------------------------------------------------------+
 | Version         | Changes                                                       |
 +=================+===============================================================+
+| 3.7.7           | | Mask downsampling for chroma: low-pass filters instead of   |
+|                 |   the point sampled kernels; 4:1:1, 4:1:0: tent or triangle   |
+|                 |   filters, new "mpeg2" kernel for 4:1:0; clamped mask edges   |
+|                 |   (see :doc:`Overlay <overlay>`'s ``placement``).             |
++-----------------+---------------------------------------------------------------+
 | 3.7.6           | | Layer: Add "mulovr" mode (Overlay-style multiply, YUV(A)    |
 |                 |   only)                                                       |
 |                 | | "placement": ConvertToXXXX ChromaInPlacement syntax         |

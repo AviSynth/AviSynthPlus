@@ -9,8 +9,32 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
-20261031 3.7.6.rXXXX (pre 3.7.7)
+20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Overlay, Layer, Subtitle, Text: chroma mask (and text chroma) kernels are low-pass filters, no point samples.
+  Per axis: 2:1 centred [1 1]; 2:1 co-sited [1 2 1]; 4:1 centred (triangle) [1 3 5 7 7 5 3 1]/32, luma offsets
+  -2..5; 4:1 co-sited (tent) [1 2 3 4 3 2 1]/16, offsets -3..3.
+  Kernels: 4:2:0 top_left 3x3 (was: point); 4:2:2 top_left = left (was: point); 4:4:0 top, top_left [1 2 1] (was:
+  point); 4:1:1 center 8-tap triangle (was: box), left/top_left/bottom_left/dv 7-tap tent (was: point);
+  4:1:0 center/top/bottom 8x8 triangle (was: box; top: point), left/bottom_left/dv 7x8 (new; was: point), top_left
+  7x7 tent (was: point).
+  Mask edges are clamped: the first and last luma row and column are repeated. The row preparation has SSE4.1 (also
+  used by AVX2) and NEON versions, bit-identical to C also in float: fixed addition order of box sums.
+  Output changes for these placements.
+- Text, Subtitle(gdi=false): chroma is rendered by one common function for all subsampled formats incl. YUY2, with
+  the same kernels. Luma positions outside the frame are clamped. Chroma samples whose kernel reaches the text are
+  drawn, also beside its chroma blocks; with fading only the background part inside the text rectangle is faded.
+  The safety columns of the text bitmap are gone.
+- Subtitle(gdi=true): the chroma processing range has a one chroma block margin, for the same reason.
+- Fix: Text and Subtitle(gdi=false) on 4:1:0: y not divisible by 4 misplaced the chroma by the remainder.
+  Existed since 3.7.6.
+- Fix: Overlay and Layer, 32 bit float mask, AVX2: 4:2:2 left-sited vector loop loaded 8 floats instead of 16, so it
+  did not get the odd samples of the second half; 4:2:0 left-sited scalar tail read mask samples 4 positions off.
+  The float 4:2:0 box and 4:2:2 left-sited kernels in SSE4.1 and AVX2 now use the addition order of C.
+  Existed since 3.7.6.
+- Optimization: Text and Subtitle(gdi=false): non-fading luma loops skip empty bitmap bytes; chroma walks only the
+  set bits of the bitmap, without branching on them; rectangle weights are computed once per column.
+  About 20-35% quicker without halo and fading (19 lines of text, frame copies excluded).
 - Fix: AVX-512 8 and 16 bit horizontal resizers: possible read past the end of the source buffer.
   These permutex kernels load a 128 byte (8 bit) or 64 pixel (16 bit) source window from each pixel group
   start, but the safe-zone limit checked only the first group of each step: 8 bit mpz_ks16 (32 pixels/step)

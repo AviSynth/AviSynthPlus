@@ -302,7 +302,7 @@ Syntax and Parameters
       and the result back with ``placement``, so a 4:2:0→4:4:4→4:2:0 (etc.) round trip
       of the base clip has no chroma shift.
 
-    **Mask downsampling kernels.** Only three kernel variants are implemented per format;
+    **Mask downsampling kernels.** Three kernel variants are implemented per format;
     ``placement`` is silently mapped to the nearest one (conversions use the exact
     placement, only the mask filter is approximated):
 
@@ -315,45 +315,111 @@ Syntax and Parameters
          - "mpeg1" kernel
          - "top_left" kernel
        * - 4:2:0
-         - H left-aligned (3-tap), V centered (2-row sum): ``(l+2c+r)/8``.
+         - H ``[1 2 1]``, V 2-row box (3x2).
            For ``left``, ``bottom_left``, ``DV``
-         - H and V centered: 2×2 box average.
+         - 2x2 box.
            For ``center``, ``top``, ``bottom``
-         - point-sample top-left luma sample.
+         - H and V ``[1 2 1]`` (3x3).
            For ``top_left``
        * - 4:2:2
-         - H left-aligned (3-tap): ``(l+2c+r)/4``.
-           For ``left``, ``bottom_left``, ``DV``
-         - H centered: box average ``(l+r)/2``.
+         - H ``[1 2 1]``.
+           For ``left``, ``top_left``, ``bottom_left``, ``DV``
+         - H 2-column box.
            For ``center``, ``top``, ``bottom``
-         - point-sample left luma sample.
-           For ``top_left``
+         - (same as "mpeg2": same horizontal siting)
        * - 4:1:1
-         - (none)
-         - box average over the 4-column block.
+         - (same as "top_left": same horizontal siting)
+         - H triangle, 8 columns.
            For ``center``, ``top``, ``bottom``
-         - point-sample, left of the 4-column block.
+         - H tent, 7 columns.
            For ``left``, ``top_left``, ``bottom_left``, ``DV``
        * - 4:4:0
          - (none)
-         - box average over the 2-row block.
+         - V 2-row box.
            For ``left``, ``center``, ``bottom_left``, ``bottom``, ``DV``
-         - point-sample, top of the 2-row block.
+         - V ``[1 2 1]``.
            For ``top_left``, ``top``
        * - 4:1:0
-         - (none)
-         - box average over the 4×4 block.
-           For ``center``, ``bottom``
-         - point-sample, top-left of the 4×4 block.
-           For ``top_left``, ``left``, ``top``, ``bottom_left``, ``DV``
+         - H tent, V triangle (7x8).
+           For ``left``, ``bottom_left``, ``DV``
+         - H and V triangle (8x8).
+           For ``center``, ``top``, ``bottom``
+         - H and V tent (7x7).
+           For ``top_left``
 
-    Where no kernel matches exactly, the nearest is used; on a tie 4:2:0 keeps the
-    horizontal position, 4:1:0 takes the point sample. ``DV`` (U and V on alternate
-    rows) uses their average position.
+    ``DV`` (U and V on alternate rows) uses their average position.
 
-    The point-sample kernels (a single luma sample of the block) are a deliberate speed
-    shortcut, acceptable for a mask. Picture content is never point sampled: the format
-    conversions always filter, ``placement`` only sets the filter's center.
+    **How the kernels work.** Each axis uses one low-pass filter; the position of the filter
+    follows the chroma siting. The offsets are luma positions relative to the first luma
+    sample of the chroma block. A 2D kernel is the product of its H and V filters.
+
+    .. list-table:: Filters per axis
+       :header-rows: 1
+       :widths: 26 34 14 26
+
+       * - Subsampling, siting
+         - Weights
+         - Sum
+         - Luma offsets
+       * - 2:1, centred (box)
+         - ``1 1``
+         - 2
+         - 0..1
+       * - 2:1, co-sited
+         - ``1 2 1``
+         - 4
+         - -1..1
+       * - 4:1, centred (triangle)
+         - ``1 3 5 7 7 5 3 1``
+         - 32
+         - -2..5
+       * - 4:1, co-sited (tent)
+         - ``1 2 3 4 3 2 1``
+         - 16
+         - -3..3
+
+    The 4:1 filters are the bilinear (triangle) downsampling filters of the given siting. At the
+    mask edges the first and last luma row and column are repeated. Integer masks are rounded
+    (``(sum + total/2) >> shift``), and the results are identical on all CPU levels.
+
+    **Behavior change since 3.7.7.** Previously the "top_left" kernels of 4:2:0, 4:2:2 and 4:4:0
+    and the left-sited kernels of 4:1:1 and 4:1:0 took a single luma sample, and the centred
+    kernels of 4:1:1 and 4:1:0 were a box over the 4 or 4x4 luma samples of the block. On 4:1:0,
+    ``left``, ``bottom_left`` and ``DV`` used the point sample, and ``top`` used it too. Sharp mask
+    edges (a text mask, for example) gave aliased chroma; now they are low-pass filtered.
+    Examples, in 8 bit: a 16 pixel wide mask whose luma columns 4..7 are 255 and the
+    others 0. The values are the chroma mask samples of one row (4:4:0: the same pattern in
+    rows, and the samples of one column):
+
+    .. list-table:: Effective chroma mask, before and since 3.7.7
+       :header-rows: 1
+       :widths: 12 16 26 23 23
+
+       * - Format
+         - ``placement``
+         - Source mask (luma)
+         - Before 3.7.7
+         - Since 3.7.7
+       * - 4:2:0, 4:2:2
+         - ``top_left``
+         - 0 0 0 0 255 255 255 255 0 0 0 0 0 0 0 0
+         - 0 0 255 255 0 0 0 0
+         - 0 0 191 255 64 0 0 0
+       * - 4:4:0
+         - ``top``
+         - 0 0 0 0 255 255 255 255 0 0 0 0 0 0 0 0
+         - 0 0 255 255 0 0 0 0
+         - 0 0 191 255 64 0 0 0
+       * - 4:1:1, 4:1:0
+         - ``center``
+         - 0 0 0 0 255 255 255 255 0 0 0 0 0 0 0 0
+         - 0 255 0 0
+         - 32 191 32 0
+       * - 4:1:1, 4:1:0
+         - ``left``, ``top_left``
+         - 0 0 0 0 255 255 255 255 0 0 0 0 0 0 0 0
+         - 0 255 0 0
+         - 0 159 96 0
 
     **Siting of the overlay clip and color mask**: their own ``_ChromaLocation``
     frame property (read from frame 0 only). If they have none: when their chroma
@@ -646,6 +712,11 @@ Test script for different bit depths with and without masks
 +-----------+------------------------------------------------------------------------+
 | Changelog |                                                                        |
 +===========+========================================================================+
+| 3.7.7     | | Mask downsampling for chroma: the point sampled kernels are replaced |
+|           |   by low-pass filters: "top_left" of 4:2:0, 4:2:2, 4:4:0: ``[1 2 1]``; |
+|           |   4:1:1, 4:1:0: tent or triangle filters, also instead of the box. New |
+|           |   "mpeg2" kernel for 4:1:0. Mask edges are clamped. See ``placement``. |
++-----------+------------------------------------------------------------------------+
 | 3.7.6     | | "add" and "subtract" support 32-bit float input.                     |
 |           | | "add" and "subtract" support RGB input without 4:4:4 conversion.     |
 |           | | Check for unsupported 32-bit float, such modes give error.           |
