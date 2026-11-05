@@ -507,6 +507,7 @@ ConvertYUV444ToRGB::ConvertYUV444ToRGB(PClip src, const char *matrix_name, int _
     const bool sse2 = !!(env->GetCPUFlags() & CPUF_SSE2);
     const bool sse4 = !!(env->GetCPUFlags() & CPUF_SSE4_1);
     const bool avx2 = !!(env->GetCPUFlags() & CPUF_AVX2);
+#endif
     // we really need only alpha conversion function
     const bool fulls = true; // alpha is always full range
     const bool fulld = true; // alpha is always full range
@@ -518,9 +519,6 @@ ConvertYUV444ToRGB::ConvertYUV444ToRGB(PClip src, const char *matrix_name, int _
 #else
     get_convert_any_bits_functions(dither_mode, source_bit_depth, target_bit_depth, fulls, fulld, conv_function, conv_function_chroma, conv_function_a);
 #endif
-
-#endif
-
   }
   else {
     bitdepthConverted = false;

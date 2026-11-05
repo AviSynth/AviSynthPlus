@@ -19,6 +19,8 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ``ConvertToRGB32`` from
+  10-16 bit or 32 bit float YUVA, or ``ConvertToPlanarRGBA(bits=8)``. Existed since 3.7.6.
 - Fix: Histogram ``levels``, 32 bit float, limited range: luma bars were 16 levels too high, levels above 239 piled up
   in the last bar, which shrank the others to 2 pixels. Existed since 3.7.1.
 - Fix: Histogram ``classic``, 32 bit float, limited range, ``bits`` above 8: bars were not at the same position as at

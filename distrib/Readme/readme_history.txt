@@ -11,6 +11,8 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
+  10-16 bit or 32 bit float YUVA, or ConvertToPlanarRGBA(bits=8).
 - Fix: undefined behaviour on 32 bit float clips: 1 << 32 in setup code (Levels, Tweak, MaskHS, Limiter, ColorKeyMask,
   Layer, Invert, BlankClip, AddAlphaPlane, YUV-RGB converters, conditional functions). The shift now runs only up to
   16 bits. Float paths did not use the result, output is unchanged on x86. Histogram "luma" float: left shift of a
