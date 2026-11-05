@@ -19,6 +19,12 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Histogram ``color2``, 10-16 bit limited range, ``bits`` below the clip bit depth: U or V at the top of the range
+  (e.g. 1022 and 1023 at 10 bit, ``bits=8``) was plotted outside the panel, overwriting another plane or memory past
+  the frame. Existed since 3.7.6.
+- Fix: Histogram ``classic``, ``levels``, ``color``, clips with alpha: the alpha plane of the histogram area was left
+  unset, its content was random. Now it is opaque.
+- Histogram ``color2``: the alpha plane of the histogram area is opaque, it was 0 in 3.7.6.
 - Fix: Tweak, 32 bit float: ``dither`` was not centred: luma was brighter by about half an 8 bit step, chroma moved
   as well. Existed since AviSynth+ r2290.
   (`AviSynthPlus-UT issue #53 <https://github.com/HomeOfAviSynthPlusEvolution/AviSynthPlus-UT/issues/53>`_)

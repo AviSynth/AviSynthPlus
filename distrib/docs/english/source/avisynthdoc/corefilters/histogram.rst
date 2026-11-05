@@ -490,6 +490,12 @@ Changelog
 +-----------------+-------------------------------------------------------------+
 | Version         | Changes                                                     |
 +=================+=============================================================+
+| AviSynth+ 3.7.7 || Fix: "Classic", "Levels", "Color": alpha plane of the      |
+|                 |  histogram area was not set, now opaque.                    |
+|                 || "Color2": alpha of the histogram area is opaque, was 0.    |
+|                 || Fix: "Color2": U or V at the top of the range was plotted  |
+|                 |  outside the panel when ``bits`` was below the clip depth.  |
++-----------------+-------------------------------------------------------------+
 | AviSynth+ 3.7.6 || Vectorscope modes: added ``matrix``, ``graticule``,        |
 |                 |  ``targets``, ``axes``, ``iq``, ``iq_lines``, ``circle``    |
 |                 |  parameters.                                                |

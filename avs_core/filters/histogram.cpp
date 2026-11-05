@@ -727,7 +727,43 @@ static void DrawRadialLine(pixel_t* dstp, int pitch, int limit, int show_bit_shi
   }
 }
 
-// Set to black, alpha to 0.
+template<typename pixel_t>
+static pixel_t OpaqueAlpha(int bits_per_pixel)
+{
+  if constexpr (std::is_integral<pixel_t>::value)
+    return (pixel_t)((1 << bits_per_pixel) - 1);
+  else
+    return 1.0f;
+}
+
+template<typename pixel_t>
+static void SetOpaqueOutsideSource_impl(PVideoFrame& dst, int src_width, int src_height, int bits_per_pixel)
+{
+  const int height = dst->GetHeight(PLANAR_A);
+  const int pitch = dst->GetPitch(PLANAR_A);
+  const int width = dst->GetRowSize(PLANAR_A) / sizeof(pixel_t);
+  BYTE* dstp = dst->GetWritePtr(PLANAR_A);
+  const pixel_t alpha = OpaqueAlpha<pixel_t>(bits_per_pixel);
+  for (int y = 0; y < height; y++) {
+    const int start = y < src_height ? src_width : 0;
+    std::fill_n(reinterpret_cast<pixel_t*>(dstp + y * pitch) + start, width - start, alpha);
+  }
+}
+
+// Alpha is opaque everywhere outside the copied source. No-op if there is no alpha plane.
+static void SetOpaqueOutsideSource(PVideoFrame& dst, int src_width, int src_height, int bits_per_pixel)
+{
+  if (dst->GetHeight(PLANAR_A) == 0)
+    return;
+  if (bits_per_pixel == 8)
+    SetOpaqueOutsideSource_impl<uint8_t>(dst, src_width, src_height, bits_per_pixel);
+  else if (bits_per_pixel <= 16)
+    SetOpaqueOutsideSource_impl<uint16_t>(dst, src_width, src_height, bits_per_pixel);
+  else
+    SetOpaqueOutsideSource_impl<float>(dst, src_width, src_height, bits_per_pixel);
+}
+
+// Set to black, alpha to opaque.
 template<typename pixel_t>
 static void ClearArea(
   uint8_t* dstp, uint8_t* dstp_u, uint8_t* dstp_v, uint8_t* dstp_a,
@@ -736,16 +772,15 @@ static void ClearArea(
   int height, int heightUV, int heightA,
   int bits_per_pixel, bool full_range)
 {
-  pixel_t black, middle_chroma, alpha;
+  pixel_t black, middle_chroma;
+  const pixel_t alpha = OpaqueAlpha<pixel_t>(bits_per_pixel);
   if constexpr (std::is_integral<pixel_t>::value) {
     black = full_range ? 0 : (pixel_t)(16 << (bits_per_pixel - 8));
     middle_chroma = (pixel_t)(128 << (bits_per_pixel - 8));
-    alpha = 0;
   }
   else {
     black = full_range ? 0.0f : y8tof(16);
     middle_chroma = 0.0f;
-    alpha = 0.0f;
   }
 
   // Y
@@ -806,7 +841,7 @@ PVideoFrame Histogram::VectorscopePrelude(
   if (keepsource) {
 
     if (src_height < dst_height) {
-      // in case of Histogram area is higher than source, clear the area below source copy to black + A=0
+      // in case of Histogram area is higher than source, clear the area below source copy to black + opaque alpha
       auto pdst_start = pdst + src_height * dst_pitch;
       auto pdstU_start = pdstU + src_heightUV * dst_pitchUV;
       auto pdstV_start = pdstV + src_heightUV * dst_pitchUV;
@@ -1251,8 +1286,9 @@ static void do_vectorscope_color2(
             const int uval = max(0, min(max_value, (int)pU[x]));
             const int vval = max(0, min(max_value, (int)pV[x]));
 
-            const int uval_posindex = (uval + rounder) >> shift;
-            const int vval_posindex = (vval + rounder) >> shift;
+            // rounding can reach 1 << show_bits
+            const int uval_posindex = min(max_pos, (uval + rounder) >> shift);
+            const int vval_posindex = min(max_pos, (vval + rounder) >> shift);
 
             pdstb[uval_posindex + vval_posindex * dst_pitch] = pY[x << swidth];
             pdstbU[(uval_posindex >> swidth) + (vval_posindex >> sheight) * dst_pitchUV] = (pixel_t)uval;
@@ -1547,7 +1583,7 @@ PVideoFrame Histogram::DrawModeColor2(int n, IScriptEnvironment* env) {
   int swidth = vi.GetPlaneWidthSubsampling(PLANAR_U);
   int sheight = vi.GetPlaneHeightSubsampling(PLANAR_U);
 
-  // Clear Vectorscope area (black background, init Alpha to 0 if present)
+  // Clear Vectorscope area (black background, opaque alpha if present)
   if (bits_per_pixel == 8)
     DrawModeColor2_ClearVectorscopeArea<uint8_t>(bits_per_pixel,
       panel, panelU, panelV, panelA,
@@ -1743,6 +1779,8 @@ PVideoFrame Histogram::DrawModeColor(int n, IScriptEnvironment* env) {
     dst_pitchUV, dst_heightUV,
     dst_pitchA, dst_heightA,
     panel, panelU, panelV, panelA);
+
+  SetOpaqueOutsideSource(dst, keepsource ? origwidth : 0, keepsource ? src->GetHeight() : 0, bits_per_pixel);
 
   // always planar
 
@@ -2017,8 +2055,7 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
       case 4: std::fill_n((float *)(dstp + fillStart), fillSize / sizeof(float), plane_default_black_f[0]); break;
       }
 
-      // first plane is already processed
-      // dont't touch Alpha
+      // first plane is already processed, alpha is set below
       for (int p = 1; p < planecount; p++) {
         const int plane = planes[p];
         BYTE* ptr = dst->GetWritePtr(plane);
@@ -2033,6 +2070,9 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
       }
     }
   }
+
+  if (vi.IsPlanar())
+    SetOpaqueOutsideSource(dst, keepsource ? origwidth : 0, keepsource ? src->GetHeight() : 0, bits_per_pixel);
 
   // counters
   int bufsize = sizeof(uint32_t)*show_size;
@@ -2610,6 +2650,7 @@ PVideoFrame Histogram::DrawModeClassic(int n, IScriptEnvironment* env)
       // preserve alpha. no-op if no alpha (0 pitch/rowsize/height)
       env->BitBlt(dst->GetWritePtr(PLANAR_A), dst->GetPitch(PLANAR_A), src->GetReadPtr(PLANAR_A), src->GetPitch(PLANAR_A), src->GetRowSize(PLANAR_A), src->GetHeight(PLANAR_A));
     }
+    SetOpaqueOutsideSource(dst, xstart, keepsource ? src->GetHeight() : 0, bits_per_pixel);
 
     // luma
     const int height = src->GetHeight(PLANAR_Y);

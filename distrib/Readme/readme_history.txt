@@ -11,6 +11,13 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: Histogram "color2", 10-16 bit limited range, bits below the clip bit depth: rounding moved U or V at the top of
+  the range (10 bit, bits=8: 1022 and 1023) to position 256, plotted outside the panel: the row spilled into the next
+  plane, or past the end of the frame if the panel is the last row. Clamped now, as the other paths do. Existed since 3.7.6.
+- Fix: Histogram "classic", "levels", "color", clips with alpha (YUVA, YA, planar RGBA): the alpha plane of the histogram
+  area was left unset, its content was random. Also the area under a shorter source in "levels". Now it is opaque.
+- Histogram "color2": the alpha plane of the histogram area is opaque, it was 0 in 3.7.6. The panel stays visible
+  when the output goes through a filter which uses alpha. Same in all modes.
 - 32 bit float: limited range levels are calculated at one place, core/limited_range_float.h, used by
   get_bits_conv_constants as well. New y8tof (limited luma) and y8diff_tof (limited luma difference); uv8tof uses the
   same chroma span; c8tof is for full range only (RGB, alpha). Literals like 235/255.0f are gone from Tweak, MaskHS,
