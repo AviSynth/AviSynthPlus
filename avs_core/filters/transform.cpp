@@ -454,7 +454,7 @@ static inline pixel_t GetHbdColorFromByte(uint8_t color, bool fullscale, int bit
     if (chroma)
       return (pixel_t)uv8tof(color);  // float, scale, 128=0.0f
     else
-      return (pixel_t)c8tof(color); // float, scale to [0..1]
+      return (pixel_t)(fullscale ? c8tof(color) : y8tof(color)); // float, scale to [0..1]
   }
 }
 
@@ -494,7 +494,9 @@ static void addborders_planar(PVideoFrame &dst, PVideoFrame &src, VideoInfo &vi,
 
     const bool chroma = plane == PLANAR_U || plane == PLANAR_V;
 
-    pixel_t current_color = GetHbdColorFromByte<pixel_t>(colors[p], !isYUV, bits_per_pixel, chroma);
+    // float alpha is full range. For integers alpha is still a shift here.
+    const bool fullscale = !isYUV || (sizeof(pixel_t) == 4 && plane == PLANAR_A);
+    pixel_t current_color = GetHbdColorFromByte<pixel_t>(colors[p], fullscale, bits_per_pixel, chroma);
 
     BYTE *dstp = dst->GetWritePtr(plane);
     // copy original

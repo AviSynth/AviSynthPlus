@@ -77,14 +77,14 @@ Limiter::Limiter(PClip _child, float _min_luma, float _max_luma, float _min_chro
   int tv_range_hi_luma   = isFloat ? 235 : (235 << (bits_per_pixel - 8)); // 16-235
   int tv_range_hi_chroma = isFloat ? 240 : (240 << (bits_per_pixel - 8)); // 16-240,64-960, ...
 
-  float tv_range_low_luma_f = 16 / 255.0f;
-  float tv_range_hi_luma_f = 235 / 255.0f;
+  float tv_range_low_luma_f = y8tof(16);
+  float tv_range_hi_luma_f = y8tof(235);
 #ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-  float tv_range_low_chroma = (16-128) / 255.0f + 0.5f;
-  float tv_range_hi_chroma_f = (240 - 128) / 255.0f + 0.5f;
+  float tv_range_low_chroma = uv8tof(16) + 0.5f;
+  float tv_range_hi_chroma_f = uv8tof(240) + 0.5f;
 #else
-  float tv_range_low_chroma_f = (16 - 128) / 255.0f;
-  float tv_range_hi_chroma_f = (240 - 128) / 255.0f;
+  float tv_range_low_chroma_f = uv8tof(16);
+  float tv_range_hi_chroma_f = uv8tof(240);
 #endif
 
   if (paramscale) {
@@ -95,14 +95,14 @@ Limiter::Limiter(PClip _child, float _min_luma, float _max_luma, float _min_chro
     max_chroma = (int)(_max_chroma * (1 << (bits_per_pixel - 8)) + 0.5f);
 
     // float versions
-    min_luma_f = min_luma_f / 255.0f;
-    max_luma_f = max_luma_f / 255.0f;
+    min_luma_f = y8tof(min_luma_f);
+    max_luma_f = y8tof(max_luma_f);
 #ifdef FLOAT_CHROMA_IS_HALF_CENTERED
-    min_chroma_f = (min_chroma_f - 128) / 255.0f + 0.5f;
-    max_chroma_f = (max_chroma_f - 128) / 255.0f + 0.5f;
+    min_chroma_f = uv8tof(min_chroma_f) + 0.5f;
+    max_chroma_f = uv8tof(max_chroma_f) + 0.5f;
 #else
-    min_chroma_f = (min_chroma_f - 128) / 255.0f;
-    max_chroma_f = (max_chroma_f - 128) / 255.0f;
+    min_chroma_f = uv8tof(min_chroma_f);
+    max_chroma_f = uv8tof(max_chroma_f);
 #endif
   }
 
@@ -258,8 +258,8 @@ static void show_luma_with_grey_opt_yuv444_f(BYTE *srcp8, BYTE *srcpU8, BYTE *sr
 
   for (int h = 0; h < height; h += 1) {
     for (int x = 0; x < width; x += 1) {
-      if (srcp[x] < min_luma) { srcp[x] =  c8tof(81); srcpU[x] = uv8tof(91); srcpV[x] = uv8tof(240); }       // red:   Y=81, U=91 and V=240
-      else if (srcp[x] > max_luma) { srcp[x] = c8tof(145); srcpU[x] = uv8tof(54); srcpV[x] = uv8tof(34); }       // green: Y=145, U=54 and V=34
+      if (srcp[x] < min_luma) { srcp[x] =  y8tof(81); srcpU[x] = uv8tof(91); srcpV[x] = uv8tof(240); }       // red:   Y=81, U=91 and V=240
+      else if (srcp[x] > max_luma) { srcp[x] = y8tof(145); srcpU[x] = uv8tof(54); srcpV[x] = uv8tof(34); }       // green: Y=145, U=54 and V=34
                                                                                                                      // this differs from show_luma
       else if (show_luma_grey) { srcpU[x] = srcpV[x] = uv8tof(128); }       // grey
     }
@@ -284,14 +284,14 @@ static void show_luma_with_grey_opt_yuv420_f(BYTE *srcp8, BYTE *srcpU8, BYTE *sr
   for (int h = 0; h < height; h += 2) {
     for (int x = 0; x < width; x += 2) {
       int uv = 0;
-      if (srcp[x] < min_luma) { srcp[x] = c8tof(81); uv |= 1; }
-      else if (srcp[x] > max_luma) { srcp[x] = c8tof(145); uv |= 2; }
-      if (srcp[x + 1] < min_luma) { srcp[x + 1] = c8tof(81); uv |= 1; }
-      else if (srcp[x + 1] > max_luma) { srcp[x + 1] = c8tof(145); uv |= 2; }
-      if (srcn[x] < min_luma) { srcn[x] = c8tof(81); uv |= 1; }
-      else if (srcn[x] > max_luma) { srcn[x] = c8tof(145); uv |= 2; }
-      if (srcn[x + 1] < min_luma) { srcn[x + 1] = c8tof(81); uv |= 1; }
-      else if (srcn[x + 1] > max_luma) { srcn[x + 1] = c8tof(145); uv |= 2; }
+      if (srcp[x] < min_luma) { srcp[x] = y8tof(81); uv |= 1; }
+      else if (srcp[x] > max_luma) { srcp[x] = y8tof(145); uv |= 2; }
+      if (srcp[x + 1] < min_luma) { srcp[x + 1] = y8tof(81); uv |= 1; }
+      else if (srcp[x + 1] > max_luma) { srcp[x + 1] = y8tof(145); uv |= 2; }
+      if (srcn[x] < min_luma) { srcn[x] = y8tof(81); uv |= 1; }
+      else if (srcn[x] > max_luma) { srcn[x] = y8tof(145); uv |= 2; }
+      if (srcn[x + 1] < min_luma) { srcn[x + 1] = y8tof(81); uv |= 1; }
+      else if (srcn[x + 1] > max_luma) { srcn[x + 1] = y8tof(145); uv |= 2; }
       switch (uv) {
       case 1: srcpU[x / 2] = uv8tof(91); srcpV[x / 2] = uv8tof(240); break;       // red:   Y=81, U=91 and V=240
       case 2: srcpU[x / 2] = uv8tof(54); srcpV[x / 2] = uv8tof(34); break;       // green: Y=145, U=54 and V=34
@@ -302,7 +302,7 @@ static void show_luma_with_grey_opt_yuv420_f(BYTE *srcp8, BYTE *srcpU8, BYTE *sr
           srcpV[x / 2] = uv8tof(134); break;       // puke:  Y=81, U=90 and V=134 olive: Y=145, U=90 and V=134
         }
         else {
-          srcp[x] = srcp[x + 2] = srcn[x] = srcn[x + 2] = c8tof(210); // yellow:Y=210, U=16 and V=146
+          srcp[x] = srcp[x + 2] = srcn[x] = srcn[x + 2] = y8tof(210); // yellow:Y=210, U=16 and V=146
           srcpU[x / 2] = uv8tof(16);
           srcpV[x / 2] = uv8tof(146);
         }
@@ -458,7 +458,7 @@ static void show_chroma_yuv444_f(BYTE *srcp8, BYTE *srcpU8, BYTE *srcpV8, int pi
         || (srcpV[x] < min_chroma)  // V-
         || (srcpV[x] > max_chroma))// V+
       {
-        srcp[x] = c8tof(210); srcpU[x] = uv8tof(16); srcpV[x] = uv8tof(146);
+        srcp[x] = y8tof(210); srcpU[x] = uv8tof(16); srcpV[x] = uv8tof(146);
       }   // yellow:Y=210, U=16 and V=146
     }
     srcp += pitch;
@@ -483,7 +483,7 @@ static void show_chroma_yuv420_f(BYTE *srcp8, BYTE *srcpU8, BYTE *srcpV8, int pi
         || (srcpV[x / 2] < min_chroma)  // V-
         || (srcpV[x / 2] > max_chroma))// V+
       {
-        srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(210); srcpU[x / 2] = uv8tof(16); srcpV[x / 2] = uv8tof(146);
+        srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(210); srcpU[x / 2] = uv8tof(16); srcpV[x / 2] = uv8tof(146);
       }   // yellow:Y=210, U=16 and V=146
     }
     srcp += pitch * 2; // 2x2 pixels at a time (4:2:0 subsampling)
@@ -509,14 +509,14 @@ static void show_chroma_grey_yuv444_f(BYTE *srcp8, BYTE *srcpU8, BYTE *srcpV8, i
       if (srcpV[x] < min_chroma) uv |= 4; // V-
       else if (srcpV[x] > max_chroma) uv |= 8; // V+
       switch (uv) {
-      case  8: srcp[x] = c8tof(81); srcpU[x] = uv8tof(91); srcpV[x] = uv8tof(240); break;   //   +V Red
-      case  9: srcp[x] = c8tof(146); srcpU[x] = uv8tof(53); srcpV[x] = uv8tof(193); break;   // -U+V Orange
-      case  1: srcp[x] = c8tof(210); srcpU[x] = uv8tof(16); srcpV[x] = uv8tof(146); break;   // -U   Yellow
-      case  5: srcp[x] = c8tof(153); srcpU[x] = uv8tof(49); srcpV[x] = uv8tof(49); break;   // -U-V Green
-      case  4: srcp[x] = c8tof(170); srcpU[x] = uv8tof(165); srcpV[x] = uv8tof(16); break;   //   -V Cyan
-      case  6: srcp[x] = c8tof(105); srcpU[x] = uv8tof(203); srcpV[x] = uv8tof(63); break;   // +U-V Teal
-      case  2: srcp[x] = c8tof(41); srcpU[x] = uv8tof(240); srcpV[x] = uv8tof(110); break;   // +U   Blue
-      case 10: srcp[x] = c8tof(106); srcpU[x] = uv8tof(202); srcpV[x] = uv8tof(222); break;   // +U+V Magenta
+      case  8: srcp[x] = y8tof(81); srcpU[x] = uv8tof(91); srcpV[x] = uv8tof(240); break;   //   +V Red
+      case  9: srcp[x] = y8tof(146); srcpU[x] = uv8tof(53); srcpV[x] = uv8tof(193); break;   // -U+V Orange
+      case  1: srcp[x] = y8tof(210); srcpU[x] = uv8tof(16); srcpV[x] = uv8tof(146); break;   // -U   Yellow
+      case  5: srcp[x] = y8tof(153); srcpU[x] = uv8tof(49); srcpV[x] = uv8tof(49); break;   // -U-V Green
+      case  4: srcp[x] = y8tof(170); srcpU[x] = uv8tof(165); srcpV[x] = uv8tof(16); break;   //   -V Cyan
+      case  6: srcp[x] = y8tof(105); srcpU[x] = uv8tof(203); srcpV[x] = uv8tof(63); break;   // +U-V Teal
+      case  2: srcp[x] = y8tof(41); srcpU[x] = uv8tof(240); srcpV[x] = uv8tof(110); break;   // +U   Blue
+      case 10: srcp[x] = y8tof(106); srcpU[x] = uv8tof(202); srcpV[x] = uv8tof(222); break;   // +U+V Magenta
       default:              srcpU[x] = srcpV[x] = uv8tof(128); break;
       }
     }
@@ -543,14 +543,14 @@ static void show_chroma_grey_yuv420_f(BYTE *srcp8, BYTE *srcpU8, BYTE *srcpV8, i
       if (srcpV[x / 2] < min_chroma) uv |= 4; // V-
       else if (srcpV[x / 2] > max_chroma) uv |= 8; // V+
       switch (uv) {
-      case  8: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(81); srcpU[x / 2] = uv8tof(91); srcpV[x / 2] = uv8tof(240); break;   //   +V Red
-      case  9: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(146); srcpU[x / 2] = uv8tof(53); srcpV[x / 2] = uv8tof(193); break;   // -U+V Orange
-      case  1: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(210); srcpU[x / 2] = uv8tof(16); srcpV[x / 2] = uv8tof(146); break;   // -U   Yellow
-      case  5: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(153); srcpU[x / 2] = uv8tof(49); srcpV[x / 2] = uv8tof(49); break;   // -U-V Green
-      case  4: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(170); srcpU[x / 2] = uv8tof(165); srcpV[x / 2] = uv8tof(16); break;   //   -V Cyan
-      case  6: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(105); srcpU[x / 2] = uv8tof(203); srcpV[x / 2] = uv8tof(63); break;   // +U-V Teal
-      case  2: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(41); srcpU[x / 2] = uv8tof(240); srcpV[x / 2] = uv8tof(110); break;   // +U   Blue
-      case 10: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = c8tof(106); srcpU[x / 2] = uv8tof(202); srcpV[x / 2] = uv8tof(222); break;   // +U+V Magenta
+      case  8: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(81); srcpU[x / 2] = uv8tof(91); srcpV[x / 2] = uv8tof(240); break;   //   +V Red
+      case  9: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(146); srcpU[x / 2] = uv8tof(53); srcpV[x / 2] = uv8tof(193); break;   // -U+V Orange
+      case  1: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(210); srcpU[x / 2] = uv8tof(16); srcpV[x / 2] = uv8tof(146); break;   // -U   Yellow
+      case  5: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(153); srcpU[x / 2] = uv8tof(49); srcpV[x / 2] = uv8tof(49); break;   // -U-V Green
+      case  4: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(170); srcpU[x / 2] = uv8tof(165); srcpV[x / 2] = uv8tof(16); break;   //   -V Cyan
+      case  6: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(105); srcpU[x / 2] = uv8tof(203); srcpV[x / 2] = uv8tof(63); break;   // +U-V Teal
+      case  2: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(41); srcpU[x / 2] = uv8tof(240); srcpV[x / 2] = uv8tof(110); break;   // +U   Blue
+      case 10: srcp[x] = srcp[x + 1] = srcn[x] = srcn[x + 1] = y8tof(106); srcpU[x / 2] = uv8tof(202); srcpV[x / 2] = uv8tof(222); break;   // +U+V Magenta
       default: srcpU[x / 2] = srcpV[x / 2] = uv8tof(128); break;
       }
     }

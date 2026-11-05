@@ -225,11 +225,11 @@ static PVideoFrame CreateBlankFrame(const VideoInfo& vi, int color, int mode, co
         default: // case 4:
           float val_f;
           if (plane == PLANAR_U || plane == PLANAR_V) {
-            float shift = 0.0f;
-            val_f = float(val_i - 128) / 255.0f + shift; // 32 bit float chroma 128=0.5
+            val_f = uv8tof(val_i); // 32 bit float chroma 128=0.0
           }
           else {
-            val_f = float(val_i) / 255.0f;
+            // PLANAR_Y: limited range. Alpha and RGB planes: full range.
+            val_f = plane == PLANAR_Y ? y8tof(val_i) : c8tof(val_i);
           }
           std::fill_n((float *)dstp, size / sizeof(float), val_f);
         }

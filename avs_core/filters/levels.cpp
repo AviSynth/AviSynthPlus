@@ -131,8 +131,8 @@ static void get_limits(luma_chroma_limits_t &d, int bits_per_pixel) {
   int tv_range_hi_chroma_8 = 240;
 
   if (bits_per_pixel == 32) {
-    d.tv_range_low_luma_f = tv_range_lo_luma_8 / 255.0f;
-    d.tv_range_hi_luma_f = tv_range_hi_luma_8 / 255.0f;
+    d.tv_range_low_luma_f = y8tof(tv_range_lo_luma_8);
+    d.tv_range_hi_luma_f = y8tof(tv_range_hi_luma_8);
     d.full_range_low_luma_f = 0.0f;
     d.full_range_hi_luma_f = 1.0f;
 #ifdef FLOAT_CHROMA_IS_HALF_CENTERED
@@ -140,8 +140,8 @@ static void get_limits(luma_chroma_limits_t &d, int bits_per_pixel) {
 #else
     d.middle_chroma_f = 0.0f;
 #endif
-    d.tv_range_low_chroma_f = (tv_range_lo_chroma_8 - 128) / 255.0f + d.middle_chroma_f; // -112
-    d.tv_range_hi_chroma_f = (tv_range_hi_chroma_8 - 128) / 255.0f + d.middle_chroma_f; // 112
+    d.tv_range_low_chroma_f = uv8tof(tv_range_lo_chroma_8) + d.middle_chroma_f; // -112
+    d.tv_range_hi_chroma_f = uv8tof(tv_range_hi_chroma_8) + d.middle_chroma_f; // 112
     d.full_range_low_chroma_f = d.middle_chroma_f - 0.5f; // -0.5..0.5 or 0..1.0
     d.full_range_hi_chroma_f = d.middle_chroma_f + 0.5f;
 
@@ -1603,7 +1603,7 @@ void Tweak::tweak_calc_luma(BYTE *srcp, int src_pitch, float minY, float maxY, i
       else if(pixelsize == 2)
         y0 = minY + (y0 + ditherval)*(float)dcont + 256.0f*(float)dbright; // dbright parameter always 0..255. Scale to 0..255*4, 0.. 255*256
       else if(pixelsize == 4)
-        y0 = minY + (y0 + ditherval)*(float)dcont + (float)dbright / 256.0f; // dbright parameter always 0..255, scale it to 0..1
+        y0 = minY + (y0 + ditherval)*(float)dcont + y8diff_tof((float)dbright); // dbright parameter always 0..255, scale it like ConvertBits
       else // pixelsize == 1
         y0 = minY + ((y0 + ditherval)*(float)dcont + 1.0f*(float)dbright); // dbright parameter always 0..255. Scale to 0..255*4, 0.. 255*256
 
@@ -1660,7 +1660,9 @@ Tweak::Tweak(PClip _child, double _hue, double _sat, double _bright, double _con
     // lut scale settings
     scale_dither_luma = 256; // lower 256 is dither value
     divisor_dither_luma *= 256;
-    bias_dither_luma = -(256.0f * dither_strength - 1) / 2;
+    // Float: dither_strength is already /65536, so the 1 of the integer formula would be a large DC offset.
+    // Dither values are 0..255 * dither_strength, this centres them.
+    bias_dither_luma = pixelsize == 4 ? -(255.0f * dither_strength) / 2 : -(256.0f * dither_strength - 1) / 2;
     // original bias: -127.5 or -(256.0f * dither_strength - 1) / 2;
     // dither strength =1 = (1 << (8-8))
     // dither min: int( (0*1-127.5)/256+0.5) = -0.498046875 + 0.5 = 0,001953125
@@ -1674,7 +1676,8 @@ Tweak::Tweak(PClip _child, double _hue, double _sat, double _bright, double _con
 
     scale_dither_chroma = 16; // lower 16 is dither value
     divisor_dither_chroma *= 16;
-    bias_dither_chroma = -(16.0f * dither_strength - (pixelsize==4 ? 1/256.0f : 1)) / 2; // -7.5
+    // Dither values are 0..15 * dither_strength. Float: centred, integer: -7.5 for strength=1
+    bias_dither_chroma = pixelsize == 4 ? -(15.0f * dither_strength) / 2 : -(16.0f * dither_strength - 1) / 2;
   }
 
   // Flag to skip special processing if doing all pixels
@@ -2024,8 +2027,8 @@ PVideoFrame __stdcall Tweak::GetFrame(int n, IScriptEnvironment* env)
               else
                 tweak_calc_luma<uint16_t, false, false>(srcp, src_pitch, minY, maxY, width, height);
             } else { // float
-              maxY = coring ? 235.0f / 256 : 1.0f; // scale into 0..1 range
-              minY = coring ? 16.0f / 256 : 0;
+              maxY = coring ? limits.tv_range_hi_luma_f : limits.full_range_hi_luma_f;
+              minY = coring ? limits.tv_range_low_luma_f : limits.full_range_low_luma_f;
               if(dither)
                 tweak_calc_luma<float, false, true>(srcp, src_pitch, minY, maxY, width, height);
               else

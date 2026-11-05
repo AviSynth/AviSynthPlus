@@ -743,7 +743,7 @@ static void ClearArea(
     alpha = 0;
   }
   else {
-    black = full_range ? 0.0f : 16.0f / 255.0f;
+    black = full_range ? 0.0f : y8tof(16);
     middle_chroma = 0.0f;
     alpha = 0.0f;
   }
@@ -946,7 +946,7 @@ static void DrawModeColor2_draw_graticule(int bits_per_pixel, uint8_t* dstp8, in
     luma128 = (pixel_t)(128 << (bits_per_pixel - 8));
   }
   else {
-    luma128 = c8tof(128);
+    luma128 = y8tof(128);
   }
 
   const int show_bit_shift = show_bits - 8;
@@ -1014,23 +1014,23 @@ static void DrawModeColor2_draw_circle(int bits_per_pixel, uint8_t* dstp8, uint8
     81, 90, 240
   };
   float LC_f[21] = {
-    c8tof(145), uv8tof(54), uv8tof(34),
-    c8tof(145), uv8tof(54), uv8tof(34),
-    c8tof(210), uv8tof(16), uv8tof(146),
-    c8tof(210), uv8tof(16), uv8tof(146),
-    c8tof(81), uv8tof(90), uv8tof(240),
-    c8tof(81), uv8tof(90), uv8tof(240),
-    c8tof(81), uv8tof(90), uv8tof(240)
+    y8tof(145), uv8tof(54), uv8tof(34),
+    y8tof(145), uv8tof(54), uv8tof(34),
+    y8tof(210), uv8tof(16), uv8tof(146),
+    y8tof(210), uv8tof(16), uv8tof(146),
+    y8tof(81), uv8tof(90), uv8tof(240),
+    y8tof(81), uv8tof(90), uv8tof(240),
+    y8tof(81), uv8tof(90), uv8tof(240)
   };
   // cyan, 4x blue, magenta, red:
   float RC_f[21] = {
-    c8tof(170), uv8tof(166), uv8tof(16),
-    c8tof(41), uv8tof(240), uv8tof(110),
-    c8tof(41), uv8tof(240), uv8tof(110),
-    c8tof(41), uv8tof(240), uv8tof(110),
-    c8tof(41), uv8tof(240), uv8tof(110),
-    c8tof(106), uv8tof(202), uv8tof(222),
-    c8tof(81), uv8tof(90), uv8tof(240)
+    y8tof(170), uv8tof(166), uv8tof(16),
+    y8tof(41), uv8tof(240), uv8tof(110),
+    y8tof(41), uv8tof(240), uv8tof(110),
+    y8tof(41), uv8tof(240), uv8tof(110),
+    y8tof(41), uv8tof(240), uv8tof(110),
+    y8tof(106), uv8tof(202), uv8tof(222),
+    y8tof(81), uv8tof(90), uv8tof(240)
   };
 
   // example boundary of cyan and blue:
@@ -1140,7 +1140,7 @@ static void DrawModeColor2_draw_circle(int bits_per_pixel, uint8_t* dstp8, uint8
     else if constexpr (sizeof(pixel_t) == 2)
       dstp[deg15c[i] + deg15s[i] * pitch] = 235 << (bits_per_pixel - 8); // 235: Y-maxluma
     else // if constexpr (sizeof(pixel_t) == 4)
-      dstp[deg15c[i] + deg15s[i] * pitch] = c8tof(235); // 235: Y-maxluma
+      dstp[deg15c[i] + deg15s[i] * pitch] = y8tof(235); // 235: Y-maxluma
   }
 
 }
@@ -1405,7 +1405,7 @@ static void Draw_VectorScope_circle_targets_axes(int bits_per_pixel,
     box_v = (pixel_t)(120 << (bits_per_pixel - 8));
   }
   else {
-    box_luma = c8tof(80);
+    box_luma = y8tof(80);
     box_u = uv8tof(140);
     box_v = uv8tof(120);
   }
@@ -1491,7 +1491,7 @@ static void Draw_VectorScope_circle_targets_axes(int bits_per_pixel,
   if constexpr (std::is_integral<pixel_t>::value)
     line_luma = (pixel_t)(120 << (bits_per_pixel - 8));
   else
-    line_luma = c8tof(120);
+    line_luma = y8tof(120);
 
   // Angles to draw(matching PPro vectorscope) :
   // 0°, 90°, 180°, 270° — the axis cross
@@ -1996,7 +1996,7 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
     RGB ? 0 : (128 << color_shift)
   };
   float plane_default_black_f[3] = {
-    RGB ? 0 : 16 / 255.0f,
+    RGB ? 0 : y8tof(16),
     RGB ? 0 : 0.0f,
     RGB ? 0 : 0.0f
   };
@@ -2233,7 +2233,7 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
       if (!RGB && markers) {
         // Draw Unsafe zone (Y-graph)
         const int color_unsafeZones[3] = { 32, 16, 160 };
-        const float color_unsafeZones_f[3] = { c8tof(32), uv8tof(16), uv8tof(160) };
+        const float color_unsafeZones_f[3] = { y8tof(32), uv8tof(16), uv8tof(160) };
         int color_usz = color_unsafeZones[p];
         int color_i = color_usz << color_shift;
         float color_f = color_unsafeZones_f[p];
@@ -2306,8 +2306,8 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
             // lower: x=0-16, R=0, G=B=255; x=128, R=G=B=0; x=240-255, R=255, G=B=0
               const int color1_upper_lower_gradient[2][3] = { { 210 / 2, 16 + 112 / 2, 128 },{ 170 / 2, 128, 16 + 112 / 2 } };
               const int color2_upper_lower_gradient[2][3] = { { 41 / 2, 240 - 112 / 2, 128 },{ 81 / 2, 128, 240 - 112 / 2 } };
-              float color1_upper_lower_gradient_f[2][3] = { { c8tof(210 / 2), uv8tof(16 + 112 / 2), uv8tof(128) },{ c8tof(170 / 2), uv8tof(128), uv8tof(16 + 112 / 2) } };
-              float color2_upper_lower_gradient_f[2][3] = { { c8tof(41 / 2), uv8tof(240 - 112 / 2), uv8tof(128) },{ c8tof(81 / 2), uv8tof(128), uv8tof(240 - 112 / 2) } };
+              float color1_upper_lower_gradient_f[2][3] = { { y8tof(210 / 2), uv8tof(16 + 112 / 2), uv8tof(128) },{ y8tof(170 / 2), uv8tof(128), uv8tof(16 + 112 / 2) } };
+              float color2_upper_lower_gradient_f[2][3] = { { y8tof(41 / 2), uv8tof(240 - 112 / 2), uv8tof(128) },{ y8tof(81 / 2), uv8tof(128), uv8tof(240 - 112 / 2) } };
               int color = color1_upper_lower_gradient[gradient_upper_lower][p];
               int color_i = color << color_shift;
               float color_f = color1_upper_lower_gradient_f[gradient_upper_lower][p];

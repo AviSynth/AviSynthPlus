@@ -19,6 +19,14 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Tweak, 32 bit float: ``dither`` was not centred: luma was brighter by about half an 8 bit step, chroma moved
+  as well. Existed since AviSynth+ r2290.
+  (`AviSynthPlus-UT issue #53 <https://github.com/HomeOfAviSynthPlusEvolution/AviSynthPlus-UT/issues/53>`_)
+- Fix: Tweak, 32 bit float: ``coring`` limits and ``bright`` used a 256 scale: white 235 became 234.08, black 16
+  became 15.94 by the limit, ``bright=128`` gave half an 8 bit step less. Existed since AviSynth+ r2290.
+- Fix: Limiter, Levels, MaskHS, Expr ``ymax``, ``cmin``, ``cmax``, 32 bit float: limits differed from ConvertBits by a
+  rounding step. A limit value from ConvertBits was found over the limit: e.g. Limiter(show="chroma") marked U or V of
+  16 or 240 as out of range.
 - Fix: ConvertToXXXX with ``interlaced=true``, 4:2:0 or 4:1:0 involved: heights which do not give an integral number
   of chroma rows per field (e.g. 720x486 to 4:2:0) were accepted, and the last chroma row was read from outside the
   source frame. Now an error: height must be mod4, or mod8 if 4:1:0 is involved; see

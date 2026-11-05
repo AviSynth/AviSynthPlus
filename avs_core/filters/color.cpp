@@ -421,10 +421,10 @@ static std::string coloryuv_create_lut_expr(const ColorYUVPlaneConfig* config, i
 
   if (config->clip_tv) // set when coring
   {
-    double tv_range_lo_luma = f32 ? (16.0 / 255) : ((int64_t)16 << (bits_per_pixel - 8));
-    double tv_range_hi_luma = f32 ? (235.0 / 255) : ((int64_t)235 << (bits_per_pixel - 8));
-    double tv_range_lo_chroma = f32 ? (-112.0 / 255.0) : ((int64_t)16 << (bits_per_pixel - 8)); // 112/255.0 consistent with get_bits_conv_constants()
-    double tv_range_hi_chroma = f32 ? (+112.0 / 255.0) : ((int64_t)240 << (bits_per_pixel - 8));
+    double tv_range_lo_luma = f32 ? y8tof(16) : ((int64_t)16 << (bits_per_pixel - 8));
+    double tv_range_hi_luma = f32 ? y8tof(235) : ((int64_t)235 << (bits_per_pixel - 8));
+    double tv_range_lo_chroma = f32 ? uv8tof(16) : ((int64_t)16 << (bits_per_pixel - 8)); // 112/255.0 consistent with get_bits_conv_constants()
+    double tv_range_hi_chroma = f32 ? uv8tof(240) : ((int64_t)240 << (bits_per_pixel - 8));
     ss << (config->plane == PLANAR_Y ? tv_range_lo_luma : tv_range_lo_chroma) << " max ";
     ss << (config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma) << " min ";
     //iValue = clamp(iValue, tv_range_lo_luma, config->plane == PLANAR_Y ? tv_range_hi_luma : tv_range_hi_chroma);

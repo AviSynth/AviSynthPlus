@@ -11,6 +11,19 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- 32 bit float: limited range levels are calculated at one place, core/limited_range_float.h, used by
+  get_bits_conv_constants as well. New y8tof (limited luma) and y8diff_tof (limited luma difference); uv8tof uses the
+  same chroma span; c8tof is for full range only (RGB, alpha). Literals like 235/255.0f are gone from Tweak, MaskHS,
+  Levels, Limiter, Histogram, Expr (ymin, ymax, cmin, cmax), ColorYUV coring, Text, AddBorders, BlankClip, Subtract,
+  YToUV, CombinePlanes. Values may move by a rounding step, the limits are now the same as ConvertBits gives for that
+  level. Integer formats and full range conversions are not touched.
+- Fix: Tweak, 32 bit float: dither was not centred. dither_strength is /65536 there (one 16 bit step of amplitude,
+  this part is right), but the -1 of the integer bias formula stayed unscaled, so luma got +0.00195 (half an 8 bit step),
+  chroma +0.00012. Now the bias is -(N-1)*dither_strength/2, N=256 for luma, 16 for chroma. Existed since r2290.
+  https://github.com/HomeOfAviSynthPlusEvolution/AviSynthPlus-UT/issues/53
+- Fix: Tweak, 32 bit float: coring limits were 16/256 and 235/256, bright was /256. Tweak() turned 235 into 234.08 and
+  16 into 15.94 (in 8 bit steps); bright=128 gave 0.5 less. Now they follow the limited range rule. Existed since r2290.
+- Fix: Limiter(show="chroma"), 32 bit float: U or V exactly 16 or 240 from ConvertBits was marked as out of range.
 - Fix: ConvertToXXXX with interlaced=true, 4:2:0 involved: uv_height/2 was rounded down, so with e.g. 8x6 YV24 or
   720x486 YUY2 to 4:2:0 the woven chroma had one row less than the output plane, and BitBlt copied that row from
   outside the source frame. Now an error: "height isn't mod4", mod8 when 4:2:0 <-> 4:1:0. This also replaces the

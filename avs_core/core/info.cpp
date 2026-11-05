@@ -835,7 +835,7 @@ void AVS_FORCEINLINE LightOnePixel(const bool lightIt, pixel_t* dstp, int j, pix
           dstp[j] = (pixel_t)(((dstp[j] * 7) >> 3) + n); // (_dstp[j] - range_min) * 7) >> 3) + range_min);
         }
         else {
-          constexpr float range_min_f = 16.0f / 255.0f;
+          constexpr float range_min_f = y8tof(16);
           dstp[j] = (pixel_t)(((dstp[j] - range_min_f) * 7 / 8) + range_min_f);
         }
       }
@@ -1344,9 +1344,7 @@ static auto getHBDColor_UV(int color, int bits_per_pixel)
 {
   if (bits_per_pixel < 32)
     return (pixel_t)(color << (bits_per_pixel - 8));
-  constexpr float shift = 0.0f;
-  return (pixel_t)((color - 128) / 255.0f + shift);
-  // FIXME: consistently using limited->fullscale conversion for float
+  return (pixel_t)uv8tof(color);
 }
 
 template<typename pixel_t>
@@ -1354,8 +1352,7 @@ static auto getHBDColor_Y(int color, int bits_per_pixel)
 {
   if (bits_per_pixel < 32)
     return (pixel_t)(color << (bits_per_pixel - 8));
-  return (pixel_t)(color / 255.0f); // 0..255 -> 0..1.0
-  // FIXME: consistently using limited->fullscale conversion for float
+  return (pixel_t)y8tof(color);
 }
 
 template<typename pixel_t>

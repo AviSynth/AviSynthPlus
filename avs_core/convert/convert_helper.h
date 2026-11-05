@@ -39,6 +39,7 @@
 #include <string>
 #include <cstring>
 #include "frame_prop_enums.h"
+#include "../core/limited_range_float.h"
 
 
 // Helper struct and offset calculator for resamplers.
@@ -148,10 +149,10 @@ struct bits_conv_constants {
     // full range chroma span intentionally is not 128 but 255/2.0, which is virtually 127.5.
     // This also gives identical results to e.g. zimg when used in full range YUV-RGB conversions, which is good for consistency.
     d.src_span = (srcBitDepth == 32) ?
-      (fulls ? 0.5f : 112 / 255.0f) :
+      (fulls ? 0.5f : limited_float_chroma_span) :
       (fulls ? (float)((1 << srcBitDepth) - 1) / 2.0f : (float)(112 << (srcBitDepth - 8)));
     d.dst_span = (dstBitDepth == 32) ?
-      (fulld ? 0.5f : 112 / 255.0f) :
+      (fulld ? 0.5f : limited_float_chroma_span) :
       (fulld ? (float)((1 << dstBitDepth) - 1) / 2.0f : (float)(112 << (dstBitDepth - 8)));
     // chroma use case: go into signed world, factor, then go back to biased range
     d.src_offset = (srcBitDepth == 32) ? 0.0f : (1 << (srcBitDepth - 1));
@@ -175,17 +176,17 @@ struct bits_conv_constants {
   else {
     // luma
     d.src_span = (srcBitDepth == 32) ?
-      (fulls ? 1.0f : 219 / 255.0f) :
+      (fulls ? 1.0f : limited_float_luma_span) :
       (fulls ? ((1 << srcBitDepth) - 1) : (219 << (srcBitDepth - 8))); // 0..255, 16..235
     d.dst_span = (dstBitDepth == 32) ?
-      (fulld ? 1.0f : 219 / 255.0f) :
+      (fulld ? 1.0f : limited_float_luma_span) :
       (fulld ? ((1 << dstBitDepth) - 1) : (219 << (dstBitDepth - 8)));
     // luma
     d.src_offset = (srcBitDepth == 32) ?
-      (fulls ? 0 : 16.0f / 255) :
+      (fulls ? 0 : limited_float_luma_offset) :
       (fulls ? 0 : (16 << (srcBitDepth - 8)));
     d.dst_offset = (dstBitDepth == 32) ?
-      (fulld ? 0 : 16.0f / 255) :
+      (fulld ? 0 : limited_float_luma_offset) :
       (fulld ? 0 : (16 << (dstBitDepth - 8)));
   }
 

@@ -297,6 +297,27 @@ Developer notes
 * sat = √((U-128)2 + (V-128)2)
 
 
+32 bit float
+------------
+
+``coring`` and ``bright`` follow the limited range rule of :doc:`ConvertBits <convertbits>`, so an 8 bit level
+means the same value as after the conversion. Dither is centred around zero. Changed in 3.7.7, the values below
+are shown in 8 bit steps (float value x 255):
+
++------------------------------------------+--------------------------------------+--------------+-----------+
+| Source (8 bit level, converted to float) | Script                               | Before       | Now       |
++==========================================+======================================+==============+===========+
+| Y 235                                    | ``Tweak()``                          | 234.08       | 235       |
++------------------------------------------+--------------------------------------+--------------+-----------+
+| Y 0                                      | ``Tweak()``                          | 15.94        | 16        |
++------------------------------------------+--------------------------------------+--------------+-----------+
+| Y 100                                    | ``Tweak(bright=128, coring=false)``  | 227.50       | 228       |
++------------------------------------------+--------------------------------------+--------------+-----------+
+| flat Y 128                               | ``Tweak(dither=true, coring=false)`` | mean 128.498 | mean 128  |
++------------------------------------------+--------------------------------------+--------------+-----------+
+| flat U 128                               | ``Tweak(dither=true, coring=false)`` | mean 128.031 | mean 128  |
++------------------------------------------+--------------------------------------+--------------+-----------+
+
 Changelog
 ---------
 
@@ -306,6 +327,9 @@ Changelog
     +-----------------+-------------------------------------------------------+
     | Version         | Changes                                               |
     +=================+=======================================================+
+    | AviSynth+ 3.7.7 | 32 bit float: ``coring``, ``bright`` and ``dither``   |
+    |                 | fixed, see the table above.                           |
+    +-----------------+-------------------------------------------------------+
     | AviSynth r2487  || Added Luma LUT for 10-16 bits, Chroma LUT for 10 bit |
     |                 |  (old: LUT 8 bit only).                               |
     |                 || Added ``dither_strength`` parameter.                 |
@@ -323,7 +347,7 @@ Changelog
     | AviSynth 2.5.3  | Added ``coring`` parameter.                           |
     +-----------------+-------------------------------------------------------+
 
-$Date: 2022/09/17 15:28:44 $
+$Date: 2026/11/05 14:00:00 $
 
 .. _autoscaling:
     http://avisynth.nl/index.php/Autoscale_parameter

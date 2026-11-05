@@ -194,16 +194,7 @@ static AVS_FORCEINLINE bool IsForwardedUserCacheHint(int cachehints) {
 
 /*** Inline helper methods ***/
 
-// 8 bit uv to float
-// 16-128-240 -> -112-0-112 -> 1..255: +/-127 -> +/-0.5
-[[maybe_unused]] static AVS_FORCEINLINE float uv8tof(int color) {
-  return (color - 128) / 255.f; // consistent with convert_uintN_to_float_c
-}
-
-// 8 bit fullscale to float
-[[maybe_unused]] static AVS_FORCEINLINE float c8tof(int color) {
-  return color / 255.0f;
-}
+#include "limited_range_float.h" // y8tof, uv8tof, c8tof
 
 [[maybe_unused]] static AVS_FORCEINLINE uint8_t Scaled15bitPixelClip(int i) {
   return (uint8_t)clamp((i + 16384) >> 15, 0, 255);
