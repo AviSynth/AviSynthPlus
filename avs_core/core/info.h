@@ -48,29 +48,6 @@
 #include <cstring>
 #include "strings.h"
 
-enum ChromaLocationMode {
-  CENTER_411,
-  TOPLEFT_411, // point sample, co-sited left (411 has no vertical subsampling)
-  CENTER_420,
-  LEFT_420,
-  CENTER_422,
-  LEFT_422,
-  CENTER_440,
-  TOPLEFT_440, // co-sited top: vertical 1-2-1 (440 has no horizontal subsampling)
-  CENTER_410,
-  TOPLEFT_410, // point sample, co-sited top-left
-  TOPLEFT_420  // co-sited top-left: 1-2-1 horizontally and vertically (3x3)
-  // 422 (and YUY2) top_left: same siting as left, rendered with LEFT_422
-};
-
-// point-sample modes: a single luma/outline bit of the block, weight 1
-// Co-sited 4:1:1 and 4:1:0. A filtered variant (x4 triangle, 1-2-3-4-3-2-1 / 16 per axis)
-// would need a 7x1 (4:1:1) or 7x7 (4:1:0) window with 3 columns (and rows) of history;
-// not considered worth implementing for these rare formats yet.
-constexpr bool isPointSampleMode(ChromaLocationMode m) {
-  return m == TOPLEFT_411 || m == TOPLEFT_410;
-}
-
 typedef struct BBX {
   uint8_t width; // e.g. 8
   uint8_t height; // 16
@@ -91,8 +68,6 @@ public:
   int ystart; // vertical visibility: starting row in stringbitmap
   int yend;   // vertical visibility: ending row in stringbitmap
   int stringbitmap_height; // font height plus optinally added top/bottom line
-  const int safety_bits_x_left; // extra leftside playground for chroma rendering
-  const int safety_bits_x_right; // extra rightside playground for chroma rendering
 
   std::vector<std::vector<uint8_t>> stringbitmap;
   std::vector<std::vector<uint8_t>> stringbitmap_outline;
@@ -106,12 +81,11 @@ public:
     const std::vector<BBX>& bbx_array,
     const int align,
     const bool _useHalocolor,
-    const int FONT_WIDTH_notused, const int FONT_HEIGHT,
-    const int _safety_bits_x_left,
-    const int _safety_bits_x_right
+    const int FONT_WIDTH_notused, const int FONT_HEIGHT
     );
 
   void make_outline();
+  int frame_width() const { return vi_width; }
   int frame_height() const { return vi_height; }
 };
 

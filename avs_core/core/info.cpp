@@ -51,6 +51,7 @@
 #include <fstream>
 #include <unordered_map>
 #include <array>
+#include <algorithm>
 #include <iomanip>
 #include <avs/filesystem.h>
 
@@ -842,14 +843,23 @@ void AVS_FORCEINLINE LightOnePixel(const bool lightIt, pixel_t* dstp, int j, pix
   }
 }
 
-template<typename pixel_t, int logXRatioUV, int logYRatioUV, bool fadeBackground, ChromaLocationMode chromaMode>
-static void LightOneUVPixel(pixel_t* dstpU, int j, pixel_t* dstpV, pixel_t& font_color_u, pixel_t& font_color_v, pixel_t& halo_color_u, pixel_t& halo_color_v,
-  int fontpixelcount, int halopixelcount,
-  int bits_per_pixel
-)
+// One chroma sample (U and V) of the text, from the weighted luma counts of its kernel (see RenderChroma).
+// font, halo: weighted count of the font and of the halo (outline) luma bits; rect: weighted count of the luma
+// samples inside the text rectangle. The weights sum to 1 << log2total, the rest of it is background. With
+// fadeBackground the background inside the rectangle is faded (as luma is there), the part outside is kept.
+// Integer range: 65535 * 1024 < 2^31.
+template<typename pixel_t, bool fadeBackground, int log2total>
+static void LightOneUVPixel(pixel_t& dstU, pixel_t& dstV,
+  const pixel_t font_color_u, const pixel_t font_color_v, const pixel_t halo_color_u, const pixel_t halo_color_v,
+  const int font, const int halo, const int rect,
+  int bits_per_pixel)
 {
-  if constexpr (!fadeBackground) {
-    if (halopixelcount == 0 && fontpixelcount == 0) return; // no change, keep background
+  constexpr int total = 1 << log2total;
+  if constexpr (fadeBackground) {
+    if (rect == 0) return; // kernel outside the text rectangle: no change
+  }
+  else {
+    if (font == 0 && halo == 0) return; // background only: no change
   }
 
   // some optimization hint
@@ -858,81 +868,68 @@ static void LightOneUVPixel(pixel_t* dstpU, int j, pixel_t* dstpV, pixel_t& font
   else if constexpr (sizeof(pixel_t) == 4)
     bits_per_pixel = 32;
 
-  // weighed count
-  constexpr int totalpixelcount =
-    (chromaMode == TOPLEFT_420) ? 16 : // 1-2-1 x 1-2-1 (3x3)
-    (chromaMode == LEFT_420) ? 8 : // 1-2-1 | 1-2-1
-    (chromaMode == LEFT_422) ? 4 : // 1-2-1
-    (chromaMode == CENTER_420) ? 4 : // 1-1 | 1-1
-    (chromaMode == CENTER_422) ? 2 : // 1-1
-    (chromaMode == CENTER_411) ? 4 : // 1-1-1-1
-    (chromaMode == CENTER_440) ? 2 : // 1 | 1
-    (chromaMode == TOPLEFT_440) ? 4 : // vertical 1-2-1
-    (chromaMode == CENTER_410) ? 16 : // 1-1-1-1 | 1-1-1-1 | 1-1-1-1 | 1-1-1-1
-    isPointSampleMode(chromaMode) ? 1 : // point sample
-    1; // unreached
-
-  if (fontpixelcount == totalpixelcount) {
-    dstpU[j] = font_color_u;
-    dstpV[j] = font_color_v;
+  if (font == total) {
+    dstU = font_color_u;
+    dstV = font_color_v;
+    return;
   }
-  else if (halopixelcount == totalpixelcount) {
-    dstpU[j] = halo_color_u;
-    dstpV[j] = halo_color_v;
+  if (halo == total) {
+    dstU = halo_color_u;
+    dstV = halo_color_v;
+    return;
   }
-  else {
-    // not reached, only when subsampled
-    pixel_t actualU = dstpU[j];
-    pixel_t actualV = dstpV[j];
-    const int backgroundpixelcount = totalpixelcount - fontpixelcount - halopixelcount;
 
-    if constexpr (fadeBackground) {
-      // have to fade the existing background color
-      // speed optimization: one subtraction less
-      // (((U - 128) * 7) >> 3) + 128 = ((U * 7) >> 3) + 16
-      // in general: ((U * 7) >> 3) + n where n = range_half - ((range_half * 7) >> 3)
-      if constexpr (sizeof(pixel_t) != 4) {
-        int range_half = 1 << (bits_per_pixel - 1);
-        int n = range_half - ((range_half * 7) >> 3);
-        actualU = (pixel_t)(((actualU * 7) >> 3) + n); // ((((U - range_half) * 7) >> 3) + range_half);
-        actualV = (pixel_t)(((actualV * 7) >> 3) + n);
-      }
-      else {
-        constexpr float chroma_center = 0.0f; // ancient times this was 0.5
-        constexpr float factor = 7.0f / 8.0f;
-        actualU = (pixel_t)(((actualU - chroma_center) * factor) + chroma_center);
-        actualV = (pixel_t)(((actualV - chroma_center) * factor) + chroma_center);
-      }
-    }
-
-    // compute resulting color weighted by pixel kinds
+  const pixel_t actualU = dstU;
+  const pixel_t actualV = dstV;
+  pixel_t fadedU = actualU;
+  pixel_t fadedV = actualV;
+  int bg_faded = 0; // background share inside the rectangle (faded)
+  int bg_kept = total - font - halo; // background share kept as is
+  if constexpr (fadeBackground) {
+    bg_faded = rect - font - halo;
+    bg_kept = total - rect;
+    // fade the existing background color toward the chroma center
+    // speed optimization: one subtraction less
+    // (((U - 128) * 7) >> 3) + 128 = ((U * 7) >> 3) + 16
+    // in general: ((U * 7) >> 3) + n where n = range_half - ((range_half * 7) >> 3)
     if constexpr (sizeof(pixel_t) != 4) {
-      constexpr int rounder = totalpixelcount >> 1;
-      constexpr int divshift = 
-        (chromaMode == TOPLEFT_420) ? 4 :
-        (chromaMode == LEFT_420) ? 3 :
-        (chromaMode == LEFT_422) ? 2 :
-        (chromaMode == CENTER_420) ? 2 :
-        (chromaMode == CENTER_422) ? 1 :
-        (chromaMode == CENTER_411) ? 2 :
-        (chromaMode == CENTER_440) ? 1 : // log2(totalpixelcount=2)
-        (chromaMode == TOPLEFT_440) ? 2 : // log2(totalpixelcount=4)
-        (chromaMode == CENTER_410) ? 4 : // log2(totalpixelcount=16)
-        isPointSampleMode(chromaMode) ? 0 : // log2(totalpixelcount=1)
-        0; // unreached
-
-      const int effective_color_u = (font_color_u * fontpixelcount + halo_color_u * halopixelcount + actualU * backgroundpixelcount + rounder);
-      const int effective_color_v = (font_color_v * fontpixelcount + halo_color_v * halopixelcount + actualV * backgroundpixelcount + rounder);
-      dstpU[j] = effective_color_u >> divshift;
-      dstpV[j] = effective_color_v >> divshift;
+      const int range_half = 1 << (bits_per_pixel - 1);
+      const int n = range_half - ((range_half * 7) >> 3);
+      fadedU = (pixel_t)(((actualU * 7) >> 3) + n); // ((((U - range_half) * 7) >> 3) + range_half);
+      fadedV = (pixel_t)(((actualV * 7) >> 3) + n);
     }
     else {
-      constexpr float chroma_center = 0.0f;
-      float effective_color_u = (font_color_u - chroma_center) * fontpixelcount + (halo_color_u - chroma_center) * halopixelcount + (actualU - chroma_center) * backgroundpixelcount;
-      float effective_color_v = (font_color_v - chroma_center) * fontpixelcount + (halo_color_v - chroma_center) * halopixelcount + (actualV - chroma_center) * backgroundpixelcount;
-      dstpU[j] = effective_color_u / totalpixelcount + chroma_center;
-      dstpV[j] = effective_color_v / totalpixelcount + chroma_center;
+      constexpr float chroma_center = 0.0f; // ancient times this was 0.5
+      constexpr float factor = 7.0f / 8.0f;
+      fadedU = (pixel_t)(((actualU - chroma_center) * factor) + chroma_center);
+      fadedV = (pixel_t)(((actualV - chroma_center) * factor) + chroma_center);
     }
+  }
+
+  if constexpr (fadeBackground) {
+    // Speed: only faded background, the most common case in the fade area: no need for the mix below,
+    // which would give the same (faded * total + rounder) >> log2total = faded.
+    if (bg_faded == total) {
+      dstU = fadedU;
+      dstV = fadedV;
+      return;
+    }
+  }
+
+  // resulting color weighted by the pixel kinds
+  if constexpr (sizeof(pixel_t) != 4) {
+    constexpr int rounder = total >> 1;
+    const int u = font_color_u * font + halo_color_u * halo + fadedU * bg_faded + actualU * bg_kept + rounder;
+    const int v = font_color_v * font + halo_color_v * halo + fadedV * bg_faded + actualV * bg_kept + rounder;
+    dstU = (pixel_t)(u >> log2total);
+    dstV = (pixel_t)(v >> log2total);
+  }
+  else {
+    constexpr float scale = 1.0f / total; // exact, power of two
+    const float u = font_color_u * font + halo_color_u * halo + fadedU * bg_faded + actualU * bg_kept;
+    const float v = font_color_v * font + halo_color_v * halo + fadedV * bg_faded + actualV * bg_kept;
+    dstU = u * scale;
+    dstV = v * scale;
   }
 }
 
@@ -1072,7 +1069,7 @@ static void insert_from_msb_bit(uint8_t *dst, int bitposition, const uint8_t* fo
   }
 }
 
-static uint8_t get_bit(uint8_t* src, const int bitposition)
+static uint8_t get_bit(const uint8_t* src, const int bitposition)
 {
   int pos = bitposition / 8;
   int bitindex = bitposition % 8;
@@ -1080,14 +1077,16 @@ static uint8_t get_bit(uint8_t* src, const int bitposition)
   return src[pos] & mask;
 }
 
-static int get_bits(uint8_t* src, int bitposition, int count)
+// Speed-up of the luma loops, used only without fadeBackground: then only the set bits of the bitmap change the
+// frame, and text is mostly empty space (typically over 3/4 of the bits are zero). Testing whole bytes
+// avoids the per-bit get_bit and its unpredictable branch there.
+// True if bit position tx is at a byte start and that byte is empty in both bitmaps: the caller can skip these
+// 8 pixels. Before the first byte boundary (xstart is not always aligned), and in non-empty bytes, the loops go
+// on bit by bit. An empty byte reaching over the end of the text is no problem: nothing would be written there.
+// outline: nullptr without halo.
+AVS_FORCEINLINE static bool is_empty_bitmap_byte(const uint8_t* fontline, const uint8_t* outline, int tx)
 {
-  int bitcounter = 0;
-  while (count--) {
-    if (0 != get_bit(src, bitposition++))
-      bitcounter++;
-  }
-  return bitcounter;
+  return (tx & 7) == 0 && (fontline[tx / 8] | (outline ? outline[tx / 8] : 0)) == 0;
 }
 
 void PreRendered::make_outline() {
@@ -1222,14 +1221,10 @@ PreRendered::PreRendered(
   //
   // Since Avisynth 3.7.6, the BDF renderer implements this override behavior.
 
-  const int FONT_WIDTH, const int FONT_HEIGHT,
-  const int _safety_bits_x_left,
-  const int _safety_bits_x_right
+  const int FONT_WIDTH, const int FONT_HEIGHT
   )
   :
-  useHalocolor(_useHalocolor), vi_width(_vi_width), vi_height(_vi_height),
-  safety_bits_x_left(_safety_bits_x_left),
-  safety_bits_x_right(_safety_bits_x_right)
+  useHalocolor(_useHalocolor), vi_width(_vi_width), vi_height(_vi_height)
 {
   len = (int)s.size();
   x = _x;
@@ -1270,8 +1265,8 @@ PreRendered::PreRendered(
     total_font_width += bbx_array[s[i]].width; // this is the total width of the string
   }
 
-  // left-right safety bits for horizontal subsampled cases
-  const int stringbitmap_width = safety_bits_x_left + total_font_width + (useHalocolor ? 2 : 0) + safety_bits_x_right;
+  // the chroma renderer (RenderChroma) checks the bitmap bounds, no safety columns are needed
+  const int stringbitmap_width = total_font_width + (useHalocolor ? 2 : 0);
   const int stringbitmapline_bytes = (stringbitmap_width + 7) / 8;
 
   // allocate actual space
@@ -1284,16 +1279,8 @@ PreRendered::PreRendered(
 
   // fill matrix with fonts
   // optionally leave spare left-right-top-bottom pixel lines for out-of-matrix halo pixels
-  // plus a final zero-cost bit column for safely drawing unaligned horizontal subsampling cases
   uint8_t zerobyte[1] = { 0 };
   int bitcounter = 0;
-
-  // safety columns for horizontal subsampling cases
-  // fill another column with 0
-  for (int ty = 0; ty < stringbitmap_height; ty++) {
-    insert_from_msb_bit(&stringbitmap[ty][0], bitcounter, &zerobyte[0], 1, safety_bits_x_left);
-  }
-  bitcounter += safety_bits_x_left;
 
   if (useHalocolor) {
     // fill leftmost 1 bitcolumn with 0
@@ -1319,19 +1306,12 @@ PreRendered::PreRendered(
     bitcounter += actual_font_width;
   }
   if (useHalocolor) {
-    // fill rightmost 'safety_bits' bitcolumn with 0
+    // fill rightmost 1 bitcolumn with 0 (right halo)
     for (int ty = 0; ty < stringbitmap_height; ty++) {
       insert_from_msb_bit(&stringbitmap[ty][0], bitcounter, &zerobyte[0], 1, 1);
     }
     bitcounter++;
   }
-
-  // safety columns for horizontal subsampling cases
-  // fill another column with 0
-  for (int ty = 0; ty < stringbitmap_height; ty++) {
-    insert_from_msb_bit(&stringbitmap[ty][0], bitcounter, &zerobyte[0], 1, safety_bits_x_right);
-  }
-  bitcounter += safety_bits_x_right;
 
   assert(bitcounter == stringbitmap_width);
 
@@ -1437,13 +1417,20 @@ void Render1by1Planes(int bits_per_pixel, int color, int halocolor, int* pitches
       for (int ty = pre.ystart; ty < pre.yend; ty++) {
         pixel_t* _dstp = reinterpret_cast<pixel_t*>(dstp);
         uint8_t* fontline_ptr = pre.stringbitmap[ty].data();
-        [[maybe_unused]] uint8_t* fontoutline_ptr;
+        uint8_t* fontoutline_ptr = nullptr;
         if constexpr(useHalocolor)
           fontoutline_ptr = pre.stringbitmap_outline[ty].data();
         int j = 0;
-        const int shifted_xstart = pre.safety_bits_x_left + pre.xstart;
+        const int shifted_xstart = pre.xstart;
         for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width; tx++)
         {
+          if constexpr (!fadeBackground) {
+            if (is_empty_bitmap_byte(fontline_ptr, fontoutline_ptr, tx)) {
+              tx += 7; // +1 in the loop header
+              j += 8;
+              continue;
+            }
+          }
           const bool lightIt = 0 != get_bit(fontline_ptr, tx);
           LightOnePixel<pixel_t, fadeBackground, isRGB, isChroma>(lightIt, _dstp, j, val_color, bits_per_pixel);
           if constexpr(useHalocolor) {
@@ -1465,296 +1452,225 @@ void Render1by1Planes(int bits_per_pixel, int color, int halocolor, int* pitches
   }
 }
 
-template<typename pixel_t, bool useHalocolor, bool fadeBackground, int logXRatioUV, int logYRatioUV, ChromaLocationMode chromaMode>
-void RenderUV(int bits_per_pixel, int color, int halocolor, int* pitches, BYTE** dstps, PreRendered& pre)
+// floor(a / d) for d > 0, also for negative a
+static constexpr int floor_div(int a, int d) { return a >= 0 ? a / d : -((d - 1 - a) / d); }
+
+// The filter weights (see MaskFilter in blend_common.h), indexed by MaskFilter.
+// Here the counts are integers, so the box cascades of the masks (mask_filter_cascade, needed there for
+// C = SIMD on float) are not needed: the same result comes from at most 8 multiply-adds instead of the
+// 15 (tent) or 31 (triangle) additions.
+static constexpr int text_filter_weights[5][8] = {
+  { 1 }, { 1, 1 }, { 1, 2, 1 }, { 1, 2, 3, 4, 3, 2, 1 }, { 1, 3, 5, 7, 7, 5, 3, 1 }
+};
+
+// Weighted sum of filter F over v[0 .. taps-1]
+template<MaskFilter F>
+AVS_FORCEINLINE static int text_filter_sum(const int* v) {
+  int sum = 0;
+  for (int k = 0; k < MaskFilterTaps<F>; k++)
+    sum += text_filter_weights[F][k] * v[k];
+  return sum;
+}
+
+// Vertical pass of the text chroma, for one bitmap row. For the set bits between bit_first and bit_last
+// (inclusive): col[bit - bit_of_col0] += weight. Returns true if there was any, RenderChroma can then skip
+// the whole chroma row without fading. Speed:
+// - zero bytes, the most common ones, are skipped at once;
+// - inside a byte the walk stops after its last set bit (v becomes 0);
+// - no branch on the bit: font bits are unpredictable, a mispredicted branch costs more than an addition.
+static bool add_set_bits(const uint8_t* row, int bit_first, int bit_last, int weight, int* col, int bit_of_col0)
 {
+  bool any = false;
+  const int byte_first = bit_first / 8;
+  const int byte_last = bit_last / 8;
+  for (int byte = byte_first; byte <= byte_last; byte++) {
+    unsigned v = row[byte];
+    if (v == 0)
+      continue;
+    if (byte == byte_first)
+      v &= 0xFFu >> (bit_first % 8); // bits are msb first
+    if (byte == byte_last)
+      v &= (0xFF00u >> (bit_last % 8 + 1)) & 0xFFu;
+    any = any || v != 0;
+    // The actual bit is always moved to the 0x80 position. It decides whether weight is added or not, without a
+    // branch: v >> 7 is 0 or 1, its negative is a mask of all zeros or all ones, so "weight & mask" is 0 or weight.
+    for (int i = byte * 8 - bit_of_col0; v != 0; v = (v << 1) & 0xFFu, i++)
+      col[i] += weight & -(int)(v >> 7);
+  }
+  return any;
+}
+
+// Chroma of the text for the subsampled formats (planar 4:2:0, 4:2:2, 4:1:1, 4:1:0, 4:4:0 and YUY2).
+// A chroma sample is the mask kernel of the format and chroma placement (blend_common.h: MaskMode, MaskHFilter,
+// MaskVFilter: box, [1 2 1], 4:1 tent or triangle), applied to three luma resolution maps of the text: the font
+// bits, the halo (outline) bits and the text rectangle (the luma area which is drawn, or faded with
+// fadeBackground). The weighted counts are the shares of the font, halo and background colors
+// (LightOneUVPixel). So the chroma follows the same rules as a mask made of the luma text in Overlay or Layer:
+// - same kernels (integer counts, so summing with the weights gives the same result as the box cascades of the masks);
+// - luma positions outside the frame are clamped to the frame edge;
+// - every chroma sample is drawn whose kernel reaches the text rectangle, also those beside the chroma blocks
+//   of the text (the 4:1 kernels are 7 or 8 luma samples wide).
+// The bitmap is read only inside the text rectangle, so it needs no extra (safety) columns or rows.
+// Speed: text rendering happens on every frame, and font bitmaps are sparse, so
+// - the vertical pass visits only the set bits (add_set_bits), one bitmap row at a time, not all taps of all columns;
+// - a chroma row without any set bit is skipped (no fade), or needs no column work (fade);
+// - the rectangle weights are computed once per chroma column and once per chroma row, then just multiplied;
+// - the most common sample kinds leave LightOneUVPixel early (background only; font only; halo only).
+// dstpU, dstpV: chroma plane start (YUY2: the first U and V byte of the frame); step: distance of
+// horizontally neighboring chroma samples, in pixel_t units (planar: 1, YUY2: 4).
+template<typename pixel_t, bool useHalocolor, bool fadeBackground, MaskMode maskMode>
+static void RenderChroma(int bits_per_pixel, int color, int halocolor, BYTE* dstpU, BYTE* dstpV, int pitchUV, int step,
+  const PreRendered& pre)
+{
+  static_assert(maskMode != MASK444, "not subsampled");
+  constexpr MaskFilter HF = MaskHFilter<maskMode>;
+  constexpr MaskFilter VF = MaskVFilter<maskMode>;
+  constexpr int HS = MaskHSubsample<maskMode>;
+  constexpr int VS = MaskVSubsample<maskMode>;
+  constexpr int hfirst = MaskFilterFirst<HF>;
+  constexpr int htaps = MaskFilterTaps<HF>;
+  constexpr int vfirst = MaskFilterFirst<VF>;
+  constexpr int vtaps = MaskFilterTaps<VF>;
+  constexpr int log2total = MaskFilterLog2<HF> + MaskFilterLog2<VF>; // weight sum: 2 (box) .. 1024 (4:1:0 8x8)
+
   // some optimization hint
   if constexpr (sizeof(pixel_t) == 1)
     bits_per_pixel = 8;
   else if constexpr (sizeof(pixel_t) == 4)
     bits_per_pixel = 32;
 
-  // draw U and V in one step
-  pixel_t color_u = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_U, color), bits_per_pixel);
-  pixel_t color_v = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_V, color), bits_per_pixel);
-  pixel_t color_outline_u = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_U, halocolor), bits_per_pixel);
-  pixel_t color_outline_v = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_V, halocolor), bits_per_pixel);
+  const pixel_t color_u = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_U, color), bits_per_pixel);
+  const pixel_t color_v = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_V, color), bits_per_pixel);
+  const pixel_t color_outline_u = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_U, halocolor), bits_per_pixel);
+  const pixel_t color_outline_v = getHBDColor_UV<pixel_t>(getColorForPlane(PLANAR_V, halocolor), bits_per_pixel);
 
-  const int pitchUV = pitches[1];
-  const int offset = (pre.x >> logXRatioUV) * sizeof(pixel_t) + (pre.y >> logYRatioUV) * pitchUV;
-  BYTE* dstpU = dstps[1] + offset;
-  BYTE* dstpV = dstps[2] + offset;
+  const int width = pre.frame_width();
+  const int height = pre.frame_height();
+  // Text rectangle in frame coordinates (inclusive). Frame position (x, y) inside it is
+  // bit (pre.xstart + x - X0) of bitmap row (pre.ystart + y - Y0).
+  const int X0 = pre.x;
+  const int X1 = pre.x + pre.text_width - 1;
+  const int Y0 = pre.y;
+  const int Y1 = pre.y + (pre.yend - pre.ystart) - 1;
+  if (X1 < X0 || Y1 < Y0)
+    return;
 
-  // .SubS = 1, 2 or 4
-  constexpr int xSubS = 1 << logXRatioUV;
-  constexpr int ySubS = 1 << logYRatioUV;
+  // The chroma samples c whose kernel window, luma [c * S + first, c * S + first + taps - 1], reaches the rectangle.
+  // Near the frame edges the window is clamped into the frame, which cannot add more samples.
+  const int cx_first = std::max(0, floor_div(X0 - hfirst - htaps + HS, HS)); // ceil((X0 - hfirst - htaps + 1) / HS)
+  const int cx_last = std::min(width / HS - 1, floor_div(X1 - hfirst, HS));
+  const int cy_first = std::max(0, floor_div(Y0 - vfirst - vtaps + VS, VS));
+  const int cy_last = std::min(height / VS - 1, floor_div(Y1 - vfirst, VS));
+  if (cx_last < cx_first || cy_last < cy_first)
+    return;
 
-  /*
-    U and V handling, multiple luma/outline/background source for a given chroma point
-    resulting chroma is a weighted sum of the three pixel kinds (font/outline/background)
-    012345678901
-    ...#OOO#....
-    ..#O###O#...
-    ..#O#.#O#...
-    ..#O#.#O#...
-    ..#O#.#O#...
-  */
+  // The luma columns of all kernel windows of a chroma row: col[i] is frame column lx_first + i, its
+  // vertically filtered font / halo count. Only the visible part of the text is read from the bitmap.
+  const int lx_first = cx_first * HS + hfirst;
+  const int ncols = (cx_last - cx_first) * HS + htaps;
+  const int lx_last = lx_first + ncols - 1;
+  const int bit_of_col0 = pre.xstart + (lx_first - X0);
+  const int bit_first = pre.xstart + (std::max(X0, lx_first) - X0);
+  const int bit_last = pre.xstart + (std::min({ X1, lx_last, width - 1 }) - X0);
+  std::vector<int> col_font(ncols);
+  std::vector<int> col_halo(useHalocolor ? ncols : 0);
 
-  // unaligned x: for horizontal subsampling 420, 422, 411 and 410
-  // 420, 422, 411, 410 horizontal subsampling: one more loop because of the leftmost orphan pixel(s)
-  // we can overaddress on the right, additional safety bit column(s) were added for the bitmap
-  const bool unaligned_x_start = logXRatioUV > 0 && 0 != pre.x % xSubS;
-  const int xplus = unaligned_x_start ? xSubS : 0; // extra orphan bits affecting rightmost chroma
-  const int xshift = pre.x % xSubS; // when aligned --> 0
-  // unaligned y: vertical subsampling 420
-  const bool odd_y_start = logYRatioUV == 1 && 0 != pre.y % 2;
-  const int yshift = odd_y_start ? 1 : 0;
+  // clamped frame edges: the columns outside the frame repeat the edge column
+  auto replicate_edges = [&](std::vector<int>& col) {
+    for (int i = 0; i < -lx_first; i++)
+      col[i] = col[-lx_first];
+    for (int i = width - lx_first; i < ncols; i++)
+      col[i] = col[width - 1 - lx_first];
+  };
 
-  constexpr bool hasVerticalSubsample = logYRatioUV > 0;
-
-  // safe zero array for vertical subsampled 4:2:0 case for orphan top/bottom
-  std::vector<uint8_t> zeros;
-  if constexpr (hasVerticalSubsample)
-    zeros.resize(pre.stringbitmap[0].size());
-
-  // Sized for the largest ySubS in use: 4 (4:1:0, CENTER_410)
-  // 4:2:0 and 4:4:0 (ySubS==2) use the first 2 elements
-  // 4:1:1 (ySubS==1, no vertical subsampling) uses just the first
-  uint8_t* fontlines_ptr[4] = { nullptr };
-  uint8_t* fontoutlines_ptr[4] = { nullptr };
-  // top-left (co-sited vertically) 4:2:0 and 4:4:0: the vertical 1-2-1 also needs the row
-  // above the block (the last row of the previous block); zero outside the text bitmap
-  constexpr bool needsPrevRow = (chromaMode == TOPLEFT_420 || chromaMode == TOPLEFT_440);
-  uint8_t* prevline_ptr = nullptr;
-  uint8_t* prevoutline_ptr = nullptr;
-
-  // With needsPrevRow the last text row can also be row -1 of the chroma row below the last
-  // text block: render one more chroma row then, if it is still inside the frame.
-  const int ty_end = needsPrevRow ? pre.yend + 1 + yshift : pre.yend;
-  const int chroma_height = pre.frame_height() >> logYRatioUV;
-  int chroma_row = pre.y >> logYRatioUV;
-
-  for (int ty = pre.ystart; ty < ty_end && chroma_row < chroma_height; ty += ySubS, chroma_row++) {
-
-    pixel_t* _dstpU = reinterpret_cast<pixel_t*>(dstpU);
-    pixel_t* _dstpV = reinterpret_cast<pixel_t*>(dstpV);
-
-    if (hasVerticalSubsample) {
-      // Per-row clamped fill: supports any ySubS (2 for 4:2:0/4:4:0, 4 for 4:1:0).
-      // Each of the ySubS contributing rows is checked if they fit in the valid
-      // [0, stringbitmap_height) range => NOT: put a zero row when it would
-      // fall outside; e.g. top overrun from odd_y_start or bottom overrun near the last
-      // rendered text row.
-      for (int m = 0; m < ySubS; m++) {
-        const int row = ty + m - yshift;
-        fontlines_ptr[m] = (row >= 0 && row < pre.stringbitmap_height) ? pre.stringbitmap[row].data() : zeros.data();
+  // Horizontal rectangle weight of each chroma column, the same for all chroma rows, so it is computed only
+  // once. The rectangle is separable: the weight of a chroma sample is the product of its H and V weights.
+  // Only the fade needs it.
+  std::vector<int> hrect(fadeBackground ? cx_last - cx_first + 1 : 0);
+  if constexpr (fadeBackground) {
+    for (int cx = cx_first; cx <= cx_last; cx++) {
+      int sum = 0;
+      for (int k = 0; k < htaps; k++) {
+        const int x = std::clamp(cx * HS + hfirst + k, 0, width - 1);
+        if (x >= X0 && x <= X1)
+          sum += text_filter_weights[HF][k];
       }
-      if constexpr(useHalocolor) {
-        for (int m = 0; m < ySubS; m++) {
-          const int row = ty + m - yshift;
-          fontoutlines_ptr[m] = (row >= 0 && row < pre.stringbitmap_height) ? pre.stringbitmap_outline[row].data() : zeros.data();
-        }
-      }
-      if constexpr (needsPrevRow) {
-        const int row = ty - 1 - yshift;
-        const bool valid = row >= 0 && row < pre.stringbitmap_height;
-        prevline_ptr = valid ? pre.stringbitmap[row].data() : zeros.data();
-        if constexpr (useHalocolor)
-          prevoutline_ptr = valid ? pre.stringbitmap_outline[row].data() : zeros.data();
-      }
+      hrect[cx - cx_first] = sum;
     }
-    else {
-      // no vertical subsampling: every row is always in range
-      for (int m = 0; m < ySubS; m++)
-        fontlines_ptr[m] = pre.stringbitmap[ty + m - yshift].data();
+  }
 
-      if constexpr(useHalocolor) {
-        for (int m = 0; m < ySubS; m++)
-          fontoutlines_ptr[m] = pre.stringbitmap_outline[ty + m - yshift].data();
-      }
-    }
-
-    // render a horizontal line
-    int j = 0;
-    // (pre.xstart - xshift) is always on horizontal subsample boundary
-    const int shifted_xstart = pre.safety_bits_x_left + pre.xstart - xshift;
-
-    // left (mpeg2) location: 
-    int fontpixels_right = 0; // used for left (mpeg2) chroma location case
-    int halopixels_right = 0;
-    // For the very first chroma pixel there is no previous rightside.
-    // Use index -1, safe because of safety columns
-    if constexpr (chromaMode == LEFT_420 || chromaMode == LEFT_422) {
-      for (int yy = 0; yy < ySubS; yy++) {
-        fontpixels_right += get_bits(fontlines_ptr[yy], shifted_xstart - 1, 1);
-        if constexpr (useHalocolor)
-          halopixels_right += get_bits(fontoutlines_ptr[yy], shifted_xstart - 1, 1);
-      }
-    }
-    // top-left 4:2:0: column sums are vertically 1-2-1 weighted (rows -1, 0, +1)
-    auto colsum_121 = [](uint8_t* prev, uint8_t* row0, uint8_t* row1, int x) {
-      return get_bits(prev, x, 1) + 2 * get_bits(row0, x, 1) + get_bits(row1, x, 1);
-    };
-    if constexpr (chromaMode == TOPLEFT_420) {
-      fontpixels_right = colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], shifted_xstart - 1);
+  for (int cy = cy_first; cy <= cy_last; cy++) {
+    // vertical pass: weighted font and halo counts of each luma column
+    std::fill(col_font.begin(), col_font.end(), 0);
+    if constexpr (useHalocolor)
+      std::fill(col_halo.begin(), col_halo.end(), 0);
+    bool any = false;
+    [[maybe_unused]] int vrect = 0;
+    for (int j = 0; j < vtaps; j++) {
+      const int y = std::clamp(cy * VS + vfirst + j, 0, height - 1);
+      if (y < Y0 || y > Y1)
+        continue; // outside the rectangle
+      const int r = pre.ystart + (y - Y0);
+      const int weight = text_filter_weights[VF][j];
+      vrect += weight;
+      any |= add_set_bits(pre.stringbitmap[r].data(), bit_first, bit_last, weight, col_font.data(), bit_of_col0);
       if constexpr (useHalocolor)
-        halopixels_right = colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], shifted_xstart - 1);
+        any |= add_set_bits(pre.stringbitmap_outline[r].data(), bit_first, bit_last, weight, col_halo.data(), bit_of_col0);
+    }
+    if constexpr (!fadeBackground) {
+      if (!any)
+        continue; // only background in this chroma row: no change, e.g. the blank rows of the font
+    }
+    if (any) { // all counts are zero otherwise, nothing to replicate
+      replicate_edges(col_font);
+      if constexpr (useHalocolor)
+        replicate_edges(col_halo);
     }
 
-    for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width + xplus; tx += xSubS) {
-      int fontpixels = 0;
-      int halopixels = 0;
-
-      // Chroma kernels: weights of the luma/outline bits contributing to one chroma sample.
-      // Where the kernel reaches outside the chroma block, '=' borders mark the block itself;
-      // the other cells belong to the neighboring blocks (row -1: above, column -1: left).
-      //
-      // 411 center
-      // +------+------+------+------+
-      // | 0.25 | 0.25 | 0.25 | 0.25 |
-      // +------+------+------+------+
-      // 411 top_left (point sample)
-      // +------+------+------+------+
-      // |  1   |  0   |  0   |  0   |
-      // +------+------+------+------+
-      // 410 center
-      // +------+------+------+------+
-      // | 1/16 | 1/16 | 1/16 | 1/16 |
-      // +------+------+------+------+
-      // | 1/16 | 1/16 | 1/16 | 1/16 |
-      // +------+------+------+------+
-      // | 1/16 | 1/16 | 1/16 | 1/16 |
-      // +------+------+------+------+
-      // | 1/16 | 1/16 | 1/16 | 1/16 |
-      // +------+------+------+------+
-      // 410 top_left (point sample)
-      // +------+------+------+------+
-      // |  1   |  0   |  0   |  0   |
-      // +------+------+------+------+
-      // |  0   |  0   |  0   |  0   |
-      // +------+------+------+------+
-      // |  0   |  0   |  0   |  0   |
-      // +------+------+------+------+
-      // |  0   |  0   |  0   |  0   |
-      // +------+------+------+------+
-      // 440 center
-      // +------+
-      // | 0.5  |
-      // |------+
-      // | 0.5  |
-      // +------+
-      // 440 top (and top_left): vertical 1-2-1 around the top luma row
-      // +------+
-      // | 0.25 |  row -1
-      // +======+
-      // | 0.5  |  row 0
-      // +------+
-      // | 0.25 |  row 1
-      // +======+
-      // 420 center (mpeg1, jpeg)
-      // +------+------+
-      // | 0.25 | 0.25 |
-      // |------+------|
-      // | 0.25 | 0.25 |
-      // +------+------+
-      // 420 left (mpeg2)
-      // ------+------+-------+
-      // 0.125 | 0.25 | 0.125 |
-      // ------|------+-------|
-      // 0.125 | 0.25 | 0.125 |
-      // ------+------+-------+
-      // 420 top_left: 1-2-1 x 1-2-1 (3x3) around the top-left luma sample
-      //  col -1  col 0   col 1
-      // -------+-------+-------+
-      //  1/16  | 2/16  | 1/16  |  row -1
-      // -------+=======+=======+
-      //  2/16  | 4/16  | 2/16  |  row 0
-      // -------+-------+-------+
-      //  1/16  | 2/16  | 1/16  |  row 1
-      // -------+=======+=======+
-      // 422 center
-      // +------+------+
-      // | 0.5  | 0.5  |
-      // +------+------+
-      // 422 left (mpeg2), also used for 422 top_left (same siting)
-      // ------+------+-------+
-      // 0.25  | 0.5  | 0.25  |
-      // ------+------+-------+
-
-      if constexpr (chromaMode == LEFT_420 || chromaMode == LEFT_422) {
-        int fontpixels_left = 0;
-        int halopixels_left = 0;
-        int fontpixels_mid = 0;
-        int halopixels_mid = 0;
-
-        // shift variables
-        fontpixels_left = fontpixels_right;
-        if constexpr (useHalocolor)
-          halopixels_left = halopixels_right;
-        // gather counts
-        fontpixels_mid = get_bits(fontlines_ptr[0], tx, 1);
-        fontpixels_right = get_bits(fontlines_ptr[0], tx + 1, 1);
-        if constexpr (useHalocolor) {
-          halopixels_mid = get_bits(fontoutlines_ptr[0], tx, 1);
-          halopixels_right = get_bits(fontoutlines_ptr[0], tx + 1, 1);
-        }
-        if constexpr (chromaMode == LEFT_420) {
-          fontpixels_mid += get_bits(fontlines_ptr[1], tx, 1);
-          fontpixels_right += get_bits(fontlines_ptr[1], tx + 1, 1);
-          if constexpr (useHalocolor) {
-            halopixels_mid += get_bits(fontoutlines_ptr[1], tx, 1);
-            halopixels_right += get_bits(fontoutlines_ptr[1], tx + 1, 1);
-          }
-        }
-        // 1-2-1 weight
-        fontpixels = fontpixels_left + 2 * fontpixels_mid + fontpixels_right;
-        if constexpr (useHalocolor)
-          halopixels = halopixels_left + 2 * halopixels_mid + halopixels_right;
-      }
-      else if constexpr (chromaMode == TOPLEFT_420) {
-        // 1-2-1 horizontally over vertically 1-2-1 weighted column sums: 3x3 kernel centered
-        // on the block's top-left luma sample. Right column sum is reused as the next left one.
-        const int fontpixels_left = fontpixels_right;
-        fontpixels_right = colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], tx + 1);
-        fontpixels = fontpixels_left + 2 * colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], tx) + fontpixels_right;
-        if constexpr (useHalocolor) {
-          const int halopixels_left = halopixels_right;
-          halopixels_right = colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], tx + 1);
-          halopixels = halopixels_left + 2 * colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], tx) + halopixels_right;
-        }
-      }
-      else if constexpr (chromaMode == TOPLEFT_440) {
-        // vertical 1-2-1 centered on the block's top luma row (rows -1, 0, +1)
-        fontpixels = colsum_121(prevline_ptr, fontlines_ptr[0], fontlines_ptr[1], tx);
-        if constexpr (useHalocolor)
-          halopixels = colsum_121(prevoutline_ptr, fontoutlines_ptr[0], fontoutlines_ptr[1], tx);
-      }
-      else if constexpr (isPointSampleMode(chromaMode)) {
-        // point sample: single top-left luma/outline bit of the box, no averaging
-        // (same zero-offset convention as blend_common.h's calculate_effective_mask_topleft)
-        fontpixels = get_bits(fontlines_ptr[0], tx, 1);
-        if constexpr (useHalocolor)
-          halopixels = get_bits(fontoutlines_ptr[0], tx, 1);
-      }
-      else {
-        // center, equal weights
-        for (int yy = 0; yy < ySubS; yy++) {
-          fontpixels += get_bits(fontlines_ptr[yy], tx, xSubS);
-          if constexpr (useHalocolor)
-            halopixels += get_bits(fontoutlines_ptr[yy], tx, xSubS);
-        }
-      }
-      LightOneUVPixel<pixel_t, logXRatioUV, logYRatioUV, fadeBackground, chromaMode>(_dstpU, j, _dstpV,
-        color_u, color_v, color_outline_u, color_outline_v,
-        fontpixels, halopixels,
-        bits_per_pixel
-        );
-
-      j += 1;
+    // horizontal pass, per chroma sample
+    pixel_t* dstU = reinterpret_cast<pixel_t*>(dstpU + (size_t)cy * pitchUV);
+    pixel_t* dstV = reinterpret_cast<pixel_t*>(dstpV + (size_t)cy * pitchUV);
+    for (int cx = cx_first; cx <= cx_last; cx++) {
+      const int i = (cx - cx_first) * HS;
+      const int font = text_filter_sum<HF>(&col_font[i]);
+      int halo = 0;
+      if constexpr (useHalocolor)
+        halo = text_filter_sum<HF>(&col_halo[i]); // halo bits exclude the font bits
+      int rect = 0;
+      if constexpr (fadeBackground)
+        rect = hrect[cx - cx_first] * vrect;
+      LightOneUVPixel<pixel_t, fadeBackground, log2total>(dstU[cx * step], dstV[cx * step],
+        color_u, color_v, color_outline_u, color_outline_v, font, halo, rect, bits_per_pixel);
     }
+  }
+}
 
-    dstpU += pitchUV;
-    dstpV += pitchUV;
+// Runtime chroma kernel (MaskMode) -> RenderChroma instance.
+template<typename pixel_t, bool fadeBackground>
+static void RenderChromaForMode(MaskMode chromaMode, bool useHalocolor, int bits_per_pixel, int color, int halocolor,
+  BYTE* dstpU, BYTE* dstpV, int pitchUV, int step, const PreRendered& pre)
+{
+  auto render = [&](auto modeTag) {
+    constexpr MaskMode mm = decltype(modeTag)::value;
+    if (useHalocolor)
+      RenderChroma<pixel_t, true, fadeBackground, mm>(bits_per_pixel, color, halocolor, dstpU, dstpV, pitchUV, step, pre);
+    else
+      RenderChroma<pixel_t, false, fadeBackground, mm>(bits_per_pixel, color, halocolor, dstpU, dstpV, pitchUV, step, pre);
+  };
+  switch (chromaMode) {
+  case MASK410: render(std::integral_constant<MaskMode, MASK410>{}); break;
+  case MASK410_MPEG2: render(std::integral_constant<MaskMode, MASK410_MPEG2>{}); break;
+  case MASK410_TOPLEFT: render(std::integral_constant<MaskMode, MASK410_TOPLEFT>{}); break;
+  case MASK440: render(std::integral_constant<MaskMode, MASK440>{}); break;
+  case MASK440_TOPLEFT: render(std::integral_constant<MaskMode, MASK440_TOPLEFT>{}); break;
+  case MASK411: render(std::integral_constant<MaskMode, MASK411>{}); break;
+  case MASK411_TOPLEFT: render(std::integral_constant<MaskMode, MASK411_TOPLEFT>{}); break;
+  case MASK420: render(std::integral_constant<MaskMode, MASK420>{}); break;
+  case MASK420_MPEG2: render(std::integral_constant<MaskMode, MASK420_MPEG2>{}); break;
+  case MASK420_TOPLEFT: render(std::integral_constant<MaskMode, MASK420_TOPLEFT>{}); break;
+  case MASK422: render(std::integral_constant<MaskMode, MASK422>{}); break;
+  case MASK422_MPEG2: render(std::integral_constant<MaskMode, MASK422_MPEG2>{}); break;
+  default: assert(0); break; // MASK444: not subsampled, no chroma pass
   }
 }
 
@@ -1762,7 +1678,7 @@ template<typename pixel_t, bool fadeBackground, bool isRGB>
 void do_DrawStringPlanar(
   const int width, const int height, BYTE** dstps, int* pitches, const int logXRatioUV, const int logYRatioUV, const int planeCount,
   int bits_per_pixel,
-  const BitmapFont* bmfont, int x, int y, std::vector<int>& s, int color, int halocolor, int align, bool useHalocolor, int chromalocation)
+  const BitmapFont* bmfont, int x, int y, std::vector<int>& s, int color, int halocolor, int align, bool useHalocolor, MaskMode chromaMode)
 {
   // some optimization hint
   if constexpr (sizeof(pixel_t) == 1)
@@ -1770,17 +1686,8 @@ void do_DrawStringPlanar(
   else if constexpr (sizeof(pixel_t) == 4)
     bits_per_pixel = 32;
 
-  // Chroma 410/411 would require 3 extra bits on both left and right.
-  // Chroma 420 and 422 need 1 bits on both left and right
-  // Left (mpeg2) and top_left chroma placement (420, 422) require an additional one on the left
-  // (horizontal 1-2-1 kernel).
-  const bool isLeftStyleChromaLoc = (logXRatioUV == 1) &&
-    (chromalocation == ChromaLocation_e::AVS_CHROMA_LEFT || chromalocation == ChromaLocation_e::AVS_CHROMA_TOP_LEFT);
-  const int safety_bits_x_left = (1 << logXRatioUV) - 1 + (isLeftStyleChromaLoc ? 1 : 0);
-  const int safety_bits_x_right = (1 << logXRatioUV) - 1;
-
-  PreRendered pre(bmfont->font_bitmaps.data(), bmfont->fontline_bytes, width, height, x, y, s, bmfont->bbx_array, align, useHalocolor, 
-    bmfont->global_bbx.width, bmfont->global_bbx.height, safety_bits_x_left, safety_bits_x_right);
+  PreRendered pre(bmfont->font_bitmaps.data(), bmfont->fontline_bytes, width, height, x, y, s, bmfont->bbx_array, align, useHalocolor,
+    bmfont->global_bbx.width, bmfont->global_bbx.height);
 
   if (pre.len <= 0)
     return;
@@ -1801,129 +1708,39 @@ void do_DrawStringPlanar(
   if (planeCount < 3)
     return; // Y
 
-  // Subsampled cases, templates help a lot. chromalocation is already narrowed down in
-  // DrawString_internal to CENTER (box average), LEFT (1-2-1; 420: rows 0-1, 422) or
-  // TOP_LEFT (420: 3x3 1-2-1, 440: vertical 1-2-1). 411/410: anything but CENTER is a point sample.
-  if (logXRatioUV == 2 && logYRatioUV == 0) {// 411
-    if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER) {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 2, 0, ChromaLocationMode::CENTER_411>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 2, 0, ChromaLocationMode::CENTER_411>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-    else {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 2, 0, ChromaLocationMode::TOPLEFT_411>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 2, 0, ChromaLocationMode::TOPLEFT_411>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-  }
-  else if (logXRatioUV == 1 && logYRatioUV == 0) {// 422
-    if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER) {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 1, 0, ChromaLocationMode::CENTER_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 1, 0, ChromaLocationMode::CENTER_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-    else {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 1, 0, ChromaLocationMode::LEFT_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 1, 0, ChromaLocationMode::LEFT_422>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-  }
-  else if (logXRatioUV == 1 && logYRatioUV == 1) {// 420
-    if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER) {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 1, 1, ChromaLocationMode::CENTER_420>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 1, 1, ChromaLocationMode::CENTER_420>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-    else if (chromalocation == ChromaLocation_e::AVS_CHROMA_TOP_LEFT) {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 1, 1, ChromaLocationMode::TOPLEFT_420>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 1, 1, ChromaLocationMode::TOPLEFT_420>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-    else {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 1, 1, ChromaLocationMode::LEFT_420>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 1, 1, ChromaLocationMode::LEFT_420>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-
-    }
-  }
-  else if (logXRatioUV == 0 && logYRatioUV == 1) { // 440
-    if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER) {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 0, 1, ChromaLocationMode::CENTER_440>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 0, 1, ChromaLocationMode::CENTER_440>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-    else {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 0, 1, ChromaLocationMode::TOPLEFT_440>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 0, 1, ChromaLocationMode::TOPLEFT_440>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-  }
-  else if (logXRatioUV == 2 && logYRatioUV == 2) { // 410
-    if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER) {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 2, 2, ChromaLocationMode::CENTER_410>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 2, 2, ChromaLocationMode::CENTER_410>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-    else {
-      if (useHalocolor)
-        RenderUV<pixel_t, true, fadeBackground, 2, 2, ChromaLocationMode::TOPLEFT_410>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-      else
-        RenderUV<pixel_t, false, fadeBackground, 2, 2, ChromaLocationMode::TOPLEFT_410>(bits_per_pixel, color, halocolor, pitches, dstps, pre);
-    }
-  }
-  else
-    assert(0);
+  // subsampled chroma: the mask kernel of the format and chroma placement (chromaMode, see DrawString_internal)
+  RenderChromaForMode<pixel_t, fadeBackground>(chromaMode, useHalocolor, bits_per_pixel, color, halocolor,
+    dstps[1], dstps[2], pitches[1], 1, pre);
 }
 
-template<bool useHalocolor, bool fadeBackground, ChromaLocationMode chromaMode>
-void RenderYUY2(int color, int halocolor, int pitch, BYTE* _dstp, PreRendered& pre)
+template<bool useHalocolor, bool fadeBackground>
+void RenderYUY2(int color, int halocolor, int pitch, BYTE* _dstp, PreRendered& pre, MaskMode chromaMode)
 {
   BYTE* dstp = _dstp + pre.x * 2 + pre.y * pitch;
-  BYTE* dstpUV = _dstp + (pre.x / 2) * 4 + 1 + pre.y * pitch; // always points to U of a YUYV block
 
   typedef uint8_t pixel_t;
 
   pixel_t val_color = getColorForPlane(PLANAR_Y, color);
   pixel_t val_color_outline = getColorForPlane(PLANAR_Y, halocolor);
-  pixel_t color_u = getColorForPlane(PLANAR_U, color);
-  pixel_t color_outline_u = getColorForPlane(PLANAR_U, halocolor);
-  pixel_t color_v = getColorForPlane(PLANAR_V, color);
-  pixel_t color_outline_v = getColorForPlane(PLANAR_V, halocolor);
 
-  // YUY2 like 422
-  constexpr int logXRatioUV = 1;
-  constexpr int logYRatioUV = 0;
-  constexpr int xSubS = 2;
-
-  // unaligned x: for horizontal subsampling 420, 422 (YUY2) and 411:
-  // 420, 422, 411, YUY2 horizontal subsampling: one more loop because of the leftmost orphan pixel(s)
-  // we can overaddress on the right, additional safety bit column(s) were added for the bitmap
-  const bool unaligned_x_start = 0 != pre.x % xSubS;
-  const int xplus = unaligned_x_start ? xSubS : 0; // extra orphan bits affecting rightmost chroma
-  const int xshift = pre.x % xSubS; // when aligned --> 0
-
+  // first Y, like in 4:4:4
   for (int ty = pre.ystart; ty < pre.yend; ty++) {
     BYTE* dp = dstp;
-    BYTE* dpUV = dstpUV;
     uint8_t* fontline_ptr = pre.stringbitmap[ty].data();
-    [[maybe_unused]] uint8_t* fontoutline_ptr;
+    uint8_t* fontoutline_ptr = nullptr;
     if constexpr (useHalocolor)
       fontoutline_ptr = pre.stringbitmap_outline[ty].data();
 
-    // first Y, like in 4:4:4
     int j = 0;
-    int shifted_xstart = pre.safety_bits_x_left + pre.xstart;
+    const int shifted_xstart = pre.xstart;
     for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width; tx++) {
+      if constexpr (!fadeBackground) {
+        if (is_empty_bitmap_byte(fontline_ptr, fontoutline_ptr, tx)) {
+          tx += 7; // +1 in the loop header
+          j += 16; // 8 YUYV luma positions
+          continue;
+        }
+      }
       const bool lightIt = 0 != get_bit(fontline_ptr, tx);
       LightOnePixel<uint8_t, fadeBackground, false>(lightIt, dp, j, val_color, 8);
       if constexpr (useHalocolor) {
@@ -1935,106 +1752,29 @@ void RenderYUY2(int color, int halocolor, int pitch, BYTE* _dstp, PreRendered& p
       }
       j += 2; // next Y
     }
-
-    // then chroma
-    j = 0;
-    // (pre.xstart - xshift) is always on horizontal subsample boundary
-    shifted_xstart = pre.safety_bits_x_left + pre.xstart - xshift;
-
-    // left (mpeg2) location: 
-    int fontpixels_right = 0; // used for left (mpeg2) chroma location case
-    int halopixels_right = 0;
-    // For the very first chroma pixel there is no previous rightside.
-    // Use index -1, safe because of safety columns
-    if constexpr (chromaMode == LEFT_422) {
-      fontpixels_right = get_bits(fontline_ptr, shifted_xstart - 1, 1);
-      if constexpr (useHalocolor)
-        halopixels_right = get_bits(fontoutline_ptr, shifted_xstart - 1, 1);
-    }
-
-    for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width + xplus; tx += xSubS) {
-      int fontpixels = 0;
-      int halopixels = 0;
-      // 422 center (mpeg1, jpeg)
-      // +------+------+
-      // | 0.5  | 0.5  |
-      // +------+------+
-      // 422 left (mpeg2)
-      // ------+------+-------+
-      // 0.25  | 0.5  | 0.25  |
-      // ------+------+-------+
-
-      if constexpr (chromaMode == LEFT_422) {
-        int fontpixels_left = 0;
-        int halopixels_left = 0;
-        int fontpixels_mid = 0;
-        int halopixels_mid = 0;
-
-        // shift variables
-        fontpixels_left = fontpixels_right;
-        if constexpr (useHalocolor)
-          halopixels_left = halopixels_right;
-        // gather counts
-        fontpixels_mid = get_bits(fontline_ptr, tx, 1);
-        fontpixels_right = get_bits(fontline_ptr, tx + 1, 1);
-        if constexpr (useHalocolor) {
-          halopixels_mid = get_bits(fontoutline_ptr, tx, 1);
-          halopixels_right = get_bits(fontoutline_ptr, tx + 1, 1);
-        }
-        // 1-2-1 weight
-        fontpixels = fontpixels_left + 2 * fontpixels_mid + fontpixels_right;
-        if constexpr (useHalocolor)
-          halopixels = halopixels_left + 2 * halopixels_mid + halopixels_right;
-      }
-      else {
-        // center, equal weights
-        fontpixels += get_bits(fontline_ptr, tx, xSubS);
-        if constexpr (useHalocolor)
-          halopixels += get_bits(fontoutline_ptr, tx, xSubS);
-      }
-
-      LightOneUVPixel<uint8_t, logXRatioUV, logYRatioUV, fadeBackground, chromaMode>(dpUV /*U*/, j, dpUV + 2 /*V*/,
-        color_u, color_v, color_outline_u, color_outline_v,
-        fontpixels, halopixels,
-        8
-        );
-      j += 4; // YUYV
-    }
-
     dstp += pitch;
-    dstpUV += pitch;
   }
+
+  // then chroma, like planar 4:2:2: U and V are the bytes 1 and 3 of each YUYV group
+  RenderChromaForMode<uint8_t, fadeBackground>(chromaMode, useHalocolor, 8, color, halocolor,
+    _dstp + 1, _dstp + 3, pitch, 4, pre);
 }
 
 template<bool fadeBackground>
 static void do_DrawStringYUY2(
   const int width, const int height, BYTE* _dstp, int pitch, const BitmapFont* bmfont, int x, int y, std::vector<int>& s,
-  int color, int halocolor, int align, bool useHalocolor, int chromalocation)
+  int color, int halocolor, int align, bool useHalocolor, MaskMode chromaMode)
 {
-  const bool isLeftStyleChromaLoc = chromalocation == ChromaLocation_e::AVS_CHROMA_LEFT;
-  // Like 422. Chroma subsampling would require 1 extra bit playground on both left and right
-  const int safety_bits_x_left = 1 + (isLeftStyleChromaLoc ? 1 : 0);
-  const int safety_bits_x_right = 1;
-
   PreRendered pre(bmfont->font_bitmaps.data(), bmfont->fontline_bytes, width, height, x, y, s, bmfont->bbx_array, align, useHalocolor,
-    bmfont->global_bbx.width, bmfont->global_bbx.height,
-    safety_bits_x_left, safety_bits_x_right);
+    bmfont->global_bbx.width, bmfont->global_bbx.height);
 
   if (pre.len <= 0)
     return;
 
-  if (useHalocolor) {
-    if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER)
-      RenderYUY2<true, fadeBackground, ChromaLocationMode::CENTER_422>(color, halocolor, pitch, _dstp, pre);
-    else
-      RenderYUY2<true, fadeBackground, ChromaLocationMode::LEFT_422>(color, halocolor, pitch, _dstp, pre);
-  }
-  else {
-    if (chromalocation == ChromaLocation_e::AVS_CHROMA_CENTER)
-      RenderYUY2<false, fadeBackground, ChromaLocationMode::CENTER_422>(color, halocolor, pitch, _dstp, pre);
-    else
-      RenderYUY2<false, fadeBackground, ChromaLocationMode::LEFT_422>(color, halocolor, pitch, _dstp, pre);
-  }
+  if (useHalocolor)
+    RenderYUY2<true, fadeBackground>(color, halocolor, pitch, _dstp, pre, chromaMode);
+  else
+    RenderYUY2<false, fadeBackground>(color, halocolor, pitch, _dstp, pre, chromaMode);
 }
 
 template<typename pixel_t, bool useHalocolor, bool fadeBackground, int rgbstep>
@@ -2061,13 +1801,20 @@ static void RenderPackedRGB(int color, int halocolor, BYTE* _dstp, int pitch, in
   for (int ty = pre.ystart; ty < pre.yend; ty++) {
     uint8_t* dp = dstp;
     uint8_t* fontline_ptr = pre.stringbitmap[ty].data();
-    [[maybe_unused]] uint8_t* fontoutline_ptr;
+    uint8_t* fontoutline_ptr = nullptr;
     if constexpr(useHalocolor)
       fontoutline_ptr = pre.stringbitmap_outline[ty].data();
 
-    const int shifted_xstart = pre.safety_bits_x_left + pre.xstart; // though safety bit count must be 0 here
+    const int shifted_xstart = pre.xstart;
     for (int tx = shifted_xstart; tx < shifted_xstart + pre.text_width; tx++)
     {
+      if constexpr (!fadeBackground) {
+        if (is_empty_bitmap_byte(fontline_ptr, fontoutline_ptr, tx)) {
+          tx += 7; // +1 in the loop header
+          dp += rgbstep * 8;
+          continue;
+        }
+      }
       const bool lightIt = 0 != get_bit(fontline_ptr, tx);
       LightOnePixelPackedRGB<pixel_t, fadeBackground>(lightIt, dp, val_color_R, val_color_G, val_color_B);
       if constexpr(useHalocolor) {
@@ -2087,11 +1834,8 @@ static void do_DrawStringPackedRGB(
   const int width, const int height, BYTE* _dstp, int pitch,
   const BitmapFont* bmfont, int x, int y, std::vector<int>& s, int color, int halocolor, int align, bool useHalocolor)
 {
-  const int safety_bits_x_left = 0; // no horizontal subsampling
-  const int safety_bits_x_right = 0; // no horizontal subsampling
   PreRendered pre(bmfont->font_bitmaps.data(), bmfont->fontline_bytes, width, height, x, y, s, bmfont->bbx_array, align, useHalocolor,
-    bmfont->global_bbx.width, bmfont->global_bbx.height,
-    safety_bits_x_left, safety_bits_x_right);
+    bmfont->global_bbx.width, bmfont->global_bbx.height);
 
   if (pre.len <= 0)
     return;
@@ -2257,28 +2001,18 @@ static void DrawString_internal(const BitmapFont* current_font, const VideoInfo&
 
   const int bits_per_pixel = vi.BitsPerComponent();
 
-  // Chroma kernels, the same three variants as the mask kernels of Overlay/Layer/Subtitle
-  // (chromaLocationToMaskPlacement, blend_common.h):
-  // - "mpeg1" -> CENTER: box average
-  // - "top_left" -> TOP_LEFT: 1-2-1 filter centered on the top-left luma sample (4:2:0: 3x3,
-  //   4:4:0: vertical); 4:2:2/YUY2: same siting as left, uses LEFT; 4:1:1, 4:1:0: point sample
-  // - "mpeg2" -> LEFT: 1-2-1 (4:2:0, 4:2:2, YUY2); 4:1:1 has no such kernel, uses the point sample
-  // This is where it is narrowed down: unlike Overlay/Layer, which keep the chroma location and
-  // store the kernel variant separately, here chromalocation itself is overwritten with the
-  // kernel's representative value (CENTER, TOP_LEFT or LEFT) and passed on.
+  // Chroma kernel: the mask kernel of Overlay/Layer/Subtitle for the format and chroma placement
+  // (chromaLocationToMaskPlacement and resolveChromaMaskMode, blend_common.h): box (centred 4:2:x and 4:4:0),
+  // [1 2 1] (co-sited 4:2:x and 4:4:0), 4:1 triangle (centred 4:1:x) or tent (co-sited 4:1:x).
   const bool subsampledYUV = (vi.IsYUV() || vi.IsYUVA()) && !vi.IsY() && !vi.IsYA() && !vi.Is444();
-  const int maskPlacement = subsampledYUV ? chromaLocationToMaskPlacement(chromalocation, vi) : PLACEMENT_MPEG2;
-  const bool is422 = vi.Is422() || vi.IsYUY2(); // top_left has the same siting as left
-  chromalocation = maskPlacement == PLACEMENT_MPEG1 ? ChromaLocation_e::AVS_CHROMA_CENTER
-    : (maskPlacement == PLACEMENT_TOPLEFT && !is422) ? ChromaLocation_e::AVS_CHROMA_TOP_LEFT
-    : ChromaLocation_e::AVS_CHROMA_LEFT; // also n/a for non-subsampled formats
+  const MaskMode chromaMode = subsampledYUV ? resolveChromaMaskMode(chromaLocationToMaskPlacement(chromalocation, vi), vi) : MASK444;
 
   // YUY2
   if (vi.IsYUY2()) {
     if (fadeBackground)
-      do_DrawStringYUY2<true>(width, height, dstps[0], pitches[0], current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+      do_DrawStringYUY2<true>(width, height, dstps[0], pitches[0], current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
     else
-      do_DrawStringYUY2<false>(width, height, dstps[0], pitches[0], current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+      do_DrawStringYUY2<false>(width, height, dstps[0], pitches[0], current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
     return;
   }
 
@@ -2313,16 +2047,16 @@ static void DrawString_internal(const BitmapFont* current_font, const VideoInfo&
       switch (bits_per_pixel)
       {
       case 8:
-        do_DrawStringPlanar<uint8_t, true, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint8_t, true, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 10:
       case 12:
       case 14:
       case 16:
-        do_DrawStringPlanar<uint16_t, true, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint16_t, true, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 32:
-        do_DrawStringPlanar<float, true, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<float, true, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       }
     }
@@ -2330,16 +2064,16 @@ static void DrawString_internal(const BitmapFont* current_font, const VideoInfo&
       switch (bits_per_pixel)
       {
       case 8:
-        do_DrawStringPlanar<uint8_t, true, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint8_t, true, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 10:
       case 12:
       case 14:
       case 16:
-        do_DrawStringPlanar<uint16_t, true, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint16_t, true, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 32:
-        do_DrawStringPlanar<float, true, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<float, true, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       }
     }
@@ -2349,16 +2083,16 @@ static void DrawString_internal(const BitmapFont* current_font, const VideoInfo&
       switch (bits_per_pixel)
       {
       case 8:
-        do_DrawStringPlanar<uint8_t, false, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint8_t, false, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 10:
       case 12:
       case 14:
       case 16:
-        do_DrawStringPlanar<uint16_t, false, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint16_t, false, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 32:
-        do_DrawStringPlanar<float, false, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<float, false, true>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       }
     }
@@ -2366,16 +2100,16 @@ static void DrawString_internal(const BitmapFont* current_font, const VideoInfo&
       switch (bits_per_pixel)
       {
       case 8:
-        do_DrawStringPlanar<uint8_t, false, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint8_t, false, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 10:
       case 12:
       case 14:
       case 16:
-        do_DrawStringPlanar<uint16_t, false, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<uint16_t, false, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       case 32:
-        do_DrawStringPlanar<float, false, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromalocation);
+        do_DrawStringPlanar<float, false, false>(width, height, dstps, pitches, logXRatioUV, logYRatioUV, planecount, bits_per_pixel, current_font, x, y, s_remapped, color, halocolor, align, useHalocolor, chromaMode);
         break;
       }
     }
