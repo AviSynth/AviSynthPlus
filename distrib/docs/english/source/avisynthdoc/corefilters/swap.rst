@@ -49,6 +49,9 @@ image resolution can be changed – i.e.,
 * with a YUV420 source, the output clip will be half the input clip's width and
   height.
 
+With a YUVA source, the output alpha plane is opaque. The source alpha is not
+copied, as it does not fit the output of a subsampled format.
+
 .. rubric:: Syntax and Parameters
 
 ::

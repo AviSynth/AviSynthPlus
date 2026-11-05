@@ -523,6 +523,20 @@ PVideoFrame __stdcall SwapUVToY::GetFrame(int n, IScriptEnvironment* env)
     fill_chroma<float>(dstp_u, dstp_v, height, rowsize, pitch, grey_val);
   }
 
+  // Output size follows chroma: source alpha may not fit, always opaque
+  if (vi.IsYUVA()) {
+    BYTE* dstp_a = dst->GetWritePtr(PLANAR_A);
+    const int pitch_a = dst->GetPitch(PLANAR_A);
+    const int height_a = dst->GetHeight(PLANAR_A);
+    const int rowsize_a = dst->GetRowSize(PLANAR_A);
+    if (vi.ComponentSize() == 1)
+      fill_plane<BYTE>(dstp_a, height_a, rowsize_a, pitch_a, 255);
+    else if (vi.ComponentSize() == 2)
+      fill_plane<uint16_t>(dstp_a, height_a, rowsize_a, pitch_a, (uint16_t)((1 << vi.BitsPerComponent()) - 1));
+    else
+      fill_plane<float>(dstp_a, height_a, rowsize_a, pitch_a, 1.0f);
+  }
+
   return dst;
 }
 
