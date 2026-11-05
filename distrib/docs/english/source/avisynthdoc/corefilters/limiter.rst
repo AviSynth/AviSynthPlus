@@ -2,8 +2,8 @@
 Limiter
 =======
 
-``Limiter`` (clip, int "min_luma", int "max_luma", int "min_chroma", int
-"max_chroma", string "show")
+``Limiter`` (clip, float "min_luma", float "max_luma", float "min_chroma", float
+"max_chroma", string "show", bool "paramscale")
 
 This filter is present in *v2.5*. The standard known as CCIR-601 defines the
 range of pixel values considered legal for presenting on a TV. These ranges
@@ -16,6 +16,17 @@ display device. By default this filter clips (or "clamps") pixels under 16 to
 
 Prior to *v2.53* the (incorrect) default value was 236. Use Limiter(16, 235,
 16, 240) for CCIR-601 compliant digital video.
+
+The limits are given in the scale of the clip: integer formats use their own bit
+depth (the fractional part is dropped), 32 bit float uses 0..1 for luma and
+-0.5..0.5 for chroma. The defaults follow the bit depth.
+
+With ``paramscale=true`` (default: false) the limits are 8 bit levels and are
+converted to the bit depth of the clip, so the same script works at all bit
+depths: e.g. ``max_luma=235`` is 940 at 10 bit. They can be non-integer: 234.75 is
+939 at 10 bit. Integer formats round the result to their own steps.
+The conversion always assumes limited range YUV, like :doc:`ConvertBits <convertbits>`
+with ``fulls=false, fulld=false``; ``_ColorRange`` is not used.
 
 In  *v2.56*, an option *show* is added. If set, it colors the pixels outside
 the specified [min_luma,max_luma] or [min_chroma,max_chroma] range.
@@ -63,9 +74,11 @@ follows:
 +-----------+----------------------------------------------+
 | Changelog |                                              |
 +===========+==============================================+
+| r2728     | Added paramscale; the limits are float.      |
++-----------+----------------------------------------------+
 | v2.60     | Added show for YV24.                         |
 +-----------+----------------------------------------------+
 | v2.56     | added show to show out of bounds luma/chroma |
 +-----------+----------------------------------------------+
 
-$Date: 2012/04/09 08:19:32 $
+$Date: 2026/11/05 15:00:00 $
