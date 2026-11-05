@@ -495,6 +495,9 @@ Changelog
 |                 || "Color2": alpha of the histogram area is opaque, was 0.    |
 |                 || Fix: "Color2": U or V at the top of the range was plotted  |
 |                 |  outside the panel when ``bits`` was below the clip depth.  |
+|                 || Fix: "Levels", 32 bit float, limited range: luma bars were |
+|                 |  16 levels too high. "Classic" float with ``bits`` above 8. |
+|                 || Fix: "Levels" on Y+Alpha clips, works as on greyscale.     |
 +-----------------+-------------------------------------------------------------+
 | AviSynth+ 3.7.6 || Vectorscope modes: added ``matrix``, ``graticule``,        |
 |                 |  ``targets``, ``axes``, ``iq``, ``iq_lines``, ``circle``    |

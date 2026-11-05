@@ -161,7 +161,7 @@ Histogram::Histogram(PClip _child, Mode _mode, AVSValue _option, int _show_bits,
     if (!vi.IsPlanar()) {
       env->ThrowError("Histogram: VectorScope modes (color, color2) only available in PLANAR.");
     }
-    if (vi.IsY()) {
+    if (vi.IsY() || vi.IsYA()) {
       env->ThrowError("Histogram: VectorScope modes (color, color2) are not available in greyscale.");
     }
     // put diagram on the right side
@@ -2020,7 +2020,7 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
 
   int show_size = 1 << show_bits;
 
-  const bool isGrey = vi.IsY();
+  const bool isGrey = vi.IsY() || vi.IsYA();
   const int planecount = isGrey ? 1 : 3;
   const bool RGB = vi.IsRGB();
   const bool isFloat = (bits_per_pixel == 32);
@@ -2041,7 +2041,8 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
 
   const int planesYUV[4] = { PLANAR_Y, PLANAR_U, PLANAR_V, PLANAR_A};
   const int planesRGB[4] = { PLANAR_G, PLANAR_B, PLANAR_R, PLANAR_A};
-  const int *planes = vi.IsYUV() || vi.IsYUVA() ? planesYUV : planesRGB;
+  const int planesGrey[2] = { PLANAR_Y, PLANAR_A }; // alpha only for YA
+  const int *planes = isGrey ? planesGrey : vi.IsYUV() || vi.IsYUVA() ? planesYUV : planesRGB;
 
   if (keepsource) {
     if (src->GetHeight() < dst->GetHeight()) {
@@ -2234,7 +2235,7 @@ PVideoFrame Histogram::DrawModeLevels(int n, IScriptEnvironment* env) {
         const float dst_offset_plus_round = d.dst_offset + 0.5f;
         for (int y = 0; y < h; y++) {
           for (int x = 0; x < w; x++) {
-            hist[clamp((int)(srcp32[x] * d.mul_factor + dst_offset_plus_round), 0, max_show_pixel_value)]++;
+            hist[clamp((int)((srcp32[x] - d.src_offset) * d.mul_factor + dst_offset_plus_round), 0, max_show_pixel_value)]++;
           }
           srcp32 += pitch;
         }
@@ -2689,7 +2690,8 @@ PVideoFrame Histogram::DrawModeClassic(int n, IScriptEnvironment* env)
       {
         // float
         const float *srcp32 = reinterpret_cast<const float *>(srcp);
-        const float multiplier = (float)(show_size - 1);
+        // limited range: same position as the shift at integer bit depths, 235 is 235 << (show_bits - 8)
+        const float multiplier = full_range ? (float)(show_size - 1) : (float)(255 << (show_bits - 8));
         for (int x = 0; x < source_width; x++) {
           hist[(intptr_t)(clamp(srcp32[x], 0.0f, 1.0f)*multiplier + 0.5f)]++; // luma, no shift needed
         }

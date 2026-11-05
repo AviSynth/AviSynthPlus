@@ -19,6 +19,12 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Histogram ``levels``, 32 bit float, limited range: luma bars were 16 levels too high, levels above 239 piled up
+  in the last bar, which shrank the others to 2 pixels. Existed since 3.7.1.
+- Fix: Histogram ``classic``, 32 bit float, limited range, ``bits`` above 8: bars were not at the same position as at
+  integer bit depths.
+- Fix: Histogram ``levels`` on Y+Alpha clips gave an error, now works as on greyscale. ``color`` and ``color2`` give the
+  greyscale error message.
 - Fix: Subtitle (``gdi=true``), 10-16 bit YUV: levels were level * 257 instead of a limited range shift: white Y was
   60393 instead of 60160, neutral U 32895 instead of 32768 at 16 bit. 8 bit output is the same as before, see
   :doc:`Subtitle <corefilters/subtitle>`. Existed since the 10-16 bit support of text overlay (2016).

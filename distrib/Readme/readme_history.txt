@@ -11,6 +11,12 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: Histogram "levels", 32 bit float, limited range: the source offset was missing from the luma position: x*255+16,
+  so bars were 16 levels too high and levels above 239 piled up in the last bar. The population scale follows the
+  largest bar, so the others shrank to 2 pixels. Chroma, RGB and full range were right.
+- Fix: Histogram "classic", 32 bit float, limited range, bits above 8: position was x*(2^bits-1) instead of x*255<<(bits-8).
+- Fix: Histogram "levels" on YA clips gave a GetPlaneWidthSubsampling error, now works as on greyscale, alpha copied with
+  keepsource. "color" and "color2" give the greyscale error message.
 - Fix: Subtitle (gdi=true), 10-16 bit YUV: the colour addends of the text have a *256.99 scale (right for the 8 bit >>8,
   right for full range RGB, 255 is 65535), so limited range got Y*257: 16 bit white 60393 instead of 60160, neutral U
   32895 instead of 32768. Now they are scaled back to a plain shift, exact at full coverage for all 8 bit levels.
