@@ -352,9 +352,10 @@ Internal variables
     * ``frameno`` : use current frame number in expression.
       ``0 <= frameno < clip_frame_count.`` |br| A 32 bit integer converted to
       float, so it is precise only at approximately 24 bits.
-    * ``time`` : ``calculation: time = frameno/clip_frame_count``. Use relative
-      time position in expression. ``0 <= time < frameno/clip_frame_count``
-    * ``width, height``: clip width and clip height
+    * ``time`` : ``calculation: time = frameno/(clip_frame_count-1)``. Use relative
+      time position in expression. ``0 <= time <= 1``; 0 on a single frame clip.
+    * ``width, height``: width and height of the plane being processed. On subsampled
+      chroma planes they differ from the clip size, e.g. half of it on 4:2:0.
 
 Pixel addressing
 ~~~~~~~~~~~~~~~~
@@ -784,7 +785,7 @@ Changelog
 | AviSynth+ r2542 |  Initial release                                         |
 +-----------------+----------------------------------------------------------+
 
-$Date: 2026/10/15 08:40:00 $
+$Date: 2026/11/05 12:00:00 $
 
 .. _mathematical function:
     https://en.wikipedia.org/wiki/Function_(mathematics)
