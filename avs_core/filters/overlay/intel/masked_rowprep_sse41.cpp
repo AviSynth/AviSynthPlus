@@ -563,8 +563,8 @@ static void fill_mask422_mpeg2_float_sse41(
       _mm_castps_si128(odd),
       _mm_castps_si128(v_prev_odd), 12));
 
-    // 4. Filter: avg = (left + 2*even + odd) * 0.25
-    __m128 avg = _mm_add_ps(left, _mm_add_ps(_mm_add_ps(even, even), odd));
+    // 4. Filter: avg = ((left + 2*even) + odd) * 0.25, the same addition order as C
+    __m128 avg = _mm_add_ps(_mm_add_ps(left, _mm_add_ps(even, even)), odd);
     avg = _mm_mul_ps(avg, v_025);
 
     if constexpr (!full_opacity) {
@@ -614,17 +614,14 @@ static void fill_mask420_float_sse41(
     __m128 r1_0 = _mm_loadu_ps(row1 + x * 2);
     __m128 r1_1 = _mm_loadu_ps(row1 + x * 2 + 4);
 
-    // 2. Vertical Sum
-    __m128 s0 = _mm_add_ps(r0_0, r1_0); // [e0, o0, e1, o1]
-    __m128 s1 = _mm_add_ps(r0_1, r1_1); // [e2, o2, e3, o3]
+    // 2. De-interleave each row into even/odd samples
+    __m128 even0 = _mm_shuffle_ps(r0_0, r0_1, _MM_SHUFFLE(2, 0, 2, 0));
+    __m128 odd0  = _mm_shuffle_ps(r0_0, r0_1, _MM_SHUFFLE(3, 1, 3, 1));
+    __m128 even1 = _mm_shuffle_ps(r1_0, r1_1, _MM_SHUFFLE(2, 0, 2, 0));
+    __m128 odd1  = _mm_shuffle_ps(r1_0, r1_1, _MM_SHUFFLE(3, 1, 3, 1));
 
-    // 3. Horizontal Sum via De-interleave
-    // Shuffle picks [e0, e1] from s0 and [e2, e3] from s1
-    __m128 even = _mm_shuffle_ps(s0, s1, _MM_SHUFFLE(2, 0, 2, 0));
-    __m128 odd = _mm_shuffle_ps(s0, s1, _MM_SHUFFLE(3, 1, 3, 1));
-
-    // 4. Final Average: (even + odd) * 0.25
-    __m128 avg = _mm_mul_ps(_mm_add_ps(even, odd), v_025);
+    // 3. avg = (((r0e + r0o) + r1e) + r1o) * 0.25: the same addition order as C (bit-identical)
+    __m128 avg = _mm_mul_ps(_mm_add_ps(_mm_add_ps(_mm_add_ps(even0, odd0), even1), odd1), v_025);
 
     if constexpr (!full_opacity) {
       avg = _mm_mul_ps(avg, v_opacity);

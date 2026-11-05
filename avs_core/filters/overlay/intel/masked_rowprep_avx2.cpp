@@ -622,26 +622,25 @@ static void fill_mask422_mpeg2_float_avx2(
   __m256 v_prev_carry = _mm256_set1_ps(right_val);
 
   for (; x <= width - 8; x += 8) {
-    // 1. Load 16 floats (one full source block for 8 output pixels)
-    __m256 v0 = _mm256_loadu_ps(src + x * 2);
+    // 1. Load 16 floats: the source pairs of 8 output pixels
+    __m256 v_lo = _mm256_loadu_ps(src + x * 2);
+    __m256 v_hi = _mm256_loadu_ps(src + x * 2 + 8);
 
-    // 2. De-interleave: Even (src[x*2]) and Odd (src[x*2+1])
-    // s0, s1, s2, s3, s4, s5, s6, s7 | s8, s9, s10, s11, s12, s13, s14, s15
-    __m256 even = _mm256_permutevar8x32_ps(v0, _mm256_set_epi32(14, 12, 10, 8, 6, 4, 2, 0));
-    __m256 odd = _mm256_permutevar8x32_ps(v0, _mm256_set_epi32(15, 13, 11, 9, 7, 5, 3, 1));
+    // 2. De-interleave: even (src[x*2]) and odd (src[x*2+1]), in output order
+    __m256 even = _mm256_castsi256_ps(_mm256_permute4x64_epi64(
+      _mm256_castps_si256(_mm256_shuffle_ps(v_lo, v_hi, _MM_SHUFFLE(2, 0, 2, 0))), _MM_SHUFFLE(3, 1, 2, 0)));
+    __m256 odd = _mm256_castsi256_ps(_mm256_permute4x64_epi64(
+      _mm256_castps_si256(_mm256_shuffle_ps(v_lo, v_hi, _MM_SHUFFLE(3, 1, 3, 1))), _MM_SHUFFLE(3, 1, 2, 0)));
 
-    // 3. Sliding Window: Construct 'left' neighbor vector
-    // shifted_odd: [prev_o4..o7, o0..o3] - brings previous high into current low
+    // 3. Sliding window: left neighbor = previous odd sample
+    // shifted_odd: [prev_carry | o0..o3]; alignr per 128-bit lane: [prev_o7, o0, o1, o2 | o3, o4, o5, o6]
     __m256 shifted_odd = _mm256_permute2f128_ps(odd, v_prev_carry, 0x02);
-
-    // left: [prev_o7, o0, o1, o2 | o3, o4, o5, o6]
-    // alignr by 12 bytes shifts the 128-bit window by 3 floats (leaving 1 float carry)
     __m256 left = _mm256_castsi256_ps(_mm256_alignr_epi8(
       _mm256_castps_si256(odd),
       _mm256_castps_si256(shifted_odd), 12));
 
-    // 4. Filter: avg = (left + 2*even + odd) * 0.25
-    __m256 avg = _mm256_add_ps(left, _mm256_add_ps(_mm256_add_ps(even, even), odd));
+    // 4. Filter: avg = ((left + 2*even) + odd) * 0.25, the same addition order as C
+    __m256 avg = _mm256_add_ps(_mm256_add_ps(left, _mm256_add_ps(even, even)), odd);
     avg = _mm256_mul_ps(avg, v_025);
 
     if constexpr (!full_opacity) {
@@ -693,25 +692,16 @@ static void fill_mask420_float_avx2(
     __m256 r1_lo = _mm256_loadu_ps(row1 + x * 2);
     __m256 r1_hi = _mm256_loadu_ps(row1 + x * 2 + 8);
 
-    // 2. Vertical Sum: Interleaved [e0, o0, e1, o1, e2, o2, e3, o3...]
-    __m256 s_lo = _mm256_add_ps(r0_lo, r1_lo);
-    __m256 s_hi = _mm256_add_ps(r0_hi, r1_hi);
+    // 2. De-interleave each row into even/odd samples (output order; permute fixes the AVX2 lane crossing)
+    auto deint = [](__m256 lo, __m256 hi, int sel) {
+      const __m256 sh = sel == 0 ? _mm256_shuffle_ps(lo, hi, _MM_SHUFFLE(2, 0, 2, 0)) : _mm256_shuffle_ps(lo, hi, _MM_SHUFFLE(3, 1, 3, 1));
+      return _mm256_castsi256_ps(_mm256_permute4x64_epi64(_mm256_castps_si256(sh), _MM_SHUFFLE(3, 1, 2, 0)));
+    };
+    __m256 even0 = deint(r0_lo, r0_hi, 0), odd0 = deint(r0_lo, r0_hi, 1);
+    __m256 even1 = deint(r1_lo, r1_hi, 0), odd1 = deint(r1_lo, r1_hi, 1);
 
-    // 3. Horizontal Sum via De-interleave
-    // We shuffle 's_lo' and 's_hi' to separate even and odd indices
-    __m256 even_shuf = _mm256_shuffle_ps(s_lo, s_hi, _MM_SHUFFLE(2, 0, 2, 0));
-    __m256 odd_shuf = _mm256_shuffle_ps(s_lo, s_hi, _MM_SHUFFLE(3, 1, 3, 1));
-
-    // Fix AVX2 lane crossing: [L_even, H_even] and [L_odd, H_odd]
-    __m256 even = _mm256_castsi256_ps(
-      _mm256_permute4x64_epi64(_mm256_castps_si256(even_shuf), _MM_SHUFFLE(3, 1, 2, 0))
-    );
-    __m256 odd = _mm256_castsi256_ps(
-      _mm256_permute4x64_epi64(_mm256_castps_si256(odd_shuf), _MM_SHUFFLE(3, 1, 2, 0))
-    );
-
-    // 4. Final Average: (even + odd) * 0.25
-    __m256 avg = _mm256_mul_ps(_mm256_add_ps(even, odd), v_025);
+    // 3. avg = (((r0e + r0o) + r1e) + r1o) * 0.25: the same addition order as C (bit-identical)
+    __m256 avg = _mm256_mul_ps(_mm256_add_ps(_mm256_add_ps(_mm256_add_ps(even0, odd0), even1), odd1), v_025);
 
     if constexpr (!full_opacity) {
       avg = _mm256_mul_ps(avg, v_opacity);
