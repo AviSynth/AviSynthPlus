@@ -6962,6 +6962,9 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
     if(nexpr <= 3)
       expr[3] = ""; // do not use previous expression to alpha expr. Default: "" (copy)
 
+    // Empty expression and another bit depth. The conversion works on the real pixel values: no scale_inputs for it.
+    bool plane_is_converted[4] = { false, false, false, false };
+
     // default: all clips unused
     for (int i = 0; i < MAX_EXPR_INPUTS; i++) {
       d.clipsUsed[i] = false;
@@ -6977,18 +6980,19 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
           d.planeCopySourceClip[i] = 0; // default source clip from empty expression: first one
           d.clipsUsed[0] = true; // mark clip to have its GetFrame
         }
-        else if (i == 3 || (i == 1 && d.vi.IsYA())) {
-          // alpha is copied by default: to another bit depth it is converted, as full range.
-          // Real depths also with scale_inputs: its input and output steps cancel out, they use the first clip's depth.
-          const int bits_s = vi_array[0]->BitsPerComponent();
-          const int bits_d = d.vi.BitsPerComponent();
-          const int max_s = bits_s == 32 ? 1 : (1 << bits_s) - 1;
-          const int max_d = bits_d == 32 ? 1 : (1 << bits_d) - 1;
-          expr[i] = "x " + std::to_string(max_d) + " * " + std::to_string(max_s) + " /";
+        else {
+          // Another bit depth: no copy, but a conversion as in ConvertBits. Default range:
+          // Y, U, V limited, R, G, B and alpha full.
+          const bool is_yuv = d.vi.IsYUV() || d.vi.IsYUVA();
+          const bool is_alpha = i == 3 || (i == 1 && d.vi.IsYA());
+          const bool is_chroma = is_yuv && !is_alpha && i != 0;
+          const bool is_full = !is_yuv || is_alpha;
+          bits_conv_constants c;
+          get_bits_conv_constants(c, is_chroma, is_full, is_full, vi_array[0]->BitsPerComponent(), d.vi.BitsPerComponent());
+          expr[i] = sprintf_c("x %.17g - %.17g * %.17g / %.17g +", (double)c.src_offset, (double)c.dst_span, (double)c.src_span, (double)c.dst_offset);
           d.plane[i] = poProcess;
+          plane_is_converted[i] = true;
         }
-        else
-          d.plane[i] = poUndefined;
       }
     }
 
@@ -7003,7 +7007,8 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
       const int planeheight = d.vi.height >> d.vi.GetPlaneHeightSubsampling(plane_enum);
       const bool chroma = (plane_enum == PLANAR_U || plane_enum == PLANAR_V);
       d.maxStackSize = std::max(parseExpression(expr[i], d.ops[i], d.frameprops[i], vi_array, &d.vi, getStoreOp(&d.vi), d.numInputs, planewidth, planeheight, chroma,
-        autoconv_full_scale, autoconv_conv_int, autoconv_conv_float, clamp_float_i, shift_float, d.lutmode,
+        autoconv_full_scale, autoconv_conv_int && !plane_is_converted[i], autoconv_conv_float && !plane_is_converted[i],
+        clamp_float_i, shift_float && !plane_is_converted[i], d.lutmode,
         env), d.maxStackSize);
       foldConstants(d.ops[i], env);
 

@@ -14,8 +14,9 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 - Float parameters of the built-in filters which are not a number (NaN) or infinite give an error, when the filter uses them.
 - Fix: Expr, YA clips: a single expression string was applied on the alpha plane too. Now alpha is copied, as on YUVA and
   planar RGBA.
-- Fix: Expr: the alpha plane without an expression was left unset, its content was random, when format changed the bit
-  depth. Now it is converted to the new bit depth as full range.
+- Fix: Expr: a plane with an empty expression (or the alpha plane without an expression) was left unset, its content was
+  random, when format changed the bit depth. Now it is converted to the new bit depth as in ConvertBits: Y, U, V as
+  limited range, R, G, B and alpha as full range.
 - Fix: resizers, Bob, and param1, param2, param3 of the ConvertTo... filters, AddBorders and LetterBox: NaN and Inf
   were accepted, the result was undefined and differed by platform. Now an error, as are src_left, src_top, src_width,
   src_height too large for the resizer.
