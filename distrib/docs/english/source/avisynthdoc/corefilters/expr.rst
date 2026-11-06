@@ -386,9 +386,10 @@ difference, and the operators ``scaleb`` and ``scalef`` have nothing to scale.
 Bit-depth aware constants
 ^^^^^^^^^^^^^^^^^^^^^^^^^
 
-* ``ymin, ymax`` (ymin_a .. ymin_z for individual clips) - the usual luma limits
-  (16..235 or scaled equivalents).
-* ``cmin, cmax`` (cmin_a .. cmin_z) - chroma limits (16..240 or scaled equivalents)
+* ``ymin, ymax`` (ymin_a .. ymin_z for individual clips) - the limited range luma limits
+  (16..235 or scaled equivalents), whatever the range of the clip is.
+* ``cmin, cmax`` (cmin_a .. cmin_z) - the limited range chroma limits (16..240 or scaled
+  equivalents), whatever the range of the clip is.
 * ``range_half`` (range_half_a .. range_half_z) - half of the range, (128 or scaled
   equivalents).
 * ``range_size`` (range_size_a .. range_size_z , etc..) - 256, 1024, 4096, 16384,
@@ -403,6 +404,39 @@ When the constant name is ended with _x, _y, _z, _a, etc.. the constant is broug
 from the specified clip (input clips can be of different formats) When by using
 parameter ``"scale_inputs"`` the input is converted to e.g. 8 bits, these constants
 are calculated for this internally used bit depth.
+
+.. note::
+
+    Expr does not read the ``_ColorRange`` frame property of the clips by itself, and the
+    constants do not depend on the range of the clip. ``ymin, ymax, cmin, cmax`` and ``scaleb``
+    are always limited range values, also on a full range clip. So the script has to choose by
+    name: ``ymin, ymax`` and ``scaleb`` for limited range, ``range_min, range_max`` and ``scalef``
+    for full range.
+
+.. table::
+    :widths: auto
+
+    +----------------------------------------+-----------------------------------------+---------+-----------------+
+    | On the Y plane, ``_ColorRange`` 0 or 1 | Always means                            | 10 bit  | Float           |
+    +========================================+=========================================+=========+=================+
+    | ``ymin, ymax``                         | Limited range luma limits, 16 and 235   | 64, 940 | 0.0627, 0.9216  |
+    +----------------------------------------+-----------------------------------------+---------+-----------------+
+    | ``cmin, cmax``                         | Limited range chroma limits, 16 and 240 | 64, 960 | -0.4392, 0.4392 |
+    +----------------------------------------+-----------------------------------------+---------+-----------------+
+    | ``255 scaleb``                         | A level, by limited range rules         | 1020    | 1.0             |
+    +----------------------------------------+-----------------------------------------+---------+-----------------+
+    | ``255 scalef``                         | A level, by full range rules            | 1023    | 1.0             |
+    +----------------------------------------+-----------------------------------------+---------+-----------------+
+    | ``range_min, range_max``               | The whole range of the plane            | 0, 1023 | 0.0, 1.0        |
+    +----------------------------------------+-----------------------------------------+---------+-----------------+
+    | ``range_half``                         | The middle of the range                 | 512     | 0.5             |
+    +----------------------------------------+-----------------------------------------+---------+-----------------+
+
+To follow the clip, read the frame property in the expression, see `Frame property input`_.
+This example gives 940 on a limited range 10 bit clip and 1023 on a full range one, on the
+Y plane::
+
+    x._ColorRange 1 == ymax range_max ?
 
 Keywords for modifying base bit depth
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
