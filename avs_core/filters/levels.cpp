@@ -1616,6 +1616,8 @@ void Tweak::tweak_calc_luma(BYTE *srcp, int src_pitch, float minY, float maxY, i
       else // pixelsize == 1
         y0 = minY + ((y0 + ditherval)*(float)dcont + 1.0f*(float)dbright); // dbright parameter always 0..255. Scale to 0..255*4, 0.. 255*256
 
+      if constexpr (sizeof(pixel_t) != 4)
+        y0 += 0.5f; // rounding, as in the lut
       reinterpret_cast<pixel_t *>(srcp)[x] = (pixel_t)clamp(y0, minY, maxY);
       /*
       int y = int(((ii - range_low * scale_dither_luma)*_cont + _bright * scale_dither_luma + bias_dither_luma) / scale_dither_luma + range_low + 0.5); // 256 _cont & _bright param range
@@ -1839,8 +1841,8 @@ Tweak::Tweak(PClip _child, double _hue, double _sat, double _bright, double _con
           const double destv = v - limits.middle_chroma;
           int iSat = Sat;
           if (allPixels || ProcessPixel(destv * uv_range_corr, destu * uv_range_corr, _startHue, _endHue, maxSat, minSat, p, iSat)) {
-            int du = int((destu*COS + destv*SIN) * iSat) >> 9; // back from the extra 9 bits Sat precision
-            int dv = int((destv*COS - destu*SIN) * iSat) >> 9;
+            int du = int((destu*COS + destv*SIN) * iSat + 0x100) >> 9; // back from the extra 9 bits Sat precision
+            int dv = int((destv*COS - destu*SIN) * iSat + 0x100) >> 9;
             du = clamp(du + limits.middle_chroma, range_low, range_high);
             dv = clamp(dv + limits.middle_chroma, range_low, range_high);
             if(pixelsize==1)
@@ -1931,8 +1933,8 @@ void Tweak::tweak_calc_chroma_impl(BYTE *srcpu, BYTE *srcpv, int src_pitch, int 
           reinterpret_cast<pixel_t *>(srcpu)[x] = (pixel_t)clamp(du, minUV, maxUV);
           reinterpret_cast<pixel_t *>(srcpv)[x] = (pixel_t)clamp(dv, minUV, maxUV);
         } else {
-          reinterpret_cast<pixel_t *>(srcpu)[x] = (pixel_t)clamp((int)(du * pixel_range), minUVi, maxUVi);
-          reinterpret_cast<pixel_t *>(srcpv)[x] = (pixel_t)clamp((int)(dv * pixel_range), minUVi, maxUVi);
+          reinterpret_cast<pixel_t *>(srcpu)[x] = (pixel_t)clamp((int)(du * pixel_range + 0.5f), minUVi, maxUVi);
+          reinterpret_cast<pixel_t *>(srcpv)[x] = (pixel_t)clamp((int)(dv * pixel_range + 0.5f), minUVi, maxUVi);
         }
       }
       else {

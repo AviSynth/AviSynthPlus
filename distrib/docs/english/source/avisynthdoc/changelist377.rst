@@ -19,6 +19,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Tweak: integer results are rounded on all paths. ``realcalc=true``, chroma at 12-16 bit and chroma from the lookup
+  table without ``dither`` truncated: chroma was biased low, ``realcalc=true`` luma could differ from the lookup table.
+  Output changes by up to 1 at these paths, see :doc:`Tweak <corefilters/tweak>`.
 - Float parameters of the built-in filters which are not a number (NaN) or infinite give an error, when the filter uses them.
 - Fix: Expr, YA clips: a single expression string was applied on the alpha plane too. Now alpha is copied, as on YUVA and
   planar RGBA.

@@ -318,6 +318,37 @@ are shown in 8 bit steps (float value x 255):
 | flat U 128                               | ``Tweak(dither=true, coring=false)`` | mean 128.031 | mean 128  |
 +------------------------------------------+--------------------------------------+--------------+-----------+
 
+Rounding
+--------
+
+Since 3.7.7 integer results are rounded to the nearest value, on every path: with lookup table
+and with ``realcalc=true``, luma and chroma, at all bit depths. Before, these paths truncated:
+
+* ``realcalc=true`` luma, and chroma at any bit depth
+* chroma at 12-16 bit, which is always calculated
+* chroma from the lookup table without ``dither``
+
+So chroma was biased low by a part of a step, and a ``realcalc=true`` result could differ from
+the lookup table result. Output of ``Tweak`` with no change in its parameters and ``coring=false`` is
+the same as the source, as before.
+
+.. table::
+    :widths: auto
+
+    +--------------------------+------------------------------------+---------+--------------+-------+
+    | Source clip              | Call                               | Exact   | Before 3.7.7 | Now   |
+    +==========================+====================================+=========+==============+=======+
+    | YV24, U = V = 141        | ``Tweak(sat=1.2)``                 | 143.6   | 143          | 144   |
+    +--------------------------+------------------------------------+---------+--------------+-------+
+    | YV24, U = V = 141        | ``Tweak(sat=1.2, realcalc=true)``  | 143.6   | 143          | 144   |
+    +--------------------------+------------------------------------+---------+--------------+-------+
+    | YUV444P16, U = V = 36096 | ``Tweak(sat=1.2)``                 | 36761.6 | 36761        | 36762 |
+    +--------------------------+------------------------------------+---------+--------------+-------+
+    | YV24, Y = 101            | ``Tweak(cont=1.1)``                | 109.5   | 110          | 110   |
+    +--------------------------+------------------------------------+---------+--------------+-------+
+    | YV24, Y = 101            | ``Tweak(cont=1.1, realcalc=true)`` | 109.5   | 109          | 110   |
+    +--------------------------+------------------------------------+---------+--------------+-------+
+
 Changelog
 ---------
 
@@ -327,6 +358,8 @@ Changelog
     +-----------------+-------------------------------------------------------+
     | Version         | Changes                                               |
     +=================+=======================================================+
+    | 3.7.7           | Rounding of integer results on all paths.             |
+    +-----------------+-------------------------------------------------------+
     | AviSynth+ 3.7.7 | 32 bit float: ``coring``, ``bright`` and ``dither``   |
     |                 | fixed, see the table above.                           |
     +-----------------+-------------------------------------------------------+
