@@ -253,6 +253,10 @@ Expr language/RPN elements
   \|x/d\| < 2^24; above that the result is inaccurate.
 * Math constant: ``pi``
 * Functions: ``min, max, sqrt, abs, exp, log, pow ^`` (synonyms: ``pow`` and ``^``)
+* ``sqrt`` of a negative number or NaN is 0, on every CPU and also in a constant expression. The same goes for a
+  ``0.5 pow``, which is calculated as ``sqrt``. There is no good answer for a negative number: NaN, 0 and a signed
+  root (the sign of x with ``sqrt(abs(x))``) all have their reasons, this is the one chosen. With 0, a value which is
+  below zero only by a float rounding error, like ``7.0 0.1 % 0.1 -`` (-0.0000001), does not turn into NaN.
 * Function: ``neg`` simple negates stack top
 * Function: ``sgn`` simple signum function -1 if x<0; 0 when x==0; 1 if x>0
 * Function: ``clip`` three operand function for clipping. Example: ``x 16 240

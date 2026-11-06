@@ -4195,6 +4195,11 @@ struct aligned_allocator {
 // convenient type def
 using aligned_float_vector = std::vector<float, aligned_allocator<float, 32>>;
 
+// sqrt of a negative number or NaN is 0, in the JIT code it is maxps with zero, then sqrtps
+static AVS_FORCEINLINE float expr_sqrt(float x) {
+  return x > 0 ? std::sqrt(x) : 0.0f;
+}
+
 template<int VectorSize>
 class SIMDProcessor : public ISIMDProcessor {
   int w, h;
@@ -4421,7 +4426,7 @@ public:
   // Vectorized sqrt
   void sqrt() {
     for (int i = 0; i < VectorSize; ++i)
-      stacktop[i] = std::sqrt(stacktop[i]);
+      stacktop[i] = expr_sqrt(stacktop[i]);
   }
 
   // Vectorized abs
@@ -5037,7 +5042,7 @@ void Exprfilter::processFrame(int plane, int w, int h, int pixels_per_iter, floa
             stacktop = std::trunc(stacktop);
             break;
           case opSqrt:
-            stacktop = std::sqrt(stacktop);
+            stacktop = expr_sqrt(stacktop);
             break;
           case opAbs:
             stacktop = std::abs(stacktop);
@@ -6355,7 +6360,7 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
 static float calculateOneOperand(uint32_t op, float a) {
     switch (op) {
         case opSqrt:
-            return std::sqrt(a);
+            return expr_sqrt(a);
         case opAbs:
             return std::abs(a);
         case opSgn:

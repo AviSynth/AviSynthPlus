@@ -19,6 +19,8 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Expr: ``sqrt`` of a negative number gave NaN instead of 0 when the expression did not run in JIT (aarch64, ``acos``,
+  ``asin``, ``atan`` in it, ``SetMaxCPU("none")``) or was constant, while x86 JIT gave 0. Now it is 0 on all of them.
 - Fix: Tweak: integer results are rounded on all paths. ``realcalc=true``, chroma at 12-16 bit and chroma from the lookup
   table without ``dither`` truncated: chroma was biased low, ``realcalc=true`` luma could differ from the lookup table.
   Output changes by up to 1 at these paths, see :doc:`Tweak <corefilters/tweak>`.
