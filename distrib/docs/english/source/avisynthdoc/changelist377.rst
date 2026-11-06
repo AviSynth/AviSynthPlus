@@ -10,6 +10,10 @@ Additions, changes
   placements; see :doc:`Overlay <corefilters/overlay>` ``placement``.
 - Text and Subtitle: all chroma samples reached by the kernel are drawn, also those
   beside the chroma blocks of the text.
+- Frame properties: ``_Range`` is added, the number follows ITU-T H.273, as in VapourSynth: 1 is full, 0 is limited.
+  ``_ColorRange`` stays reserved and it is its older name with 0 and 1 swapped: the two are one property, the frame holds it
+  as ``_Range``. Plugins and scripts of any version reach it by both names. Key lists give ``_Range`` only, ``propGetAll``
+  and ``propShow`` both. See :doc:`frame properties <syntax/syntax_internal_functions_frame_properties>`.
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~

@@ -1178,6 +1178,9 @@ static bool PropNamesToArray(const char* filtername, AVSValue& _propNames, std::
     // - regex with ^ $ delimiters
 
     std::string nameStr(name);
+    // the frame holds it as _Range
+    if (nameStr == "_ColorRange")
+      nameStr = "_Range";
 
     // Check if it's already a regex
     if (nameStr.front() == '^' && nameStr.back() == '$') {
@@ -1638,12 +1641,13 @@ PVideoFrame __stdcall ShowProperties::GetFrame(int n, IScriptEnvironment* env)
         if (propNumElements > 1)
           ss << "]";
 
-        if (propName_s == "_ColorRange") {
+        if (propName_s == "_Range") {
           ss << " = ";
           switch (arr[0]) {
-          case ColorRange_Compat_e::AVS_COLORRANGE_LIMITED: ss << "limited"; break;
-          case ColorRange_Compat_e::AVS_COLORRANGE_FULL: ss << "full"; break;
+          case ColorRange_e::AVS_RANGE_LIMITED: ss << "limited"; break;
+          case ColorRange_e::AVS_RANGE_FULL: ss << "full"; break;
           }
+          ss << " (_ColorRange = " << std::to_string(range_value_flip(arr[0])) << ")";
         }
         else if (propName_s == "_Matrix") {
           ss << " = ";

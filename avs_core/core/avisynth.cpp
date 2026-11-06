@@ -96,6 +96,7 @@
 #include "FilterGraph.h"
 #include "DeviceManager.h"
 #include "AVSMap.h"
+#include "../convert/frame_prop_enums.h"
 
 #ifndef YieldProcessor // low power spin idle
   #define YieldProcessor() __nop(void)
@@ -6032,9 +6033,19 @@ const char* ScriptEnvironment::propGetKey(const AVSMap* map, int index) AVS_NOEX
   return map->key(index);
 }
 
+// _ColorRange is the old name of _Range: only _Range is stored, and listed as a key. Both names reach it with any
+// value type, integers are flipped between the two numberings when they are read or written as _ColorRange.
+static bool prop_key_is_ColorRange(const char* key) {
+  return strcmp(key, "_ColorRange") == 0;
+}
+
+static const char* prop_stored_key(const char* key) {
+  return prop_key_is_ColorRange(key) ? "_Range" : key;
+}
+
 int ScriptEnvironment::propNumElements(const AVSMap* map, const char* key) AVS_NOEXCEPT {
   assert(map && key);
-  VSArrayBase* val = map->find(key);
+  VSArrayBase* val = map->find(prop_stored_key(key));
   return val ? static_cast<int>(val->size()) : -1;
 }
 
@@ -6052,13 +6063,13 @@ char ScriptEnvironment::propGetType(const AVSMap* map, const char* key) AVS_NOEX
     v PROPERTYTYPE_FRAME = 7, //  ptVideoFrame = 7,
     ? //  ptAudioFrame = 8
   */
-  VSArrayBase* val = map->find(key);
+  VSArrayBase* val = map->find(prop_stored_key(key));
   return val ? a[val->type()] : 'u';
 }
 
 int ScriptEnvironment::propDeleteKey(AVSMap* map, const char* key) AVS_NOEXCEPT {
   assert(map && key);
-  return map->erase(key);
+  return map->erase(prop_stored_key(key));
 }
 
 // Failed read: reports through *error; with NULL error it throws AvisynthError (VapourSynth: fatal error).
@@ -6078,7 +6089,7 @@ static VSArrayBase* propGetShared(const AVSMap* map, const char* key, int index,
     return nullptr;
   }
 
-  VSArrayBase* arr = map->find(key);
+  VSArrayBase* arr = map->find(prop_stored_key(key));
 
   if (!arr) {
     if (error)
@@ -6109,8 +6120,10 @@ static VSArrayBase* propGetShared(const AVSMap* map, const char* key, int index,
 
 int64_t ScriptEnvironment::propGetInt(const AVSMap* map, const char* key, int index, int* error) {
   VSArrayBase* arr = propGetShared(map, key, index, error, AVSPropertyType::PROPERTYTYPE_INT, this); //  ptInt
-  if (arr)
-    return reinterpret_cast<const VSIntArray*>(arr)->at(index);
+  if (arr) {
+    const int64_t value = reinterpret_cast<const VSIntArray*>(arr)->at(index);
+    return prop_key_is_ColorRange(key) ? range_value_flip(value) : value;
+  }
   else
     return 0;
 }
@@ -6287,6 +6300,7 @@ bool propSetShared(AVSMap* map, const char* key, const T& val, int append, Scrip
 
   if (!isValidVSMapKey(key))
     return false;
+  key = prop_stored_key(key);
   std::string skey = key;
 
   if (append == AVSPropAppendMode::PROPAPPENDMODE_REPLACE) {
@@ -6319,6 +6333,8 @@ bool propSetShared(AVSMap* map, const char* key, const T& val, int append, Scrip
 
 
 int ScriptEnvironment::propSetInt(AVSMap* map, const char* key, int64_t i, int append) AVS_NOEXCEPT {
+  if (prop_key_is_ColorRange(key))
+    i = range_value_flip(i);
   return !propSetShared<int64_t, AVSPropertyType::PROPERTYTYPE_INT>(map, key, i, append, this); // ptInt
 }
 
@@ -6347,7 +6363,13 @@ int ScriptEnvironment::propSetFrame(AVSMap* map, const char* key, const PVideoFr
 const int64_t* ScriptEnvironment::propGetIntArray(const AVSMap* map, const char* key, int* error) {
   const VSArrayBase* arr = propGetShared(map, key, 0, error, AVSPropertyType::PROPERTYTYPE_INT, this);
   if (arr) {
-    return reinterpret_cast<const VSIntArray*>(arr)->getDataPointer();
+    const VSIntArray* intArr = reinterpret_cast<const VSIntArray*>(arr);
+    // The map holds _Range values, a flipped single value is a constant here. An array is not a valid range:
+    // there is no place for its flipped copy, no thread_local (XP_TLS), so it is returned as held. propGetInt flips.
+    static constexpr int64_t flipped_single[2] = { 1, 0 };
+    if (prop_key_is_ColorRange(key) && intArr->size() == 1 && (intArr->at(0) == 0 || intArr->at(0) == 1))
+      return &flipped_single[intArr->at(0)];
+    return intArr->getDataPointer();
   }
   else {
     return nullptr;
@@ -6370,6 +6392,13 @@ int ScriptEnvironment::propSetIntArray(AVSMap* map, const char* key, const int64
     return 1;
   if (!isValidVSMapKey(key))
     return 1;
+  if (prop_key_is_ColorRange(key)) {
+    std::vector<int64_t> flipped(size);
+    for (int j = 0; j < size; j++)
+      flipped[j] = range_value_flip(i[j]);
+    map->insert(prop_stored_key(key), new VSIntArray(flipped.data(), size));
+    return 0;
+  }
   map->insert(key, new VSIntArray(i, size));
   return 0;
 }
@@ -6380,7 +6409,7 @@ int ScriptEnvironment::propSetIntArray(AVSMap* map, const char* key, const int64
      return 1;
    if (!isValidVSMapKey(key))
      return 1;
-   map->insert(key, new VSFloatArray(d, size));
+   map->insert(prop_stored_key(key), new VSFloatArray(d, size));
    return 0;
  }
 

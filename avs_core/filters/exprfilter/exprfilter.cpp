@@ -5253,9 +5253,13 @@ void Exprfilter::preReadFrameProps(int plane, std::vector<PVideoFrame>& src, ISc
       float result = env->propGetFloatSaturated(avsmap, fpname.c_str(), 0, &error);
       if (!error) varToStore = result;
     }
-    else if (res == 'u' && fpname == "_ColorRange") {
-      // not set: not 0, which means full range, but the usual default of the clip's format: RGB full, others limited
-      varToStore = children[srcIndex]->GetVideoInfo().IsRGB() ? (float)ColorRange_Compat_e::AVS_COLORRANGE_FULL : (float)ColorRange_Compat_e::AVS_COLORRANGE_LIMITED;
+    else if (res == 'u' && (fpname == "_Range" || fpname == "_ColorRange")) {
+      // not set: not 0, but the usual default of the clip's format: RGB full, others limited
+      const bool isRGB = children[srcIndex]->GetVideoInfo().IsRGB();
+      if (fpname == "_Range")
+        varToStore = isRGB ? (float)ColorRange_e::AVS_RANGE_FULL : (float)ColorRange_e::AVS_RANGE_LIMITED;
+      else
+        varToStore = isRGB ? (float)ColorRange_Compat_e::AVS_COLORRANGE_FULL : (float)ColorRange_Compat_e::AVS_COLORRANGE_LIMITED;
     }
 
     framePropToRead.value = varToStore;

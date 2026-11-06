@@ -12,6 +12,11 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
 - Float parameters of the built-in filters which are not a number (NaN) or infinite give an error, when the filter uses them.
+- Frame properties: _Range is added, the number follows ITU-T H.273, as in VapourSynth: 1 is full, 0 is limited.
+  _ColorRange stays reserved and it is its older name with 0 and 1 swapped: the two are one property, the frame holds it
+  as _Range. All env->propXXX (C and C++ API) and the script functions map the name, integers are swapped when used as
+  _ColorRange. Any other integer is the same, a value of another type is stored as it is under _Range. Core filters use _Range.
+  Key lists (propNumKeys, propGetKeyByIndex) give _Range only, propGetAll and propShow give both.
 - Fix: Expr: x._ColorRange on a clip without this frame property read as 0, which means full range, also on YUV.
   Now it is the default of the clip's format: 0 for RGB, 1 (limited) for the others, as in ConvertBits.
   Other frame properties which are not set still read as 0.

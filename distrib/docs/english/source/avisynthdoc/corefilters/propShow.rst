@@ -12,12 +12,28 @@ The displayed information consists of:
 
 * Number of frame properties (only if no name filter is given)
 * each line describes a frame property with its name and value
-* display _Matrix, _ColorRange and _ChromaLocation constants with friendly names, e.g. _ColorRange = 1 = limited
+* display _Matrix, _Range and _ChromaLocation constants with friendly names, e.g. _Range = 0 = limited (_ColorRange = 1)
 
 Listing appears as a name = value list. Arrays values are put between [ and ]
 Floating point values are shown in their shortest exact form, the same way as in ``Format``
 (e.g. ``0.1``, ``0.3333333333333333``, ``1e-07``), with ``.`` as the decimal separator.
 Top line contains number is properties. If no properties found, nothing is displayed.
+
+.. warning::
+
+    **Changed in AviSynth+ 3.7.7:** the range property is listed as ``_Range``, no longer as ``_ColorRange``. **The
+    number is swapped**: ``_Range`` 0 is limited, 1 is full, ``_ColorRange`` 0 is full, 1 is limited. The old name and
+    number follow in parentheses. See :doc:`_Range and _ColorRange <../syntax/syntax_internal_functions_frame_properties>`.
+
+    +--------------------------------------------------------------+-------------------------------+--------------------------------------------+
+    | Source clip                                                  | Before                        | Since 3.7.7                                |
+    +==============================================================+===============================+============================================+
+    | ``BlankClip(pixel_type="YV24").propSet("_ColorRange", 1)``   | ``_ColorRange = 1 = limited`` | ``_Range = 0 = limited (_ColorRange = 1)`` |
+    +--------------------------------------------------------------+-------------------------------+--------------------------------------------+
+    | ``BlankClip(pixel_type="YV24").propSet("_ColorRange", 0)``   | ``_ColorRange = 0 = full``    | ``_Range = 1 = full (_ColorRange = 0)``    |
+    +--------------------------------------------------------------+-------------------------------+--------------------------------------------+
+
+    ``props=["_ColorRange"]`` shows it as well. A wildcard or regular expression in ``props`` has to match ``_Range``.
 
 
 Syntax and Parameters
@@ -133,6 +149,10 @@ Changelog
 +-----------------+-----------------------------------------------------------------------+
 | Version         | Changes                                                               |
 +=================+=======================================================================+
+| AviSynth+ 3.7.7 | **Range property listed as** ``_Range`` **with swapped number, old**  |
+|                 | **name and number in parentheses:**                                   |
+|                 | ``_Range = 0 = limited (_ColorRange = 1)``                            |
++-----------------+-----------------------------------------------------------------------+
 | AviSynth+ 3.7.6 | Floating point values in shortest exact form (was 6 fixed decimals)   |
 +-----------------+-----------------------------------------------------------------------+
 | AviSynth+ 3.7.4 || Add ``font``, ``text_color``, ``halo_color``, ``bold``  parameter    |

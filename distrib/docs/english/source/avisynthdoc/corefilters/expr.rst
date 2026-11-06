@@ -496,9 +496,10 @@ Frame property input
   expression.
 * Example: ``x._ColorRange`` will push the value of ``_ColorRange`` frame
   property on stack (of clip x).
-* A property which is not set or is not a number reads as 0. The exception is ``_ColorRange``:
-  when it is not set, it reads as the usual default of that clip's format: 0 (full) for RGB,
-  1 (limited) for the others, as ``ConvertBits`` assumes as well.
+* A property which is not set or is not a number reads as 0. The exception is ``_Range`` and its
+  older name ``_ColorRange``: when it is not set, it reads as the usual default of that clip's format:
+  RGB full, the others limited, as ``ConvertBits`` assumes as well. ``_Range`` 1 is full, ``_ColorRange``
+  0 is full.
 
   +----------------------------------------------------------------------------------+------------------------+--------+-------------+
   | Source clip                                                                      | Expression             | Before | Since 3.7.7 |

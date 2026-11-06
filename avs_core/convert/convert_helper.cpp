@@ -290,9 +290,9 @@ void matrix_parse_merge_with_props_def(bool rgb_in, bool rgb_out, const char* ma
   int _Default_ColorRange_Out = rgb_out ? ColorRange_Compat_e::AVS_COLORRANGE_FULL : ColorRange_Compat_e::AVS_COLORRANGE_LIMITED; // RGB -> YUV or YUV -> RGB
 
   if (props) {
-    // _ColorRange exists for RGB as well
-    if (env->propNumElements(props, "_ColorRange") > 0) {
-      _ColorRange_In = (int)env->propGetIntSaturated(props, "_ColorRange", 0, nullptr);
+    // _Range exists for RGB as well
+    if (env->propNumElements(props, "_Range") > 0) {
+      _ColorRange_In = range_value_flip((int)env->propGetIntSaturated(props, "_Range", 0, nullptr));
       _ColorRange_Default = _ColorRange_In;
       if (rgb_in && rgb_out) // rgb in and out: keep input
         _Default_ColorRange_Out = _ColorRange_In;
@@ -530,7 +530,7 @@ void export_frame_props(VideoInfo& vi, AVSMap* props, int _Matrix, int _ColorRan
   else
     env->propSetInt(props, "_Matrix", _Matrix, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
 
-  env->propSetInt(props, "_ColorRange", _ColorRange, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
+  env->propSetInt(props, "_Range", range_value_flip(_ColorRange), AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
 }
 
 /*  avsresize:
@@ -555,9 +555,9 @@ void update_Matrix_and_ColorRange(AVSMap* props, int theMatrix, int theColorRang
   };
 
   if (theColorRange == ColorRange_Compat_e::AVS_COLORRANGE_FULL || theColorRange == ColorRange_Compat_e::AVS_COLORRANGE_LIMITED)
-    env->propSetInt(props, "_ColorRange", theColorRange, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
+    env->propSetInt(props, "_Range", range_value_flip(theColorRange), AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
   else
-    env->propDeleteKey(props, "_ColorRange");
+    env->propDeleteKey(props, "_Range");
 
   set_int_if_positive("_Matrix", theMatrix);
   //set_int_if_positive("_Transfer", theTransferCharacteristics);
@@ -593,7 +593,7 @@ void update_ChromaLocation(AVSMap* props, int theChromaLocation, IScriptEnvironm
 void update_ColorRange(AVSMap* props, int theColorRange, IScriptEnvironment* env)
 {
   if (theColorRange == ColorRange_Compat_e::AVS_COLORRANGE_FULL || theColorRange == ColorRange_Compat_e::AVS_COLORRANGE_LIMITED)
-    env->propSetInt(props, "_ColorRange", theColorRange, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
+    env->propSetInt(props, "_Range", range_value_flip(theColorRange), AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
   else
-    env->propDeleteKey(props, "_ColorRange");
+    env->propDeleteKey(props, "_Range");
 }

@@ -85,6 +85,7 @@ There are quasi-standard frame property names which are used widespread.
 Some of them are used in Avisynth core:
 
 - _ChromaLocation
+- _Range
 - _ColorRange
 - _Matrix
 
@@ -112,14 +113,50 @@ _ChromaLocation
         * left, mpeg2
         * center, jpeg, mpeg1
 
+_Range
+~~~~~~
+
+    int _Range
+
+    Full or limited range (PC/TV range). Primarily used with YUV formats, but can mark Studio RGB as well.
+    Follows ITU-T H.273 numbering, and it is the same as in VapourSynth.
+
+        1=full range, 0=limited range (RGB: narrow range).
+
 _ColorRange
 ~~~~~~~~~~~
 
     int _ColorRange
 
-    Full or limited range (PC/TV range). Primarily used with YUV formats, but can mark Studio RGB as well.
+    The older name of ``_Range``, reserved as well, with 0 and 1 swapped:
 
         0=full range, 1=limited range (RGB: narrow range).
+
+    The two names are one property, the frame holds it as ``_Range``:
+
+    * Read, write or delete by either name reaches the same property, the last write counts. Integer 0 and 1 are
+      swapped when used as ``_ColorRange``, any other integer is the same under both names.
+    * A value which is not an integer (a string, for example) is not a valid range. It is stored as it is, and it
+      can be read by both names with no swap.
+    * An array is not a valid range either. The script functions and ``propGetInt`` swap its elements, the API's
+      ``propGetIntArray`` returns it as ``_Range`` holds it.
+    * ``propNumKeys`` and ``propGetKeyByIndex`` list ``_Range`` only. ``propGetAll`` and ``propShow`` give both.
+    * ``props`` of ``propCopy``, ``propDelete`` and ``propShow`` accept both names. Wildcards and regular expressions
+      are matched against ``_Range`` only.
+
+    +-------------------------------+--------------------------+-------------------------------+
+    | Written                       | ``propGetInt("_Range")`` | ``propGetInt("_ColorRange")`` |
+    +===============================+==========================+===============================+
+    | ``propSet("_ColorRange", 0)`` | 1                        | 0                             |
+    +-------------------------------+--------------------------+-------------------------------+
+    | ``propSet("_Range", 0)``      | 0                        | 1                             |
+    +-------------------------------+--------------------------+-------------------------------+
+    | ``propSet("_ColorRange", 2)`` | 2                        | 2                             |
+    +-------------------------------+--------------------------+-------------------------------+
+
+    For plugins which run on both AviSynth+ and VapourSynth, or on an older AviSynth+: read ``_Range``, when it is not
+    set read ``_ColorRange`` and swap 0 and 1, when none of them is set use the default: RGB full, the others limited.
+    Up to AviSynth+ 3.7.6 ``_Range`` is an ordinary property which nothing reads, there ``_ColorRange`` has to be written.
 
 _Primaries
 ~~~~~~~~~~
@@ -688,6 +725,8 @@ Changelog
 +----------------+--------------------------------------------------+
 | Version        | Changes                                          |
 +================+==================================================+
+| 3.7.7          | | ``_Range``, ``_ColorRange`` is its older name  |
++----------------+--------------------------------------------------+
 | 3.7.4          | | wildcard and regex support in props parameter  |
 |                |   for propDelete, propShow, propCopy             |
 |                | | add "props" parameter to propShow as well      |

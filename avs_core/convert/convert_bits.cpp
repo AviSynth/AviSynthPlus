@@ -1607,8 +1607,8 @@ PVideoFrame __stdcall ConvertBits::GetFrame(int n, IScriptEnvironment* env) {
     // per-frame range detection based on actual source frame props
     const AVSMap* src_props = env->getFramePropsRO(src);
     int established_ColorRange_src;
-    if (env->propNumElements(src_props, "_ColorRange") > 0)
-      established_ColorRange_src = (int)env->propGetIntSaturated(src_props, "_ColorRange", 0, nullptr);
+    if (env->propNumElements(src_props, "_Range") > 0)
+      established_ColorRange_src = range_value_flip((int)env->propGetIntSaturated(src_props, "_Range", 0, nullptr));
     else
       // no frame property: RGB full, others limited (usual default)
       established_ColorRange_src = vi.IsRGB() ? ColorRange_Compat_e::AVS_COLORRANGE_FULL : ColorRange_Compat_e::AVS_COLORRANGE_LIMITED;

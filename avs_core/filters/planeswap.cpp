@@ -414,7 +414,7 @@ PVideoFrame __stdcall SwapUVToY::GetFrame(int n, IScriptEnvironment* env)
     auto props = env->getFramePropsRW(dst);
     env->propDeleteKey(props, "_ChromaLocation");
     if (mode == AToY8)
-      env->propSetInt(props, "_ColorRange", ColorRange_Compat_e::AVS_COLORRANGE_FULL, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
+      env->propSetInt(props, "_Range", ColorRange_e::AVS_RANGE_FULL, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
     return dst;
   }
 
@@ -442,8 +442,8 @@ PVideoFrame __stdcall SwapUVToY::GetFrame(int n, IScriptEnvironment* env)
     env->propDeleteKey(props, "_ChromaLocation");
     // keep _Matrix (?) fixme: really?
     if (mode == AToY8) // alpha is always full range, otherwise keep source
-      env->propSetInt(props, "_ColorRange", ColorRange_Compat_e::AVS_COLORRANGE_FULL, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
-    // else we keep _ColorRange value (if any)
+      env->propSetInt(props, "_Range", ColorRange_e::AVS_RANGE_FULL, AVSPropAppendMode::PROPAPPENDMODE_REPLACE);
+    // else we keep _Range value (if any)
     return sub;
   }
 
@@ -1355,8 +1355,8 @@ PVideoFrame __stdcall CombinePlanes::GetFrame(int n, IScriptEnvironment* env) {
       bool fullRange;
       {
         const AVSMap* props = env->getFramePropsRO(src);
-        if (env->propNumElements(props, "_ColorRange") > 0)
-          fullRange = env->propGetIntSaturated(props, "_ColorRange", 0, nullptr) == ColorRange_Compat_e::AVS_COLORRANGE_FULL;
+        if (env->propNumElements(props, "_Range") > 0)
+          fullRange = env->propGetIntSaturated(props, "_Range", 0, nullptr) == ColorRange_e::AVS_RANGE_FULL;
         else
           fullRange = vi.IsRGB(); // YUV default false, RGB true
       }

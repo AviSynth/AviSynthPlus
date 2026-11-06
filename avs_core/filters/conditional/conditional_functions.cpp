@@ -1095,9 +1095,9 @@ AVSValue GetPropertyAsArray::Create(AVSValue args, void* , IScriptEnvironment* e
   // propGetIntArray or propGetFloatArray is available
   // Pre interface V11: AVSValue is int and float, prop arrays are int64_t and double
   if (propType == 'i') {
-    const int64_t* arr = env->propGetIntArray(avsmap, propName, &error);
+    // one by one: propGetIntArray does not flip a _ColorRange array
     for (int i = 0; i < size; ++i)
-      result[i] = arr[i]; // v11: no need for (int) cast
+      result[i] = env->propGetInt(avsmap, propName, i, &error); // v11: no need for (int) cast
   }
   else if (propType == 'f') {
     const double* arr = env->propGetFloatArray(avsmap, propName, &error);
@@ -1179,11 +1179,13 @@ AVSValue GetAllProperties::Create(AVSValue args, void*, IScriptEnvironment* env_
   if (0 == propNum)
     return AVSValue(nullptr, 0); // zero sized array
 
-  std::vector<AVSValue> result(propNum);
+  // _Range is listed under its old name as well: reachable by scripts which look for _ColorRange in the list
+  const int resultNum = propNum + (env->propGetType(avsmap, "_Range") == 'i' ? 1 : 0);
+  std::vector<AVSValue> result(resultNum);
 
-  for (int index = 0; index < propNum; index++) {
+  for (int index = 0; index < resultNum; index++) {
     std::vector<AVSValue> pair(2);
-    const char* propName = env->propGetKey(avsmap, index);
+    const char* propName = index < propNum ? env->propGetKey(avsmap, index) : "_ColorRange";
     pair[0] = env->SaveString(propName);
     const char propType = env->propGetType(avsmap, propName);
     const int propNumElements = env->propNumElements(avsmap, propName);
@@ -1199,9 +1201,9 @@ AVSValue GetAllProperties::Create(AVSValue args, void*, IScriptEnvironment* env_
         elem = AVSValue(env->propGetInt(avsmap, propName, 0, &error)); // v11: no need for (int) cast
       else {
         std::vector<AVSValue> avsarr(propNumElements);
-        const int64_t* arr = env->propGetIntArray(avsmap, propName, &error);
+        // one by one: propGetIntArray does not flip a _ColorRange array
         for (int i = 0; i < propNumElements; ++i)
-          avsarr[i] = arr[i]; // v11: no need for (int) cast
+          avsarr[i] = env->propGetInt(avsmap, propName, i, &error); // v11: no need for (int) cast
         elem = AVSValue(avsarr.data(), propNumElements); // array deep copy
       }
     }
@@ -1252,7 +1254,7 @@ AVSValue GetAllProperties::Create(AVSValue args, void*, IScriptEnvironment* env_
     result[index] = AVSValue(pair.data(), 2); // arrays in arrays, automatic deep copy
   }
 
-  return AVSValue(result.data(), propNum); // array deep copy
+  return AVSValue(result.data(), resultNum); // array deep copy
 }
 
 // e.g. string length

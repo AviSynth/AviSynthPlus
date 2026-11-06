@@ -51,6 +51,12 @@ typedef enum ColorRange_Compat_e {
   AVS_COLORRANGE_LIMITED = 1
 } ColorRange_Compat_e;
 
+// _Range and _ColorRange values: 0 and 1 are swapped, any other value is the same.
+template<typename T>
+constexpr T range_value_flip(T value) {
+  return value == 0 ? T(1) : value == 1 ? T(0) : value;
+}
+
 typedef enum FieldBased_e {
   AVS_FIELD_PROGRESSIVE = 0,
   AVS_FIELD_BOTTOM = 1,
