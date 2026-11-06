@@ -20,6 +20,7 @@ Contents:
    avisynthdoc/contributing/avsplus_external_deps_guide_manual_arm
    avisynthdoc/contributing/release_build_automation
    avisynthdoc/contributing/visual_studio_cmake_presets
+   avisynthdoc/contributing/avisynth_conversion_paths
    avisynthdoc/contributing/contributing_with_git
    avisynthdoc/index
 
