@@ -5989,7 +5989,7 @@ static size_t parseExpression(const std::string &expr, std::vector<ExprOp> &ops,
           int bitsPerComponent = getEffectiveBitsPerComponent(vi[loadIndex]->BitsPerComponent(), autoconv_conv_float, autoconv_conv_int, autoScaleSourceBitDepth);
 
           float q = bitsPerComponent == 32 ? uv8tof(16) : (16 << (bitsPerComponent - 8)); // scale chroma min 16
-          if (shift_float && bitsPerComponent) q += 0.5f;
+          if (shift_float && bitsPerComponent == 32) q += 0.5f;
           LOAD_OP(opLoadConst, q, 0);
         }
         else if (tokens[i].substr(0, 4) == "cmax") // avs+

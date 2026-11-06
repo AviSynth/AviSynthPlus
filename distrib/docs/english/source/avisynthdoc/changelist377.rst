@@ -19,6 +19,8 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Expr ``cmin``, ``scale_inputs="floatUV"``, 8-16 bit clips: it was half a step too high and rounded up, 17 instead of
+  16 at 8 bit, 65 instead of 64 at 10 bit. Existed since 3.5.0 (2020).
 - Fix: RGBAdjust, ColorYUV ``analyze=true``: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust ``analyze=true``, planar RGB 32 bit float: crash on NaN pixels, which can come from ``Expr`` or from a NaN parameter.
