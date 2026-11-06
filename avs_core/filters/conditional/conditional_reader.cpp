@@ -1750,6 +1750,7 @@ int __stdcall ShowProperties::SetCacheHints(int cachehints, int frame_range)
 
 AVSValue __cdecl ShowProperties::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "propShow", { { 7, "x" }, { 8, "y" } }, env);
   // 0   1        2       3         4             5        6     7   8     9       10
   // c[size]i[showtype]b[font]s[text_color]i[halo_color]i[bold]b[x]f[y]f[align]i[props]s+
 

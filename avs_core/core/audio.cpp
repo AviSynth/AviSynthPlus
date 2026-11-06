@@ -985,7 +985,8 @@ void DelayAudio::GetAudio(void* buf, int64_t start, int64_t count, IScriptEnviro
 }
 
 
-AVSValue __cdecl DelayAudio::Create(AVSValue args, void*, IScriptEnvironment*) {
+AVSValue __cdecl DelayAudio::Create(AVSValue args, void*, IScriptEnvironment* env) {
+  check_float_params(args, "DelayAudio", { { 1, "seconds" } }, env);
   return new DelayAudio(args[1].AsFloat(), args[0].AsClip());
 }
 
@@ -1131,7 +1132,8 @@ saturate1:
 }
 
 
-AVSValue __cdecl Amplify::Create(AVSValue args, void*, IScriptEnvironment*) {
+AVSValue __cdecl Amplify::Create(AVSValue args, void*, IScriptEnvironment* env) {
+  check_float_params(args, "Amplify", { { 1, "amount" } }, env);
   if (!args[0].AsClip()->GetVideoInfo().AudioChannels())
     return args[0];
   AVSValue args_c = args[1];
@@ -1149,7 +1151,8 @@ AVSValue __cdecl Amplify::Create(AVSValue args, void*, IScriptEnvironment*) {
 
 
 
-AVSValue __cdecl Amplify::Create_dB(AVSValue args, void*, IScriptEnvironment*) {
+AVSValue __cdecl Amplify::Create_dB(AVSValue args, void*, IScriptEnvironment* env) {
+  check_float_params(args, "AmplifydB", { { 1, "amount" } }, env);
   if (!args[0].AsClip()->GetVideoInfo().AudioChannels())
     return args[0];
   AVSValue args_c = args[1];
@@ -1398,7 +1401,8 @@ PVideoFrame __stdcall Normalize::GetFrame(int n, IScriptEnvironment* env) {
 }
 
 
-AVSValue __cdecl Normalize::Create(AVSValue args, void*, IScriptEnvironment*) {
+AVSValue __cdecl Normalize::Create(AVSValue args, void*, IScriptEnvironment* env) {
+  check_float_params(args, "Normalize", { { 1, "volume" } }, env);
 
   return new Normalize(args[0].AsClip(), args[1].AsFloatf(1.0f), args[2].AsBool(false));}
 
@@ -1518,6 +1522,7 @@ int __stdcall MixAudio::SetCacheHints(int cachehints, int frame_range) {
 }
 
 AVSValue __cdecl MixAudio::Create(AVSValue args, void*, IScriptEnvironment* env) {
+  check_float_params(args, "MixAudio", { { 2, "clip1_factor" }, { 3, "clip2_factor" } }, env);
   double track1_factor = args[2].AsDblDef(0.5);
   double track2_factor = args[3].AsDblDef(1.0 - track1_factor);
   return new MixAudio(args[0].AsClip(), args[1].AsClip(), track1_factor, track2_factor, env);

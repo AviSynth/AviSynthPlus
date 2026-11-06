@@ -1216,6 +1216,7 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl ColorYUV::Create(AVSValue args, void* , IScriptEnvironment* env)
 {
+    check_float_params(args, "ColorYUV", { { 1, "gain_y" }, { 2, "off_y" }, { 3, "gamma_y" }, { 4, "cont_y" }, { 5, "gain_u" }, { 6, "off_u" }, { 7, "gamma_u" }, { 8, "cont_u" }, { 9, "gain_v" }, { 10, "off_v" }, { 11, "gamma_v" }, { 12, "cont_v" } }, env);
     const bool tweaklike_params = args[23].AsBool(false); // f2c = true: for tweak-like parameter interpretation
     const float def = tweaklike_params ? 1.0f : 0.0f;
     return new ColorYUV(args[0].AsClip(),

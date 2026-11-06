@@ -576,6 +576,7 @@ AVSValue ComparePlane::CmpPlaneSame(AVSValue clip, void* , int offset, int plane
 }
 
 AVSValue MinMaxPlane::Create_minmax_stats(AVSValue args, void* user_data, IScriptEnvironment* env) {
+  check_float_params(args, "PlaneMinMaxStats", { { 1, "threshold" } }, env);
   const int plane = args[3].AsInt(0); // 0:Y or R  1:U or G  2: V or B  3:A
   if (plane < 0 || plane>3)
     env->ThrowError("MinMax Stats: plane index must be between 0-3!");
@@ -597,11 +598,13 @@ AVSValue MinMaxPlane::Create_minmax_stats(AVSValue args, void* user_data, IScrip
 
 
 AVSValue MinMaxPlane::Create_max(AVSValue args, void* user_data, IScriptEnvironment* env) {
+  check_float_params(args, "PlaneMax", { { 1, "threshold" } }, env);
   int plane = (int)reinterpret_cast<intptr_t>(user_data);
   return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MinMaxPlane::MAX, false, env);
 }
 
 AVSValue MinMaxPlane::Create_min(AVSValue args, void* user_data, IScriptEnvironment* env) {
+  check_float_params(args, "PlaneMin", { { 1, "threshold" } }, env);
   int plane = (int)reinterpret_cast<intptr_t>(user_data);
   return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MinMaxPlane::MIN, false, env);
 }
@@ -613,6 +616,7 @@ AVSValue MinMaxPlane::Create_median(AVSValue args, void* user_data, IScriptEnvir
 }
 
 AVSValue MinMaxPlane::Create_minmax(AVSValue args, void* user_data, IScriptEnvironment* env) {
+  check_float_params(args, "PlaneMinMaxDifference", { { 1, "threshold" } }, env);
   int plane = (int)reinterpret_cast<intptr_t>(user_data);
   return MinMax(args[0], user_data, args[1].AsDblDef(0.0), args[2].AsInt(0), plane, MinMaxPlane::MINMAX_DIFFERENCE, false, env);
 }

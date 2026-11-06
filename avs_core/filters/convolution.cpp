@@ -464,6 +464,7 @@ GeneralConvolution::GeneralConvolution(PClip _child, double _divisor, float _nBi
 
 AVSValue __cdecl GeneralConvolution::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "GeneralConvolution", { { 1, "bias" }, { 3, "divisor" } }, env);
   const VideoInfo& vi_orig = args[0].AsClip()->GetVideoInfo();
 
   // convert old RGB format to planar RGB

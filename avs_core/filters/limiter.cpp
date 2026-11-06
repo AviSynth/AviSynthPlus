@@ -892,6 +892,7 @@ PVideoFrame __stdcall Limiter::GetFrame(int n, IScriptEnvironment* env) {
 
 AVSValue __cdecl Limiter::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "Limiter", { { 1, "min_luma" }, { 2, "max_luma" }, { 3, "min_chroma" }, { 4, "max_chroma" } }, env);
   const char* option = args[5].AsString(nullptr);
   show_e show = show_none;
 

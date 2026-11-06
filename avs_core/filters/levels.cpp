@@ -812,6 +812,7 @@ void Levels::processFloat(PVideoFrame& frame)
 
 AVSValue __cdecl Levels::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "Levels", { { 1, "input_low" }, { 2, "gamma" }, { 3, "input_high" }, { 4, "output_low" }, { 5, "output_high" } }, env);
   enum { CHILD, IN_MIN, GAMMA, IN_MAX, OUT_MIN, OUT_MAX, CORING, DITHER };
   return new Levels( args[CHILD].AsClip(), (float)args[IN_MIN].AsFloat(), (float)args[GAMMA].AsFloat(), (float)args[IN_MAX].AsFloat(),
     (float)args[OUT_MIN].AsFloat(), (float)args[OUT_MAX].AsFloat(), args[CORING].AsBool(true), args[DITHER].AsBool(false), env );
@@ -1490,6 +1491,7 @@ PVideoFrame __stdcall RGBAdjust::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl RGBAdjust::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "RGBAdjust", { { 1, "r" }, { 2, "g" }, { 3, "b" }, { 4, "a" }, { 5, "rb" }, { 6, "gb" }, { 7, "bb" }, { 8, "ab" }, { 9, "rg" }, { 10, "gg" }, { 11, "bg" }, { 12, "ag" } }, env);
   return new RGBAdjust(args[ 0].AsClip(),
                        args[ 1].AsDblDef(1.0), args[ 2].AsDblDef(1.0), args[ 3].AsDblDef(1.0), args[ 4].AsDblDef(1.0),
                        args[ 5].AsDblDef(0.0), args[ 6].AsDblDef(0.0), args[ 7].AsDblDef(0.0), args[ 8].AsDblDef(0.0),
@@ -2194,6 +2196,7 @@ PVideoFrame __stdcall Tweak::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl Tweak::Create(AVSValue args, void* , IScriptEnvironment* env)
 {
+    check_float_params(args, "Tweak", { { 1, "hue" }, { 2, "sat" }, { 3, "bright" }, { 4, "cont" }, { 14, "dither_strength" } }, env);
     return new Tweak(args[0].AsClip(),
         args[1].AsDblDef(0.0),     // hue
         args[2].AsDblDef(1.0),     // sat

@@ -785,6 +785,7 @@ PVideoFrame ShowFrameNumber::GetFrame(int n, IScriptEnvironment* env) {
 
 AVSValue __cdecl ShowFrameNumber::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "ShowFrameNumber", { { 3, "x" }, { 4, "y" }, { 6, "size" }, { 9, "font_width" }, { 10, "font_angle" } }, env);
   PClip clip = args[0].AsClip();
   bool scroll = args[1].AsBool(false);
   const int offset = args[2].AsInt(0);
@@ -1064,6 +1065,7 @@ PVideoFrame ShowCRC32::GetFrame(int n, IScriptEnvironment* env) {
 
 AVSValue __cdecl ShowCRC32::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "ShowCRC32", { { 3, "x" }, { 4, "y" }, { 6, "size" }, { 9, "font_width" }, { 10, "font_angle" } }, env);
   PClip original = args[0].AsClip();
   const VideoInfo& vi = original->GetVideoInfo();
 
@@ -1311,6 +1313,7 @@ PVideoFrame __stdcall ShowSMPTE::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl ShowSMPTE::CreateSMTPE(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "ShowSMPTE", { { 1, "fps" }, { 4, "x" }, { 5, "y" }, { 7, "size" }, { 10, "font_width" }, { 11, "font_angle" } }, env);
   PClip clip = args[0].AsClip();
   const VideoInfo& arg0vi = args[0].AsClip()->GetVideoInfo();
   double def_rate = (double)arg0vi.fps_numerator / arg0vi.fps_denominator;
@@ -1347,6 +1350,7 @@ AVSValue __cdecl ShowSMPTE::CreateSMTPE(AVSValue args, void*, IScriptEnvironment
 
 AVSValue __cdecl ShowSMPTE::CreateTime(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "ShowTime", { { 2, "x" }, { 3, "y" }, { 5, "size" }, { 8, "font_width" }, { 9, "font_angle" } }, env);
   PClip clip = args[0].AsClip();
   const int offset_f = args[1].AsInt(0);
   const int xreal = args[0].AsClip()->GetVideoInfo().width/2;
@@ -1458,6 +1462,7 @@ PVideoFrame Subtitle::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl Subtitle::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+    check_float_params(args, "Subtitle", { { 2, "x" }, { 3, "y" }, { 7, "size" }, { 13, "font_width" }, { 14, "font_angle" } }, env);
     PClip clip = args[0].AsClip();
     const char* text = args[1].AsString();
     const int first_frame = args[4].AsInt(0);
@@ -1836,6 +1841,7 @@ PVideoFrame SimpleText::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl SimpleText::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "Text", { { 2, "x" }, { 3, "y" }, { 7, "size" }, { 13, "font_width" }, { 14, "font_angle" } }, env);
   PClip clip = args[0].AsClip();
   VideoInfo vi = clip->GetVideoInfo();
 
@@ -2369,6 +2375,7 @@ PVideoFrame FilterInfo::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl FilterInfo::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+    check_float_params(args, "Info", { { 2, "size" }, { 9, "x" }, { 10, "y" } }, env);
     // 0   1      2       3             4         5       6      7       8    9  10    11      12
     // c[font]s[size]f[text_color]i[halo_color]i[bold]b[italic]b[noaa]b[cpu]b[x]f[y]f[align]i[gdi]b
     PClip clip = args[0].AsClip();

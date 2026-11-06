@@ -548,6 +548,7 @@ PVideoFrame ResetMask::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue ResetMask::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "ResetMask", { { 1, "mask" }, { 2, "opacity" } }, env);
   return new ResetMask(args[0].AsClip(), args[1], args[2], env);
 }
 
@@ -3022,6 +3023,7 @@ PVideoFrame __stdcall Layer::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl Layer::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "Layer", { { 8, "opacity" } }, env);
   const VideoInfo& vi1 = args[0].AsClip()->GetVideoInfo();
   const VideoInfo& vi2 = args[1].AsClip()->GetVideoInfo();
 

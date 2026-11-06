@@ -358,6 +358,7 @@ PVideoFrame __stdcall MergeChroma::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl MergeChroma::Create(AVSValue args, void* , IScriptEnvironment* env)
 {
+  check_float_params(args, "MergeChroma", { { 2, "weight" } }, env);
   return new MergeChroma(args[0].AsClip(), args[1].AsClip(), (float)args[2].AsFloat(1.0f), env);
 }
 
@@ -507,6 +508,7 @@ PVideoFrame __stdcall MergeLuma::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl MergeLuma::Create(AVSValue args, void* , IScriptEnvironment* env)
 {
+  check_float_params(args, "MergeLuma", { { 2, "weight" } }, env);
   return new MergeLuma(args[0].AsClip(), args[1].AsClip(), (float)args[2].AsFloat(1.0f), env);
 }
 
@@ -573,5 +575,6 @@ PVideoFrame __stdcall MergeAll::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl MergeAll::Create(AVSValue args, void* , IScriptEnvironment* env)
 {
+  check_float_params(args, "Merge", { { 2, "weight" } }, env);
   return new MergeAll(args[0].AsClip(), args[1].AsClip(), (float)args[2].AsFloat(0.5f), env);
 }

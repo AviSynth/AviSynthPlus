@@ -19,6 +19,7 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Float parameters of the built-in filters which are not a number (NaN) or infinite give an error, when the filter uses them.
 - Fix: Expr, YA clips: a single expression string was applied on the alpha plane too. Now alpha is copied, as on YUVA and
   planar RGBA.
 - Fix: Expr: the alpha plane without an expression was left unset, its content was random, when ``format`` changed the bit

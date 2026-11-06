@@ -817,6 +817,7 @@ void Overlay::FetchConditionals(IScriptEnvironment* env, int* op_offset, float* 
 
 
 AVSValue __cdecl Overlay::Create(AVSValue args, void*, IScriptEnvironment* env) {
+  check_float_params(args, "Overlay", { { 5, "opacity" } }, env);
   // provide planar-only main clip
   PClip input = args[0].AsClip();
   VideoInfo vi_orig = input->GetVideoInfo();

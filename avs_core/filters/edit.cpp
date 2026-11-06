@@ -186,6 +186,7 @@ Trim::Trim(double starttime, double endtime, PClip _child, trim_mode_e mode, boo
 
 AVSValue __cdecl Trim::CreateA(AVSValue args, void* user_arg, IScriptEnvironment* env)
 {
+    check_float_params(args, "AudioTrim", { { 1, "start" }, { 2, "end or length" } }, env);
     trim_mode_e mode = (trim_mode_e)size_t(user_arg);
     if (mode == Trim::Invalid)
         env->ThrowError("Script error: Invalid arguments to function \"AudioTrim\"");
@@ -603,6 +604,7 @@ AVSValue __cdecl Splice::CreateAlignedNoCache(AVSValue args, void*, IScriptEnvir
 
 AVSValue __cdecl Dissolve::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "Dissolve", { { 3, "fps" } }, env);
   const int overlap = args[2].AsInt();
   const double fps = args[3].AsDblDef(24.0);
   PClip result = args[0].AsClip();
@@ -1161,6 +1163,7 @@ PClip __cdecl ColorClip(PClip a, int duration, AVSValue color, AVSValue color_yu
 }
 
 AVSValue __cdecl Create_Fade(AVSValue args, void* user_data, IScriptEnvironment* env) {
+  check_float_params(args, "Fade", { { 3, "fps" }, { 5, "colors" } }, env);
   const int fade_type = (int)(intptr_t)user_data;
 
   const int duration = args[1].AsInt();

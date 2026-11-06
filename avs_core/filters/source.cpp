@@ -305,6 +305,7 @@ static PVideoFrame CreateBlankFrame(const VideoInfo& vi, int color, int mode, co
 
 
 static AVSValue __cdecl Create_BlankClip(AVSValue args, void*, IScriptEnvironment* env) {
+  check_float_params(args, "BlankClip", { { 5, "fps" }, { 13, "colors" } }, env);
   VideoInfo vi_default;
   memset(&vi_default, 0, sizeof(VideoInfo));
 
@@ -2982,6 +2983,7 @@ public:
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env)
   {
+    check_float_params(args, "Tone", { { 0, "length" }, { 1, "frequency" }, { 5, "level" } }, env);
     return new Tone(args[0].AsFloat(10.0f), args[1].AsFloat(440.0f), args[2].AsInt(48000),
           args[3].AsInt(2), args[4].AsString("Sine"), args[5].AsFloatf(1.0f), env);
   }

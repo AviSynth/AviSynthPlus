@@ -463,6 +463,7 @@ AVSValue __cdecl AssumeFPS::Create(AVSValue args, void*, IScriptEnvironment* env
 
 AVSValue __cdecl AssumeFPS::CreateFloat(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "AssumeFPS", { { 1, "fps" } }, env);
   uint32_t num, den;
 
   FloatToFPS("AssumeFPS", args[1].AsFloatf(), num, den, env);
@@ -552,6 +553,7 @@ AVSValue __cdecl ChangeFPS::Create(AVSValue args, void*, IScriptEnvironment* env
 
 AVSValue __cdecl ChangeFPS::CreateFloat(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "ChangeFPS", { { 1, "fps" } }, env);
   uint32_t num, den;
 
   FloatToFPS("ChangeFPS", args[1].AsFloatf(), num, den, env);
@@ -779,6 +781,7 @@ AVSValue __cdecl ConvertFPS::Create(AVSValue args, void*, IScriptEnvironment* en
 
 AVSValue __cdecl ConvertFPS::CreateFloat(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "ConvertFPS", { { 1, "fps" } }, env);
   uint32_t num, den;
 
   FloatToFPS("ConvertFPS", (float)args[1].AsFloat(), num, den, env);

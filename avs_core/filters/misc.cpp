@@ -90,6 +90,7 @@ PVideoFrame FixLuminance::GetFrame(int n, IScriptEnvironment* env)
 
 AVSValue __cdecl FixLuminance::Create(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_params(args, "FixLuminance", { { 2, "slope" } }, env);
   return new FixLuminance(args[0].AsClip(), args[1].AsInt(), int(args[2].AsFloat()*16), env);
 }
 

@@ -199,6 +199,7 @@ public:
   }
 
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env) {
+    check_float_params(args, "Preroll", { { 2, "audio" } }, env);
     return new Preroll(args[0].AsClip(), args[1].AsInt(0), (float)args[2].AsDblDef(0.0), env);
   }
 

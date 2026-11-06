@@ -11,6 +11,7 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Float parameters of the built-in filters which are not a number (NaN) or infinite give an error, when the filter uses them.
 - Fix: Expr, YA clips: a single expression string was applied on the alpha plane too. Now alpha is copied, as on YUVA and
   planar RGBA.
 - Fix: Expr: the alpha plane without an expression was left unset, its content was random, when format changed the bit
