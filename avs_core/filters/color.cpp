@@ -1032,7 +1032,7 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
           if (!vi.IsY())
           {
             if (bits_per_pixel == 32)
-              sprintf(text,
+              snprintf(text, sizeof(text),
                 "        Frame: %-8u ( Luma Y / ChromaU / ChromaV )\n"
                 "      Average:      ( %7.5f / %7.5f / %7.5f )\n"
                 "      Minimum:      ( %7.5f / %7.5f / %7.5f )\n"
@@ -1047,7 +1047,7 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
                 (float)dY.loose_max / 65535.0f, (float)dU.loose_max / 65535.0f, (float)dV.loose_max / 65535.0f
               );
             else
-              sprintf(text,
+              snprintf(text, sizeof(text),
                 "        Frame: %-8u ( Luma Y / ChromaU / ChromaV )\n"
                 "      Average:      ( %7.2f / %7.2f / %7.2f )\n"
                 "      Minimum:      (  %5d  /  %5d  /  %5d   )\n"
@@ -1065,7 +1065,7 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
           else
           {
             if (bits_per_pixel == 32)
-              sprintf(text,
+              snprintf(text, sizeof(text),
                 "        Frame: %-8u\n"
                 "      Average: %7.5f\n"
                 "      Minimum: %7.5f\n"
@@ -1080,7 +1080,7 @@ PVideoFrame __stdcall ColorYUV::GetFrame(int n, IScriptEnvironment* env)
                 (float)dY.loose_max / 65535.0f
               );
             else
-              sprintf(text,
+              snprintf(text, sizeof(text),
                 "        Frame: %-8u\n"
                 "      Average: %7.2f\n"
                 "      Minimum: %5d\n"

@@ -1020,6 +1020,13 @@ static void fill_accum_rgb_planar_c(const BYTE *srcpR, const BYTE* srcpG, const 
     }
 }
 
+// Histogram bin of a float pixel. clamp keeps NaN, and casting that to int would give a wild index.
+static AVS_FORCEINLINE int float_to_accum_index(float v)
+{
+  const float x = v * 65535.0f + 0.5f;
+  return std::isnan(x) ? 0 : (int)clamp(x, 0.0f, 65535.0f);
+}
+
 static void fill_accum_rgb_planar_float_c(const BYTE* srcpR, const BYTE* srcpG, const BYTE* srcpB, int pitch,
   unsigned int* accum_r, unsigned int* accum_g, unsigned int* accum_b,
   int width, int height, RGBStats &rgbplanedata) {
@@ -1036,9 +1043,9 @@ static void fill_accum_rgb_planar_float_c(const BYTE* srcpR, const BYTE* srcpG, 
       float r = reinterpret_cast<const float*>(srcpR)[x];
       float g = reinterpret_cast<const float*>(srcpG)[x];
       float b = reinterpret_cast<const float*>(srcpB)[x];
-      int ri = (int)(clamp(r * 65535.0f + 0.5f, 0.0f, 65535.0f));
-      int gi = (int)(clamp(g * 65535.0f + 0.5f, 0.0f, 65535.0f));
-      int bi = (int)(clamp(b * 65535.0f + 0.5f, 0.0f, 65535.0f));
+      int ri = float_to_accum_index(r);
+      int gi = float_to_accum_index(g);
+      int bi = float_to_accum_index(b);
       if (r > rgbplanedata.data[0].real_max) rgbplanedata.data[0].real_max = r;
       if (r < rgbplanedata.data[0].real_min) rgbplanedata.data[0].real_min = r;
       rgbplanedata.data[0].sum += r;
@@ -1328,7 +1335,7 @@ PVideoFrame __stdcall RGBAdjust::GetFrame(int n, IScriptEnvironment* env)
           char text[512];
           const bool StatsAsInteger16 = false;
           if(StatsAsInteger16)
-            sprintf(text,
+            snprintf(text, sizeof(text),
               "At 16 bits.  Frame: %-8u (   Red   /  Green  /  Blue   )\n"
               "           Average:      ( %7.2f / %7.2f / %7.2f )\n"
               "Standard Deviation:      ( %7.2f / %7.2f / %7.2f )\n"
@@ -1346,7 +1353,7 @@ PVideoFrame __stdcall RGBAdjust::GetFrame(int n, IScriptEnvironment* env)
               Amax_r, Amax_g, Amax_b
             );
           else // stats as Float
-            sprintf(text,
+            snprintf(text, sizeof(text),
               "             Frame: %-8u (   Red   /  Green  /  Blue   )\n"
               "           Average:      ( %7.5f / %7.5f / %7.5f )\n"
               "Standard Deviation:      ( %7.5f / %7.5f / %7.5f )\n"
@@ -1438,7 +1445,7 @@ PVideoFrame __stdcall RGBAdjust::GetFrame(int n, IScriptEnvironment* env)
 
           char text[512];
           if (bits_per_pixel == 8)
-            sprintf(text,
+            snprintf(text, sizeof(text),
               "             Frame: %-8u (  Red  / Green / Blue  )\n"
               "           Average:      ( %5.2f / %5.2f / %5.2f )\n"
               "Standard Deviation:      ( %5.2f / %5.2f / %5.2f )\n"
@@ -1456,7 +1463,7 @@ PVideoFrame __stdcall RGBAdjust::GetFrame(int n, IScriptEnvironment* env)
               Amax_r, Amax_g, Amax_b
             );
           else // if (bits_per_pixel <= 16)
-            sprintf(text,
+            snprintf(text, sizeof(text),
               "             Frame: %-8u (  Red  / Green / Blue  )\n"
               "           Average:      ( %7.2f / %7.2f / %7.2f )\n"
               "Standard Deviation:      ( %7.2f / %7.2f / %7.2f )\n"
@@ -1689,22 +1696,22 @@ Tweak::Tweak(PClip _child, double _hue, double _sat, double _bright, double _con
       env->ThrowError("Tweak: bright and cont are the only options available for greyscale.");
   }
 
-  if (_startHue < 0.0 || _startHue >= 360.0)
+  if (std::isnan(_startHue) || _startHue < 0.0 || _startHue >= 360.0)
         env->ThrowError("Tweak: startHue must be greater than or equal to 0.0 and less than 360.0");
 
-  if (_endHue <= 0.0 || _endHue > 360.0)
+  if (std::isnan(_endHue) || _endHue <= 0.0 || _endHue > 360.0)
         env->ThrowError("Tweak: endHue must be greater than 0.0 and less than or equal to 360.0");
 
   if (_minSat >= _maxSat)
         env->ThrowError("Tweak: MinSat must be less than MaxSat");
 
-  if (_minSat < 0.0 || _minSat >= 150.0)
+  if (std::isnan(_minSat) || _minSat < 0.0 || _minSat >= 150.0)
         env->ThrowError("Tweak: minSat must be greater than or equal to 0 and less than 150.");
 
-  if (_maxSat <= 0.0 || _maxSat > 150.0)
+  if (std::isnan(_maxSat) || _maxSat <= 0.0 || _maxSat > 150.0)
         env->ThrowError("Tweak: maxSat must be greater than 0 and less than or equal to 150.");
 
-  if (p>=150.0 || p<0.0)
+  if (std::isnan(p) || p >= 150.0 || p < 0.0)
         env->ThrowError("Tweak: Interp must be greater than or equal to 0 and less than 150.");
 
   Sat = (int) (_sat * 512);    // 9 bits extra precision
@@ -2220,19 +2227,19 @@ MaskHS::MaskHS(PClip _child, double _startHue, double _endHue, double _maxSat, d
         env->ThrowError("MaskHS: clip must contain chroma.");
     }
 
-    if (dstartHue < 0.0 || dstartHue >= 360.0)
+    if (std::isnan(dstartHue) || dstartHue < 0.0 || dstartHue >= 360.0)
         env->ThrowError("MaskHS: startHue must be greater than or equal to 0.0 and less than 360.0");
 
-    if (dendHue <= 0.0 || dendHue > 360.0)
+    if (std::isnan(dendHue) || dendHue <= 0.0 || dendHue > 360.0)
         env->ThrowError("MaskHS: endHue must be greater than 0.0 and less than or equal to 360.0");
 
     if (dminSat >= dmaxSat)
         env->ThrowError("MaskHS: MinSat must be less than MaxSat");
 
-    if (dminSat < 0.0 || dminSat >= 150.0)
+    if (std::isnan(dminSat) || dminSat < 0.0 || dminSat >= 150.0)
         env->ThrowError("MaskHS: minSat must be greater than or equal to 0 and less than 150.");
 
-    if (dmaxSat <= 0.0 || dmaxSat > 150.0)
+    if (std::isnan(dmaxSat) || dmaxSat <= 0.0 || dmaxSat > 150.0)
         env->ThrowError("MaskHS: maxSat must be greater than 0 and less than or equal to 150.");
 
     pixelsize = vi.ComponentSize();

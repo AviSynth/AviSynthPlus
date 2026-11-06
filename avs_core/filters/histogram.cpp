@@ -140,8 +140,8 @@ Histogram::Histogram(PClip _child, Mode _mode, AVSValue _option, int _show_bits,
     }
     optionValid = option.IsFloat();
     const double factor = option.AsDblDef(100.0); // Population limit % factor
-    if (factor < 0.0 || factor > 100.0) {
-      env->ThrowError("Histogram: Levels population clamping must be between 0 and 100%");
+    if (std::isnan(factor) || factor < 0.0 || factor > 100.0) {
+      env->ThrowError("Histogram: Levels population clamping must be between 0 and 100%%");
     }
     // put diagram on the right side
     if (keepsource) {

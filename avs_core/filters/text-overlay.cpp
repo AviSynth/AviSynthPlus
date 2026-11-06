@@ -678,6 +678,16 @@ void Antialiaser::GetAlphaRect()
  *******   Show Frame Number    ******
  ************************************/
 
+// ShowFrameNumber, ShowCRC32: the text is repeated in steps of size, so it has to be at least 1 after rounding.
+// scale: 8 for GDI, its unit is 1/8 pixel.
+static int get_repeated_text_size(double size_f, int scale, const char* name, IScriptEnvironment* env)
+{
+  const double size_scaled = size_f * scale + 0.5;
+  if (std::isnan(size_f) || size_scaled < 1.0 || size_f > 1000000.0)
+    env->ThrowError("%s: size must be between 1 and 1000000", name);
+  return (int)size_scaled;
+}
+
 ShowFrameNumber::ShowFrameNumber(PClip _child, bool _scroll, int _offset, int _x, int _y, const char _fontname[],
                                  int _size, int _textcolor, int _halocolor, int font_width, int font_angle,
                                  bool _bold, bool _italic, bool _noaa, bool _gdi, IScriptEnvironment* env)
@@ -733,7 +743,7 @@ PVideoFrame ShowFrameNumber::GetFrame(int n, IScriptEnvironment* env) {
       TextOut(hdc, x+16, y+16, text, (int)strlen(text));
     } else if (scroll) {
       int n1 = vi.IsFieldBased() ? (n/2) : n;
-      int y2 = size + size * (n1 % (vi.height * 8 / size));
+      int y2 = size + size * (n1 % std::max(1, vi.height * 8 / size));
       SetTextAlign(hdc, TA_BASELINE | (child->GetParity(n) ? TA_LEFT : TA_RIGHT));
       TextOut(hdc, child->GetParity(n) ? 32 : vi.width*8+8, y2, text, (int)strlen(text));
     } else {
@@ -755,7 +765,7 @@ PVideoFrame ShowFrameNumber::GetFrame(int n, IScriptEnvironment* env) {
     SimpleTextOutW(current_font.get(), vi, frame, x, y, s_utf8, false, textcolor, halocolor, true, 1, chromaplacement);
   } else if (scroll) {
     int n1 = vi.IsFieldBased() ? (n/2) : n;
-    int y2 = size + size * (n1 % (vi.height / size));
+    int y2 = size + size * (n1 % std::max(1, vi.height / size));
     if(child->GetParity(n))
       SimpleTextOutW(current_font.get(), vi, frame, 4, y2, s_utf8, false, textcolor, halocolor, true, 1, chromaplacement); // left
     else
@@ -783,7 +793,7 @@ AVSValue __cdecl ShowFrameNumber::Create(AVSValue args, void*, IScriptEnvironmen
   const int x = args[3].IsFloat() ? int(args[3].AsFloat() * (gdi ? 8 : 1) + 0.5) : DefXY;
   const int y = args[4].IsFloat() ? int(args[4].AsFloat() * (gdi ? 8 : 1) + 0.5) : DefXY;
   const char* font = args[5].AsString(gdi ? "Arial" : "Terminus");
-  const int size = int(args[6].AsFloat(24) * (gdi ? 8 : 1) + 0.5);
+  const int size = get_repeated_text_size(args[6].AsFloat(24), gdi ? 8 : 1, "ShowFrameNumber", env);
   const int font_width = int(args[9].AsFloat(0) * (gdi ? 8 : 1) + 0.5);
   const bool bold = args[11].AsBool(gdi);
 #else
@@ -791,7 +801,7 @@ AVSValue __cdecl ShowFrameNumber::Create(AVSValue args, void*, IScriptEnvironmen
   const int x = args[3].IsFloat() ? int(args[3].AsFloat() + 0.5) : DefXY;
   const int y = args[4].IsFloat() ? int(args[4].AsFloat() + 0.5) : DefXY;
   const char* font = args[5].AsString("Terminus");
-  const int size = int(args[6].AsFloat(24) + 0.5);
+  const int size = get_repeated_text_size(args[6].AsFloat(24), 1, "ShowFrameNumber", env);
   const int font_width = int(args[9].AsFloat(0) + 0.5);
   const bool bold = args[11].AsBool(false);
 #endif
@@ -1013,7 +1023,7 @@ PVideoFrame ShowCRC32::GetFrame(int n, IScriptEnvironment* env) {
       TextOut(hdc, x + 16, y + 16, text, (int)strlen(text));
     } else if (scroll) {
       int n1 = vi.IsFieldBased() ? (n / 2) : n;
-      int y2 = size + size * (n1 % (vi.height * 8 / size));
+      int y2 = size + size * (n1 % std::max(1, vi.height * 8 / size));
       SetTextAlign(hdc, TA_BASELINE | (child->GetParity(n) ? TA_LEFT : TA_RIGHT));
       TextOut(hdc, child->GetParity(n) ? 32 : vi.width * 8 + 8, y2, text, (int)strlen(text));
     } else {
@@ -1035,7 +1045,7 @@ PVideoFrame ShowCRC32::GetFrame(int n, IScriptEnvironment* env) {
     SimpleTextOutW(current_font.get(), vi, frame, x, y, s_utf8, false, textcolor, halocolor, true, 1, chromaplacement);
   } else if (scroll) {
     int n1 = vi.IsFieldBased() ? (n / 2) : n;
-    int y2 = size + size * (n1 % (vi.height / size));
+    int y2 = size + size * (n1 % std::max(1, vi.height / size));
     if (child->GetParity(n))
       SimpleTextOutW(current_font.get(), vi, frame, 4, y2, s_utf8, false, textcolor, halocolor, true, 1, chromaplacement); // left
     else
@@ -1089,7 +1099,7 @@ AVSValue __cdecl ShowCRC32::Create(AVSValue args, void*, IScriptEnvironment* env
   const int x = args[3].IsFloat() ? int(args[3].AsFloat() * (gdi ? 8 : 1) + 0.5) : DefXY;
   const int y = args[4].IsFloat() ? int(args[4].AsFloat() * (gdi ? 8 : 1) + 0.5) : DefXY;
   const char* font = args[5].AsString(gdi ? "Arial" : "Terminus");
-  const int size = int(args[6].AsFloat(24) * (gdi ? 8 : 1) + 0.5);
+  const int size = get_repeated_text_size(args[6].AsFloat(24), gdi ? 8 : 1, "ShowCRC32", env);
   const int font_width = int(args[9].AsFloat(0) * (gdi ? 8 : 1) + 0.5);
   const bool bold = args[11].AsBool(gdi);
 #else
@@ -1097,7 +1107,7 @@ AVSValue __cdecl ShowCRC32::Create(AVSValue args, void*, IScriptEnvironment* env
   const int x = args[3].IsFloat() ? int(args[3].AsFloat() + 0.5) : DefXY;
   const int y = args[4].IsFloat() ? int(args[4].AsFloat() + 0.5) : DefXY;
   const char* font = args[5].AsString("Terminus");
-  const int size = int(args[6].AsFloat(24) + 0.5);
+  const int size = get_repeated_text_size(args[6].AsFloat(24), 1, "ShowCRC32", env);
   const int font_width = int(args[9].AsFloat(0) + 0.5);
   const bool bold = args[11].AsBool(false);
 #endif
@@ -1155,6 +1165,9 @@ ShowSMPTE::ShowSMPTE(PClip _child, double _rate, const char* offset, int _offset
     }
   }
   int off_f, off_sec, off_min, off_hour;
+
+  if (std::isnan(_rate) || _rate < 0.0 || _rate > 1000000.0)
+    env->ThrowError("ShowSMPTE: rate argument must be 23.976, 29.97 or an integer");
 
   rate = int(_rate + 0.5);
   dropframe = false;

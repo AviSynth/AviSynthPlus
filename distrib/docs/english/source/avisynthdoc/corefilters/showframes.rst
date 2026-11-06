@@ -77,7 +77,7 @@ See the :ref:`ShowFrameNumber examples <ShowFrameNumber-examples>` section.
 
 .. describe:: size
 
-    Height of the text in pixels.
+    Height of the text in pixels, between 1 and 1000000.
 
     Default 24.
 
@@ -497,7 +497,7 @@ The text placement and scrolling behaviour are identical to `ShowFrameNumber`_.
 
 .. describe:: size
 
-    Height of the text in pixels.
+    Height of the text in pixels, between 1 and 1000000.
 
     Default: 24
 

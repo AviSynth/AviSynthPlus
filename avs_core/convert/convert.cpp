@@ -40,6 +40,7 @@
 #include "convert_planar.h"
 #include "convert_rgb.h"
 
+#include <cmath>
 #include <avs/alignment.h>
 #include <avs/minmax.h>
 #include <avs/config.h>
@@ -415,7 +416,7 @@ AVSValue AddAlphaPlane::Create(AVSValue args, void*, IScriptEnvironment* env)
     if (isOpacityDefined) {
       // Handle opacity parameter (0.0 to 1.0)
       float opacity = args[2].AsFloatf(1.0f);
-      if (opacity < 0.0f || opacity > 1.0f)
+      if (std::isnan(opacity) || opacity < 0.0f || opacity > 1.0f)
         env->ThrowError("AddAlphaPlane: opacity must be between 0.0 and 1.0");
       if (vi.BitsPerComponent() <= 16) {
         int max_pixel_value = (1 << vi.BitsPerComponent()) - 1;
@@ -428,6 +429,8 @@ AVSValue AddAlphaPlane::Create(AVSValue args, void*, IScriptEnvironment* env)
     else {
       // Handle mask parameter (direct value)
       maskAsFloat = (float)args[1].AsFloat(-1.0f);
+      if (std::isnan(maskAsFloat))
+        env->ThrowError("AddAlphaPlane: mask must be a number or a clip, not NaN");
     }
   }
 

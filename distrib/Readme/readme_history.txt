@@ -11,6 +11,15 @@ https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
 20261105 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
+- Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
+  values or on only NaN pixels.
+- Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.
+- Fix: ShowFrameNumber, ShowCRC32 scroll=true: division by zero when size is larger than the clip height, which is also
+  the default size on a clip less than 24 pixels high.
+- Fix: ShowFrameNumber, ShowCRC32: size of 0 or below, NaN or too large never finished. Now an error: it must be between 1
+  and 1000000.
+- Fix: NaN passed the range check of Tweak (startHue, endHue, minSat, maxSat, interp), MaskHS (same without interp),
+  Histogram factor, AddAlphaPlane (opacity, mask), ShowSMPTE fps. Now an error.
 - Fix: UToY, VToY, clips with alpha: the alpha plane of the output was left unset, its content was random.
   Now it is opaque.
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
