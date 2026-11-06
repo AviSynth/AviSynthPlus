@@ -220,10 +220,10 @@ Expressions are evaluated on each plane, Y, U, V (and A) or R, G, B (,A). When
 an expression string is not specified, the previous expression is used for that
 plane – except for plane A (alpha) which is copied by default. When an expression
 is an empty string (``""``) then the relevant plane will be copied (if the output
-clip bit depth is similar). When an expression is a single clip reference letter
-("x") and the source/target bit depth is similar, then the relevant plane will
-be copied. When an expression is constant (after constant folding), then the
-relevant plane will be filled with an optimized memory fill method.
+clip bit depth is similar; alpha is converted to the new bit depth). When an expression 
+is a single clip reference letter ("x") and the source/target bit depth is similar, 
+then the relevant plane will be copied. When an expression is constant (after constant 
+folding), then the relevant plane will be filled with an optimized memory fill method.
 
 * Example: ``Expr(clip, "255", "128, "128")`` fills all three planes.
 * Example: ``Expr(clip, "x", "range_half, "range_half")`` copies luma, fills U
@@ -437,6 +437,34 @@ This example gives 940 on a limited range 10 bit clip and 1023 on a full range o
 Y plane::
 
     x._ColorRange 1 == ymax range_max ?
+
+Alpha plane
+~~~~~~~~~~~
+
+Alpha is full range, but the constants are not adjusted for it: ``ymax`` is 235 or its scaled
+equivalent on the alpha plane as well. In an alpha expression use ``range_min, range_max`` and
+``scalef``.
+
+A single expression string does not reach the alpha plane, it is copied, also on YA clips. On YA
+the second expression string is for alpha. When ``format`` changes the bit depth, the copy
+is a full range conversion to the new bit depth.
+
+.. table::
+    :widths: auto
+
+    +--------------------+-------------------------------------+---------------------+-------------+
+    | Source clip, alpha | Call                                | Alpha before 3.7.7  | Alpha now   |
+    +====================+=====================================+=====================+=============+
+    | YA10, 800          | ``Expr("128 scalef")``              | 514, the expression | 800, copied |
+    +--------------------+-------------------------------------+---------------------+-------------+
+    | YUVA444P10, 800    | ``Expr("128 scalef")``              | 800, copied         | 800, copied |
+    +--------------------+-------------------------------------+---------------------+-------------+
+    | YA10, 800          | ``Expr("128 scalef", "range_max")`` | 1023                | 1023        |
+    +--------------------+-------------------------------------+---------------------+-------------+
+    | YUVA444P8, 200     | ``Expr("x", format="YUVA444P16")``  | random              | 51400       |
+    +--------------------+-------------------------------------+---------------------+-------------+
+    | YA8, 200           | ``Expr("x", format="YA16")``        | 200                 | 51400       |
+    +--------------------+-------------------------------------+---------------------+-------------+
 
 Keywords for modifying base bit depth
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~

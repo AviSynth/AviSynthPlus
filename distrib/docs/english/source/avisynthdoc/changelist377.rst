@@ -19,6 +19,10 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Expr, YA clips: a single expression string was applied on the alpha plane too. Now alpha is copied, as on YUVA and
+  planar RGBA.
+- Fix: Expr: the alpha plane without an expression was left unset, its content was random, when ``format`` changed the bit
+  depth. Now it is converted to the new bit depth as full range.
 - Fix: resizers, Bob, and ``param1``, ``param2``, ``param3`` of the ``ConvertTo...`` filters, AddBorders and LetterBox: NaN
   and Inf were accepted, the result was undefined and differed by platform. Now an error, as are ``src_left``, ``src_top``,
   ``src_width``, ``src_height`` too large for the resizer.

@@ -6952,7 +6952,7 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
     std::string expr[4]; // 4th: alpha
     for (int i = 0; i < nexpr; i++)
       expr[i] = expressions[i];
-    if (nexpr == 1) {
+    if (nexpr == 1 && !d.vi.IsYA()) { // YA: index 1 is alpha, it is copied by default
       expr[1] = expr[0];
       expr[2] = expr[0]; // e.g. exprU = exprV = exprY
     }
@@ -6976,6 +6976,16 @@ Exprfilter::Exprfilter(const std::vector<PClip>& _child_array, const std::vector
           d.plane[i] = poCopy; // copy only when target clip format bit depth == 1st clip's bit depth
           d.planeCopySourceClip[i] = 0; // default source clip from empty expression: first one
           d.clipsUsed[0] = true; // mark clip to have its GetFrame
+        }
+        else if (i == 3 || (i == 1 && d.vi.IsYA())) {
+          // alpha is copied by default: to another bit depth it is converted, as full range.
+          // Real depths also with scale_inputs: its input and output steps cancel out, they use the first clip's depth.
+          const int bits_s = vi_array[0]->BitsPerComponent();
+          const int bits_d = d.vi.BitsPerComponent();
+          const int max_s = bits_s == 32 ? 1 : (1 << bits_s) - 1;
+          const int max_d = bits_d == 32 ? 1 : (1 << bits_d) - 1;
+          expr[i] = "x " + std::to_string(max_d) + " * " + std::to_string(max_s) + " /";
+          d.plane[i] = poProcess;
         }
         else
           d.plane[i] = poUndefined;
