@@ -33,6 +33,7 @@
 // import and export plugins, or graphical user interfaces.
 
 #include "resample_functions.h"
+#include <climits>
 #include <cmath>
 #include <vector>
 #include <algorithm>
@@ -474,12 +475,15 @@ ResamplingProgram* ResamplingFunction::GetResamplingProgram(int source_size, dou
   double imp_step = 1.0 / zc_size;                   // Corresponding distance in the impulse
   double filter_support = support() * zc_size;       // Number of source pixels covered by the FIR
 
-  int fir_filter_size = std::max(int(std::ceil(filter_support * 2)), 1);
+  // The coefficient table is indexed by int: i * fir_filter_size
+  const double fir_filter_size_d = std::max(std::ceil(filter_support * 2), 1.0);
+  if (fir_filter_size_d * target_size > INT_MAX)
+    env->ThrowError("Resize: the filter is too wide, because of src_width, src_height or the support of the kernel");
+
+  int fir_filter_size = (int)fir_filter_size_d;
   int max_kernel_size = 0;
 
   const int last_line = source_size - 1;
-
-  ResamplingProgram* program = new ResamplingProgram(fir_filter_size, source_size, target_size, crop_start, crop_size, bits_per_pixel, env);
 
   // Initial position calculation
 
@@ -519,7 +523,14 @@ ResamplingProgram* ResamplingFunction::GetResamplingProgram(int source_size, dou
     filter_support = 0.0001;
   }
 
+  // The positions of the first and the last target sample are cast to int in the loop below
+  const double pos_max = std::max(std::fabs(pos), std::fabs(pos + src_step * (target_size - 1)));
+  if (pos_max + filter_support + fir_filter_size >= INT_MAX)
+    env->ThrowError("Resize: src_left, src_top, src_width or src_height is too large");
+
   const int current_FPScale = (bits_per_pixel > 8 && bits_per_pixel <= 16) ? FPScale16 : FPScale;
+
+  ResamplingProgram* program = new ResamplingProgram(fir_filter_size, source_size, target_size, crop_start, crop_size, bits_per_pixel, env);
 
   std::vector<double> coef_tmp;
   for (int i = 0; i < target_size; ++i) {

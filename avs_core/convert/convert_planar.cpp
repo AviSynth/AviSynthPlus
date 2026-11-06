@@ -35,6 +35,7 @@
 // ConvertPlanar (c) 2005 by Klaus Post
 
 
+#include "../core/internal.h"
 #include "convert.h"
 #include "convert_matrix.h"
 #include "convert_helper.h"
@@ -2096,6 +2097,9 @@ static int getPlacement(const AVSValue& _placement, IScriptEnvironment* env) {
 
 
 ResamplingFunction* getResampler(const char* resampler, AVSValue param1, AVSValue param2, AVSValue param3, bool throw_on_error, IScriptEnvironment* env) {
+  check_float_param(param1, "Resampler", "param1", env);
+  check_float_param(param2, "Resampler", "param2", env);
+  check_float_param(param3, "Resampler", "param3", env);
   if (resampler) {
     if (!lstrcmpi(resampler, "point"))
       return new PointFilter();

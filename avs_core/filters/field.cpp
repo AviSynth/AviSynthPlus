@@ -1065,6 +1065,8 @@ static AVSValue __cdecl Create_Bob(AVSValue args, void*, IScriptEnvironment* env
   bool preserve_center = true; // default Avisynth
   int chroma_placement = ChromaLocation_e::AVS_CHROMA_UNUSED; // default
 
+  check_float_param(args[1], "Bob", "b", env);
+  check_float_param(args[2], "Bob", "c", env);
   const double b = args[1].AsDblDef(1./3.);
   const double c = args[2].AsDblDef(1./3.);
   const int new_height = args[3].AsInt(vi.height*2);

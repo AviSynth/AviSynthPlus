@@ -543,6 +543,9 @@ Syntax and Parameters
 
     Default: "auto"
 
+Float parameters which are not a number (NaN) or infinite give an error, and so do source positions
+and sizes far too large for the resizer to work with.
+
 .. _resize-cropping:
 
 Cropping
@@ -653,6 +656,8 @@ Changelog
 +-----------------+---------------------------------------------------------------+
 | Version         | Changes                                                       |
 +=================+===============================================================+
+| 3.7.7           | Float parameters must be finite                               |
++-----------------+---------------------------------------------------------------+
 | 3.7.4           || Add "force" parameter                                        |
 |                 || Add "keep_center" parameter                                  |
 |                 || Add "placement" parameter                                    |

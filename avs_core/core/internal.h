@@ -41,6 +41,7 @@
 #include <stdint.h>
 #include <string.h>
 #include "version.h"
+#include <cmath>
 #include <memory>
 #include <string>
 #ifdef AVS_POSIX
@@ -58,6 +59,17 @@
 #endif
 
 #endif
+
+// Float parameter: rejects NaN and Inf. An undefined parameter is fine, its default is used.
+// Script floats are double, so a value like 1e39 passes: what is too large depends on the use, it is checked there.
+static inline void check_float_param(const AVSValue& value, const char* filter, const char* name, IScriptEnvironment* env)
+{
+  if (!value.Defined())
+    return;
+  const double v = value.AsFloat();
+  if (!std::isfinite(v))
+    env->ThrowError("%s: %s must be a finite number", filter, name);
+}
 
 #if AVS_DEVNEXT_REV > 0
 #define AVS_DEVELOPMENT_BUILD "\nNext Version Development Build: " AVS_PPSTR(AVS_DEV_REVDATE)

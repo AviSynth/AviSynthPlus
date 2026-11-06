@@ -19,6 +19,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: resizers, Bob, and ``param1``, ``param2``, ``param3`` of the ``ConvertTo...`` filters, AddBorders and LetterBox: NaN
+  and Inf were accepted, the result was undefined and differed by platform. Now an error, as are ``src_left``, ``src_top``,
+  ``src_width``, ``src_height`` too large for the resizer.
 - Fix: Expr ``cmin``, ``scale_inputs="floatUV"``, 8-16 bit clips: it was half a step too high and rounded up, 17 instead of
   16 at 8 bit, 65 instead of 64 at 10 bit. Existed since 3.5.0 (2020).
 - Fix: RGBAdjust, ColorYUV ``analyze=true``: stack buffer overflow in the text of the statistics on very large float pixel

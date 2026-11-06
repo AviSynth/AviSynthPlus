@@ -32,6 +32,7 @@
 // which is not derived from or based on Avisynth, such as 3rd-party filters,
 // import and export plugins, or graphical user interfaces.
 
+#include "../core/internal.h"
 #include "resample.h"
 #ifdef INTEL_INTRINSICS
 #include "intel/resample_sse.h"
@@ -2444,6 +2445,10 @@ PClip FilteredResize::CreateResize(PClip clip, int target_width, int target_heig
   IScriptEnvironment* env)
 {
   // args 0-1-2-3: left-top-width-height
+  check_float_param(args[0], "Resize", "src_left", env);
+  check_float_param(args[1], "Resize", "src_top", env);
+  check_float_param(args[2], "Resize", "src_width", env);
+  check_float_param(args[3], "Resize", "src_height", env);
   VideoInfo vi = clip->GetVideoInfo();
   const double subrange_left = args[0].AsFloat(0), subrange_top = args[1].AsFloat(0);
 
@@ -2533,6 +2538,8 @@ AVSValue __cdecl FilteredResize::Create_BilinearResize(AVSValue args, void*, ISc
 
 AVSValue __cdecl FilteredResize::Create_BicubicResize(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_param(args[3], "BicubicResize", "b", env);
+  check_float_param(args[4], "BicubicResize", "c", env);
   auto f = MitchellNetravaliFilter(args[3].AsDblDef(1. / 3.), args[4].AsDblDef(1. / 3.));
   const int force = args[9].AsInt(0);
 
@@ -2617,6 +2624,9 @@ AVSValue __cdecl FilteredResize::Create_Spline64Resize(AVSValue args, void*, ISc
 
 AVSValue __cdecl FilteredResize::Create_GaussianResize(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_param(args[7], "GaussResize", "p", env);
+  check_float_param(args[8], "GaussResize", "b", env);
+  check_float_param(args[9], "GaussResize", "s", env);
   auto f = GaussianFilter(args[7].AsFloat(30.0f), args[8].AsFloat(2.0f), args[9].AsFloat(4.0f)); // defaults at two more places
   const int force = args[10].AsInt(0);
 
@@ -2642,6 +2652,7 @@ AVSValue __cdecl FilteredResize::Create_SincResize(AVSValue args, void*, IScript
 // like GaussianFilter(); optional P
 AVSValue __cdecl FilteredResize::Create_SinPowerResize(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_param(args[7], "SinPowerResize", "p", env);
   auto f = SinPowerFilter(args[7].AsFloat(2.5f));
   const int force = args[8].AsInt(0);
 
@@ -2668,6 +2679,9 @@ AVSValue __cdecl FilteredResize::Create_SincLin2Resize(AVSValue args, void*, ISc
 // like bicubic, plus 's'upport: optional B and C and S
 AVSValue __cdecl FilteredResize::Create_UserDefined2Resize(AVSValue args, void*, IScriptEnvironment* env)
 {
+  check_float_param(args[3], "UserDefined2Resize", "b", env);
+  check_float_param(args[4], "UserDefined2Resize", "c", env);
+  check_float_param(args[5], "UserDefined2Resize", "s", env);
   auto f = UserDefined2Filter(args[3].AsFloat(121.0f), args[4].AsFloat(19.0f), args[5].AsFloat(2.3f));
   const int force = args[10].AsInt(0);
 
