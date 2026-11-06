@@ -444,7 +444,7 @@ are calculated for this internally used bit depth.
 
 To follow the clip, read the frame property in the expression, see `Frame property input`_.
 This example gives 940 on a limited range 10 bit clip and 1023 on a full range one, on the
-Y plane::
+Y plane. A YUV clip without the property counts as limited::
 
     x._ColorRange 1 == ymax range_max ?
 
@@ -496,6 +496,23 @@ Frame property input
   expression.
 * Example: ``x._ColorRange`` will push the value of ``_ColorRange`` frame
   property on stack (of clip x).
+* A property which is not set or is not a number reads as 0. The exception is ``_ColorRange``:
+  when it is not set, it reads as the usual default of that clip's format: 0 (full) for RGB,
+  1 (limited) for the others, as ``ConvertBits`` assumes as well.
+
+  +----------------------------------------------------------------------------------+------------------------+--------+-------------+
+  | Source clip                                                                      | Expression             | Before | Since 3.7.7 |
+  +==================================================================================+========================+========+=============+
+  | ``BlankClip(pixel_type="YUV444P10").propDelete("_ColorRange")``                  | ``x._ColorRange``      | 0      | 1           |
+  +----------------------------------------------------------------------------------+------------------------+--------+-------------+
+  | ``BlankClip(pixel_type="YUV444PS").propDelete("_ColorRange")``                   | ``x._ColorRange``      | 0      | 1           |
+  +----------------------------------------------------------------------------------+------------------------+--------+-------------+
+  | ``BlankClip(pixel_type="RGBP10").propDelete("_ColorRange")``                     | ``x._ColorRange``      | 0      | 0           |
+  +----------------------------------------------------------------------------------+------------------------+--------+-------------+
+  | ``BlankClip(pixel_type="YUV444P10").propSet("_ColorRange", 0)``                  | ``x._ColorRange``      | 0      | 0           |
+  +----------------------------------------------------------------------------------+------------------------+--------+-------------+
+  | ``BlankClip(pixel_type="RGBP10").propSet("_ColorRange", 1)``                     | ``x._ColorRange``      | 1      | 1           |
+  +----------------------------------------------------------------------------------+------------------------+--------+-------------+
 
 Internal variables
 ~~~~~~~~~~~~~~~~~~

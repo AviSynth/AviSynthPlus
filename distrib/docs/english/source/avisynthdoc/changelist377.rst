@@ -19,6 +19,8 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Expr: ``x._ColorRange`` on a clip without this frame property read as 0, which means full range, also on YUV.
+  Now it is the default of the clip's format: 0 for RGB, 1 (limited) for the others, as in ``ConvertBits``.
 - Fix: Expr: ``pow`` with a negative base, x86 JIT: it gave 2.4e38 on any power which was not a constant 2, 3 or 4. Now it follows
   IEEE 754 as the C paths do: an integer power has a real result (``-2 ^ 3`` is -8), a fractional power is NaN. Also
   ``0 ^ 0.25`` was 3.3e-10, now 0. Results of a positive base are not changed.
