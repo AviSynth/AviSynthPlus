@@ -1033,7 +1033,7 @@ static void fill_accum_rgb_planar_float_c(const BYTE* srcpR, const BYTE* srcpG, 
   int width, int height, RGBStats &rgbplanedata) {
 
   for (int i = 0; i < 3; i++) {
-    rgbplanedata.data[i].real_max = std::numeric_limits<float>::min();
+    rgbplanedata.data[i].real_max = std::numeric_limits<float>::lowest();
     rgbplanedata.data[i].real_min = std::numeric_limits<float>::max();
     rgbplanedata.data[i].sum = 0.0;
   }
