@@ -416,6 +416,7 @@ void Antialiaser::Apply(const VideoInfo& vi, PVideoFrame* frame, int pitch)
     case MASK420_TOPLEFT: CALL_SOA(MASK420_TOPLEFT); break;
     case MASK422:         CALL_SOA(MASK422);         break;
     case MASK422_MPEG2:   CALL_SOA(MASK422_MPEG2);   break;
+    case MASK_MODE_COUNT: break;
     }
 #undef CALL_SOA
   }

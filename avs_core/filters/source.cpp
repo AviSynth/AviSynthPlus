@@ -2602,9 +2602,9 @@ public:
       // future other ColorBars types can be added here
     }
 
-    // Alpha cnannel - if any - is common. RGB32/64 has already filled alpha.
+    // Alpha channel - if any - is common. RGB32/64 has already filled alpha.
     if (vi.IsYUVA() || vi.IsPlanarRGBA()) {
-      // initialize planar alpha planes with zero (no transparency), like RGB32 does
+      // initialize planar alpha planes with zero (fully transparent), like RGB32 does
       BYTE* dstp = frame->GetWritePtr(PLANAR_A);
       int rowsize = frame->GetRowSize(PLANAR_A);
       int pitch = frame->GetPitch(PLANAR_A);
@@ -2886,7 +2886,7 @@ public:
 
   SFLOAT getValueAt(double where) {
     AVS_UNUSED(where);
-    return (float) rand()*(2.0f/RAND_MAX) -1.0f;}
+    return (float) rand()*(2.0f/(float)RAND_MAX) -1.0f;}
 };
 
 class SquareGenerator : public SampleGenerator {
