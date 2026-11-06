@@ -274,10 +274,113 @@ Expr language/RPN elements
 * Ternary operator: ``?`` - Example: ``x 128 < x y ?``
 * Duplicate stack elements: ``dup, dupn`` (dup1, dup2, ...)
 * Swap stack elements: ``swap, swapn`` (swap1, swap2, ...)
-* Scale by bit shift: ``scaleb`` (operand is treated as being a number in 8 bit
-  range unless i8..i16 or f32 is specified).
-* Scale by full scale stretch: ``scalef`` (operand is treated as being a number
-  in 8 bit range unless i8..i16 or f32 is specified).
+* Convert a limited range level to the bit depth of the clip: ``scaleb``. The operand is
+  an 8 bit level unless i8..i16 or f32 is specified. See `Converting levels: scaleb, scalef`_.
+* Convert a full range level to the bit depth of the clip: ``scalef``. The operand is
+  an 8 bit level unless i8..i16 or f32 is specified.
+
+
+Converting levels: scaleb, scalef
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+``scaleb`` and ``scalef`` convert a **level**, a position on the pixel value scale, from
+the base bit depth to the bit depth of the first clip. ``128 scaleb`` is neutral chroma
+and ``235 scaleb`` is limited range white at any bit depth. The base is 8 bit, unless
+``i8, i10, i12, i14, i16`` or ``f32`` is given. Only the last of these counts for the
+whole expression. With ``f32`` the operand is a limited range float level, and on a float
+clip it is passed through unchanged.
+
+* ``scaleb`` uses limited range rules, ``scalef`` uses full range rules. These are the
+  same calculations as in :doc:`ConvertBits <convertbits>`.
+* ``yscaleb`` and ``yscalef`` use the luma rules on the chroma planes as well.
+* The name "bit shift" of ``scaleb`` only describes the result between integer bit depths,
+  where the offsets cancel out:
+
+  .. table::
+      :widths: auto
+
+      +--------+--------------+------------------------------------------------+---------------------+
+      | Plane  | Target clip  | Calculation for an 8 bit operand               | Reduces to          |
+      +========+==============+================================================+=====================+
+      | Luma   | 10-16 bit    | ``(x - 16) * 2^(bits-8) + (16 << (bits-8))``   | ``x << (bits-8)``   |
+      +--------+--------------+------------------------------------------------+---------------------+
+      | Luma   | 32 bit float | ``(x - 16) / 255 + 16/255``                    | ``x / 255``         |
+      +--------+--------------+------------------------------------------------+---------------------+
+      | Chroma | 10-16 bit    | ``(x - 128) * 2^(bits-8) + (128 << (bits-8))`` | ``x << (bits-8)``   |
+      +--------+--------------+------------------------------------------------+---------------------+
+      | Chroma | 32 bit float | ``(x - 128) / 255``                            | ``(x - 128) / 255`` |
+      +--------+--------------+------------------------------------------------+---------------------+
+
+Results:
+
+.. table::
+    :widths: auto
+
+    +------------------------------------+-------+-------+--------+--------+---------+
+    | Expression (no source pixels used) | Plane | 8 bit | 10 bit | 16 bit | Float   |
+    +====================================+=======+=======+========+========+=========+
+    | ``235 scaleb``                     | Y     | 235   | 940    | 60160  | 0.92157 |
+    +------------------------------------+-------+-------+--------+--------+---------+
+    | ``235 scaleb``                     | U, V  | 235   | 940    | 60160  | 0.41961 |
+    +------------------------------------+-------+-------+--------+--------+---------+
+    | ``128 scaleb``                     | U, V  | 128   | 512    | 32768  | 0.0     |
+    +------------------------------------+-------+-------+--------+--------+---------+
+    | ``i10 940 scaleb``                 | Y     | 235   | 940    | 60160  | 0.92157 |
+    +------------------------------------+-------+-------+--------+--------+---------+
+    | ``i16 60160 scaleb``               | Y     | 235   | 940    | 60160  | 0.92157 |
+    +------------------------------------+-------+-------+--------+--------+---------+
+    | ``f32 0.92157 scaleb``             | Y     | 235   | 940    | 60160  | 0.92157 |
+    +------------------------------------+-------+-------+--------+--------+---------+
+    | ``235 scalef``                     | Y     | 235   | 943    | 60395  | 0.92157 |
+    +------------------------------------+-------+-------+--------+--------+---------+
+
+.. warning::
+
+    ``scaleb`` and ``scalef`` are for levels. Do not use them on float chroma to give a
+    **difference**, that is an amount to add to or subtract from a pixel, such as an
+    overshoot limit. The conversion subtracts neutral chroma, 128, from the operand, so
+    ``5 scaleb`` on float U or V is -0.48235, not 5 steps of 0.01961. This is not a new
+    behaviour, and scripts using it get a wrong result on float chroma.
+
+    With ``scale_inputs="floatUV"`` the result looks almost right, but it is still about
+    10% low. On luma and at integer bit depths a difference comes out right only because
+    the offsets cancel there, so these are not a reason to use a level conversion for it.
+
+For a difference in 8 bit limited range steps, scale by the size of the range. This gives
+the correct value on every bit depth, with or without ``"floatUV"``:
+
+* Chroma planes: ``x 5 224 / cmax cmin - * +``, where 224 = 240 - 16, the size of the
+  8 bit limited range of chroma.
+* Luma plane: ``x 5 219 / ymax ymin - * +``, where 219 = 235 - 16, the size of the
+  8 bit limited range of luma.
+
+With ``scale_inputs="all"`` the expression works on 8 bit values, there ``5`` itself is the
+difference, and the operators ``scaleb`` and ``scalef`` have nothing to scale.
+
+.. table::
+    :widths: auto
+
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | Source U (neutral) | Expression on U               | ``scale_inputs`` | Result       | Correct value |
+    +====================+===============================+==================+==============+===============+
+    | 128 (8 bit)        | ``x 5 scaleb +``              |                  | 133          | 133           |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 512 (10 bit)       | ``x 5 scaleb +``              |                  | 532          | 532           |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 0.0 (float)        | ``x 5 scaleb +``              |                  | **-0.48235** | 0.01961       |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 0.0 (float)        | ``x 5 scaleb +``              | ``"floatUV"``    | **0.01765**  | 0.01961       |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 0.0 (float)        | ``x 5 scaleb +``              | ``"all"``        | 0.01961      | 0.01961       |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 128 (8 bit)        | ``x 5 224 / cmax cmin - * +`` |                  | 133          | 133           |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 512 (10 bit)       | ``x 5 224 / cmax cmin - * +`` |                  | 532          | 532           |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 0.0 (float)        | ``x 5 224 / cmax cmin - * +`` |                  | 0.01961      | 0.01961       |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
+    | 0.0 (float)        | ``x 5 224 / cmax cmin - * +`` | ``"floatUV"``    | 0.01961      | 0.01961       |
+    +--------------------+-------------------------------+------------------+--------------+---------------+
 
 
 Bit-depth aware constants
