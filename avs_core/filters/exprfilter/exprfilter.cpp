@@ -567,8 +567,11 @@ orps(x, invalid_mask); }
 // pow as in IEEE 754 and std::pow: a negative base with an integer power has a real result, with a fractional power
 // it is NaN. A NaN base gives NaN, except for power 0. Base 0 with a positive power is 0.
 // LOG_PS and EXP_PS work on positive numbers only, so the power is calculated on |base| and corrected.
+// The correction is jumped over when all bases are positive, this keeps the usual case fast.
 #define POW_PS(p_base, p_exp) { \
 XmmReg pw_src, pw_isint, pw_sign, pw_neg, pw_mask, pw_zero; \
+Reg32 pw_allpos; \
+const std::string pw_end = "powEnd" + getLabelCount(); \
 xorps(pw_zero, pw_zero); \
 movaps(pw_src, p_base); \
 andps(p_base, CPTR(elabsmask)); \
@@ -576,6 +579,11 @@ maxps(p_base, pw_zero); \
 LOG_PS(p_base) \
 mulps(p_base, p_exp); \
 EXP_PS(p_base) \
+movaps(pw_neg, pw_zero); \
+cmpltps(pw_neg, pw_src); \
+movmskps(pw_allpos, pw_neg); \
+cmp(pw_allpos, 0xF); \
+je(pw_end); \
 movaps(pw_neg, pw_src); \
 cmpltps(pw_neg, pw_zero); \
 cvttps2dq(pw_sign, p_exp); \
@@ -599,6 +607,7 @@ cmpltps(pw_zero, p_exp); \
 andps(pw_neg, pw_zero); \
 andnps(pw_neg, p_base); \
 movaps(p_base, pw_neg); \
+L(pw_end); \
 }
 
 #define EXP_PS_AVX(x) { \
@@ -632,12 +641,18 @@ vmulps(x, y, emm0); \
 // see POW_PS
 #define POW_PS_AVX(p_base, p_exp) { \
 YmmReg pw_src, pw_isint, pw_sign, pw_neg, pw_mask; \
+Reg32 pw_allpos; \
+const std::string pw_end = "powEnd" + getLabelCount(); \
 vmovaps(pw_src, p_base); \
 vandps(p_base, p_base, CPTR_AVX(elabsmask)); \
 vmaxps(p_base, p_base, zero); \
 LOG_PS_AVX(p_base); \
 vmulps(p_base, p_base, p_exp); \
 EXP_PS_AVX(p_base); \
+vcmpps(pw_neg, zero, pw_src, _CMP_LT_OQ); \
+vmovmskps(pw_allpos, pw_neg); \
+cmp(pw_allpos, 0xFF); \
+je(pw_end); \
 vcmpps(pw_neg, pw_src, zero, _CMP_LT_OQ); \
 vcvttps2dq(pw_sign, p_exp); \
 vcvtdq2ps(pw_isint, pw_sign); \
@@ -656,6 +671,7 @@ vcmpps(pw_neg, pw_src, zero, _CMP_EQ_OQ); \
 vcmpps(pw_mask, zero, p_exp, _CMP_LT_OQ); \
 vandps(pw_neg, pw_neg, pw_mask); \
 vandnps(p_base, pw_neg, p_base); \
+L(pw_end); \
 }
 
 #define LOG_PS_AVX(x) { \
