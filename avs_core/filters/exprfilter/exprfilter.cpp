@@ -564,6 +564,43 @@ addps(x, y); \
 addps(x, emm0); \
 orps(x, invalid_mask); }
 
+// pow as in IEEE 754 and std::pow: a negative base with an integer power has a real result, with a fractional power
+// it is NaN. A NaN base gives NaN, except for power 0. Base 0 with a positive power is 0.
+// LOG_PS and EXP_PS work on positive numbers only, so the power is calculated on |base| and corrected.
+#define POW_PS(p_base, p_exp) { \
+XmmReg pw_src, pw_isint, pw_sign, pw_neg, pw_mask, pw_zero; \
+xorps(pw_zero, pw_zero); \
+movaps(pw_src, p_base); \
+andps(p_base, CPTR(elabsmask)); \
+maxps(p_base, pw_zero); \
+LOG_PS(p_base) \
+mulps(p_base, p_exp); \
+EXP_PS(p_base) \
+movaps(pw_neg, pw_src); \
+cmpltps(pw_neg, pw_zero); \
+cvttps2dq(pw_sign, p_exp); \
+cvtdq2ps(pw_isint, pw_sign); \
+cmpeqps(pw_isint, p_exp); \
+pslld(pw_sign, 31); \
+andps(pw_sign, pw_neg); \
+andps(pw_sign, pw_isint); \
+xorps(p_base, pw_sign); \
+andnps(pw_isint, pw_neg); \
+orps(p_base, pw_isint); \
+movaps(pw_mask, p_exp); \
+cmpneqps(pw_mask, pw_zero); \
+movaps(pw_neg, pw_src); \
+cmpunordps(pw_neg, pw_neg); \
+andps(pw_neg, pw_mask); \
+orps(p_base, pw_neg); \
+movaps(pw_neg, pw_src); \
+cmpeqps(pw_neg, pw_zero); \
+cmpltps(pw_zero, p_exp); \
+andps(pw_neg, pw_zero); \
+andnps(pw_neg, p_base); \
+movaps(p_base, pw_neg); \
+}
+
 #define EXP_PS_AVX(x) { \
 YmmReg fx, emm0, etmp, y, mask, z; \
 vminps(x, x, CPTR_AVX(elexp_hi)); \
@@ -590,6 +627,35 @@ vcvttps2dq(emm0, fx); \
 vpaddd(emm0, emm0, CPTR_AVX(elc7F)); \
 vpslld(emm0, emm0, 23); \
 vmulps(x, y, emm0); \
+}
+
+// see POW_PS
+#define POW_PS_AVX(p_base, p_exp) { \
+YmmReg pw_src, pw_isint, pw_sign, pw_neg, pw_mask; \
+vmovaps(pw_src, p_base); \
+vandps(p_base, p_base, CPTR_AVX(elabsmask)); \
+vmaxps(p_base, p_base, zero); \
+LOG_PS_AVX(p_base); \
+vmulps(p_base, p_base, p_exp); \
+EXP_PS_AVX(p_base); \
+vcmpps(pw_neg, pw_src, zero, _CMP_LT_OQ); \
+vcvttps2dq(pw_sign, p_exp); \
+vcvtdq2ps(pw_isint, pw_sign); \
+vcmpps(pw_isint, pw_isint, p_exp, _CMP_EQ_OQ); \
+vpslld(pw_sign, pw_sign, 31); \
+vandps(pw_sign, pw_sign, pw_neg); \
+vandps(pw_sign, pw_sign, pw_isint); \
+vxorps(p_base, p_base, pw_sign); \
+vandnps(pw_isint, pw_isint, pw_neg); \
+vorps(p_base, p_base, pw_isint); \
+vcmpps(pw_mask, p_exp, zero, _CMP_NEQ_OQ); \
+vcmpps(pw_neg, pw_src, pw_src, _CMP_UNORD_Q); \
+vandps(pw_neg, pw_neg, pw_mask); \
+vorps(p_base, p_base, pw_neg); \
+vcmpps(pw_neg, pw_src, zero, _CMP_EQ_OQ); \
+vcmpps(pw_mask, zero, p_exp, _CMP_LT_OQ); \
+vandps(pw_neg, pw_neg, pw_mask); \
+vandnps(p_base, pw_neg, p_base); \
 }
 
 #define LOG_PS_AVX(x) { \
@@ -2608,20 +2674,14 @@ struct ExprEval : public jitasm::function<void, ExprEval, uint8_t *, const intpt
           auto t1 = stack1.back();
           stack1.pop_back();
           auto &t2 = stack1.back();
-          LOG_PS(t2)
-            mulps(t2, t1);
-          EXP_PS(t2)
+          POW_PS(t2, t1)
         }
         else {
           auto t1 = stack.back();
           stack.pop_back();
           auto &t2 = stack.back();
-          LOG_PS(t2.first)
-            mulps(t2.first, t1.first);
-          EXP_PS(t2.first)
-            LOG_PS(t2.second)
-            mulps(t2.second, t1.second);
-          EXP_PS(t2.second)
+          POW_PS(t2.first, t1.first)
+          POW_PS(t2.second, t1.second)
         }
       }
       else if (iter.op == opSin) {
@@ -3704,19 +3764,13 @@ struct ExprEvalAvx2 : public jitasm::function<void, ExprEvalAvx2, uint8_t *, con
           auto t1 = stack1.back();
           stack1.pop_back();
           auto &t2 = stack1.back();
-          LOG_PS_AVX(t2);
-          vmulps(t2, t2, t1);
-          EXP_PS_AVX(t2);
+          POW_PS_AVX(t2, t1);
         } else {
           auto t1 = stack.back();
           stack.pop_back();
           auto &t2 = stack.back();
-          LOG_PS_AVX(t2.first);
-          vmulps(t2.first, t2.first, t1.first);
-          EXP_PS_AVX(t2.first);
-          LOG_PS_AVX(t2.second);
-          vmulps(t2.second, t2.second, t1.second);
-          EXP_PS_AVX(t2.second);
+          POW_PS_AVX(t2.first, t1.first);
+          POW_PS_AVX(t2.second, t1.second);
         }
       }
       else if (iter.op == opSin) {

@@ -19,6 +19,9 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: Expr: ``pow`` with a negative base, x86 JIT: it gave 2.4e38 on any power which was not a constant 2, 3 or 4. Now it follows
+  IEEE 754 as the C paths do: an integer power has a real result (``-2 ^ 3`` is -8), a fractional power is NaN. Also
+  ``0 ^ 0.25`` was 3.3e-10, now 0. Results of a positive base are not changed.
 - Fix: Expr: ``sqrt`` of a negative number gave NaN instead of 0 when the expression did not run in JIT (aarch64, ``acos``,
   ``asin``, ``atan`` in it, ``SetMaxCPU("none")``) or was constant, while x86 JIT gave 0. Now it is 0 on all of them.
 - Fix: Tweak: integer results are rounded on all paths. ``realcalc=true``, chroma at 12-16 bit and chroma from the lookup
