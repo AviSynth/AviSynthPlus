@@ -529,6 +529,12 @@ What's new in the API V14
 
         - ``AVS_CS_RGBP8``, ``AVS_CS_RGBAP8`` aliases (like C++ ``CS_RGBP8``, ``CS_RGBAP8``)
 
+- V14.1 (bugfix version 1, 3.7.7), C and C++ API, no API change:
+        - Frame properties: ``_Range`` is the stored key (ITU-T H.273: 0 limited, 1 full), ``_ColorRange`` is its
+          older name with 0 and 1 swapped, an alias of the same key. Before, AviSynth knew only ``_ColorRange``.
+          See :doc:`frame properties <../syntax/syntax_internal_functions_frame_properties>`.
+        - ``avisynth_c_loader.h``: new ``has_at_least_v14_1`` field.
+
 
 Some history
 ------------

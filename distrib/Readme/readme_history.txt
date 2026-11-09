@@ -40,6 +40,10 @@ Additions, changes:
 - Subtitle(gdi=true): the chroma processing range has a one chroma block margin, for the same reason.
 
 Build environment:
+- Interface version 14.1: AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 (avisynth.h, avisynth_c.h), no API change.
+  It marks the _Range / _ColorRange alias, so a plugin can check whether the AviSynth it runs on understands
+  _Range (before, only _ColorRange): AEP_INTERFACE_VERSION > 14, or 14 with AEP_INTERFACE_BUGFIX >= 1.
+  C API loader: new has_at_least_v14_1.
 - Fix #531: GCC build with LTO (-flto) failed at link time on x86/x64 Linux:
   "inlining failed in call to 'always_inline' prepare_effective_mask_for_row_float_sse41: target specific
   option mismatch". The force-inlined SSE4.1 function, defined in another source file, was called from a

@@ -85,11 +85,15 @@ There are quasi-standard frame property names which are used widespread.
 Some of them are used in Avisynth core:
 
 - _ChromaLocation
-- _Range
+- _Range (since 3.7.7)
 - _ColorRange
 - _Matrix
 
 but the others are used only by external plugins.
+
+Since 3.7.7 ``_Range`` (the ITU-T H.273 conform name) is the primary name of the range property, and ``_ColorRange``
+is used in parallel, as an alias of the same property. ``_ColorRange`` stays a valid name, no deprecation period is
+set for it.
 
 Frame property concept came from VapourSynth (see "Reserved Frame Properties" 
 at http://www.vapoursynth.com/doc/apireference.html). But it is convenient that 
@@ -119,7 +123,7 @@ _Range
     int _Range
 
     Full or limited range (PC/TV range). Primarily used with YUV formats, but can mark Studio RGB as well.
-    Follows ITU-T H.273 numbering, and it is the same as in VapourSynth.
+    Follows ITU-T H.273 numbering, and it is the same as in VapourSynth. The primary name since 3.7.7.
 
         1=full range, 0=limited range (RGB: narrow range).
 
@@ -131,6 +135,9 @@ _ColorRange
     The older name of ``_Range``, reserved as well, with 0 and 1 swapped:
 
         0=full range, 1=limited range (RGB: narrow range).
+
+    Up to 3.7.6 this was the only range property AviSynth knew. Since 3.7.7 it is used in parallel with ``_Range``,
+    for some time; it stays valid, no deprecation period is set for it.
 
     The two names are one property, the frame holds it as ``_Range``:
 
@@ -157,6 +164,9 @@ _ColorRange
     For plugins which run on both AviSynth+ and VapourSynth, or on an older AviSynth+: read ``_Range``, when it is not
     set read ``_ColorRange`` and swap 0 and 1, when none of them is set use the default: RGB full, the others limited.
     Up to AviSynth+ 3.7.6 ``_Range`` is an ordinary property which nothing reads, there ``_ColorRange`` has to be written.
+    A plugin can check whether the AviSynth it runs on understands ``_Range``: interface version 14.1 (3.7.7) or above,
+    i.e. ``AEP_INTERFACE_VERSION`` above 14, or 14 with ``AEP_INTERFACE_BUGFIX`` at least 1 (C: ``AVS_AEP_xxx``, the
+    loader's ``has_at_least_v14_1``).
 
 _Primaries
 ~~~~~~~~~~
@@ -742,4 +752,4 @@ Changelog
 
 Back to :doc:`Internal functions <syntax_internal_functions>`.
 
-$Date: 2025/03/04 12:20:00 $
+$Date: 2026/11/09 11:40:00 $

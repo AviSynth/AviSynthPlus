@@ -57,7 +57,7 @@
 //   The has_at_least_xxx fields of the struct give the important steps, interface_version and
 //   interface_bugfix the exact version.
 //   Interface versions: 3: AviSynth 2.5, 6: AviSynth 2.6 and AviSynth+ up to 3.5.0; 7: 3.5.1;
-//   8: 3.6.x, 3.7.0; 9: 3.7.1, 3.7.2; 10: 3.7.3; 11: 3.7.4, 3.7.5 (11.1); 14: 3.7.6.
+//   8: 3.6.x, 3.7.0; 9: 3.7.1, 3.7.2; 10: 3.7.3; 11: 3.7.4, 3.7.5 (11.1); 14: 3.7.6; 14.1: 3.7.7.
 //   "AVS+": exists in every AviSynth+ (not in classic AviSynth).
 // - Win32 (32 bit) AviSynth+ 3.6.x - 3.7.1 exported the V8 functions only with decorated names
 //   (_avs_get_frame_props_ro@8), they are NULL there. Fixed in 3.7.2.
@@ -295,6 +295,8 @@ struct AVS_Library {
   int has_at_least_v13;   // YUV(A) 4:4:0, 4:1:1, 4:1:0, YA pixel formats
   int has_at_least_v14;   // function values, avs_invoke2/3(_try), avs_create_map; avs_prop_get_xxx fixes
                           // (NULL error pointer, avs_prop_get_clip), AVS_MT_NICE_FILTER error reporting
+  int has_at_least_v14_1; // frame properties: _Range is the stored key, _ColorRange its alias (0 and 1 swapped).
+                          // Before, AviSynth knew only _ColorRange
 
   // This caller gets 64 bit AVS_Value types: double and long (int64) values are kept, not converted
   // to float and 32 bit int.
@@ -414,6 +416,7 @@ AVSC_INLINE void avs_library_set_version(AVS_Library* library, int version, int 
   library->has_at_least_v12 = AVSC_LOADER_AT_LEAST(12, 0);
   library->has_at_least_v13 = AVSC_LOADER_AT_LEAST(13, 0);
   library->has_at_least_v14 = AVSC_LOADER_AT_LEAST(14, 0);
+  library->has_at_least_v14_1 = AVSC_LOADER_AT_LEAST(14, 1);
 #undef AVSC_LOADER_AT_LEAST
 }
 

@@ -68,6 +68,8 @@
 // 20261019  V14 AVSValue::AsFunction exported (was internal): get the PFunction of an 'n' type value
 //               for Invoke3/Invoke3Try.
 //               C API V14 additions in parallel (see avisynth_c.h)
+// 20261109  V14.1 Frame properties: _Range is the stored key (ITU-T H.273: 0 limited, 1 full), _ColorRange is its
+//               older name with 0 and 1 swapped, an alias of the same key. No API change.
 
 // http://avisynth.nl
 
@@ -139,7 +141,7 @@ enum AvsVersion {
   AVISYNTH_CLASSIC_INTERFACE_VERSION_26BETA = 5,
   AVISYNTH_CLASSIC_INTERFACE_VERSION = 6,
   AVISYNTH_INTERFACE_VERSION = 14,
-  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 0 // reset to zero whenever the normal interface version bumps
+  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 // reset to zero whenever the normal interface version bumps
 };
 
 /* Compiler-specific crap */

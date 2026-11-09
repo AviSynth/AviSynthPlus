@@ -153,6 +153,8 @@
 //              Dynamic loader moved out to avisynth_c_loader.h: all platforms, all API functions (missing ones NULL),
 //              avs_load_library(path), avs_library_interface_version. Removed the Windows-only avs_load_library,
 //              AVS26_FALLBACK_SIMULATION and EXTERNAL_AVS_C_API_LOADER from avisynth_c.h.
+// 20261109 V14.1 Frame properties: _Range is the stored key (ITU-T H.273: 0 limited, 1 full), _ColorRange is its
+//              older name with 0 and 1 swapped, an alias of the same key. No API change.
 
 // Notes.
 // Choose either method:
@@ -212,7 +214,7 @@
 enum {
   AVISYNTH_INTERFACE_CLASSIC_VERSION = 6,
   AVISYNTH_INTERFACE_VERSION = 14,
-  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 0 // reset to zero whenever the normal interface version bumps
+  AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 // reset to zero whenever the normal interface version bumps
 };
 #endif
 

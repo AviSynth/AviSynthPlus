@@ -156,6 +156,9 @@ Version fields of ``AVS_Library``, filled by the two functions above, with the i
 | ``has_at_least_v14``  | function values, ``avs_invoke2/3(_try)``, ``avs_create_map``;              |
 |                       | ``avs_prop_get_xxx`` fixes, ``AVS_MT_NICE_FILTER`` error reporting         |
 +-----------------------+----------------------------------------------------------------------------+
+| ``has_at_least_v14_1``| ``_Range`` is the stored frame property, ``_ColorRange`` its alias (0 and  |
+|                       | 1 swapped). Before, AviSynth knew only ``_ColorRange``                     |
++-----------------------+----------------------------------------------------------------------------+
 | ``has_64bit_values``  | this caller gets double and long (int64) values, not converted to float    |
 |                       | and 32 bit int. Hosts: environment requested with version >= 11.           |
 |                       | Plugins: AviSynth called ``avisynth_c_plugin_init2``.                      |
