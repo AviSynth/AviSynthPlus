@@ -497,15 +497,24 @@ std::string sprintf_c(const char* fmt, ...)
 
 std::string GetFullPathNameWrapUtf8(const std::string& f)
 {
+  // The error_code overload: the throwing one gives an uncaught std::filesystem_error, e.g. on an empty
+  // path (LoadPlugin("") terminated the process). On failure f is returned as it is, the caller's own
+  // check reports that it cannot be opened.
+  std::error_code ec;
 #ifdef AVS_WINDOWS
   // assume f is utf-8
   auto f_wide = Utf8ToWideChar(f.c_str());
-  auto p = fs::absolute(fs::path(f_wide.get()).lexically_normal());
+  auto p = fs::absolute(fs::path(f_wide.get()).lexically_normal(), ec);
+  if (ec)
+    return f;
   auto w = p.wstring(); // UTF-16 on Windows
   auto utf8 = WideCharToUtf8(w.c_str());
   return std::string(utf8.get());
 #else
-  return fs::absolute(fs::path(f).lexically_normal()).generic_string();
+  auto p = fs::absolute(fs::path(f).lexically_normal(), ec);
+  if (ec)
+    return f;
+  return p.generic_string();
 #endif
 }
 

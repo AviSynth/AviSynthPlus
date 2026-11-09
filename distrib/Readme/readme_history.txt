@@ -185,8 +185,12 @@ Bugfixes, same output on every CPU, OS and compiler:
   Existed since AviSynth+ r2487.
 
 Bugfixes, crash or hang on unusual parameters or input:
-  Found by AddressSanitizer (ASan) builds: memory access outside the frame or the buffer, division by zero, endless
+  Most of them found by AddressSanitizer (ASan) builds: memory access outside the frame or the buffer, division by zero, endless
   loop. Most need an unusual parameter or input.
+- Fix: LoadPlugin("") and LoadCPlugin("") (an empty file name) terminated the whole program: GetFullPathNameWrapUtf8
+  called the throwing std::filesystem::absolute, which throws on an empty path, and nothing caught it. It uses the
+  error_code overload now and leaves the name as it is, the caller reports "Cannot load file ''".
+  Regression since 3.7.6 (the #462 UTF-8 autoload rework); 3.7.5 gave the error.
 - Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.

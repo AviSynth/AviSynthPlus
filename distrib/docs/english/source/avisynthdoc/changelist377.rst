@@ -134,9 +134,11 @@ comparing them, and by the sanitizer builds (planes left unset kept the content 
 
 Crash or hang on unusual parameters or input
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Found by AddressSanitizer (ASan) builds: memory access outside the frame or the buffer, division by zero, endless
+Mostly found by AddressSanitizer (ASan) builds: memory access outside the frame or the buffer, division by zero, endless
 loop. Most need an unusual parameter or input.
 
+- Fix: ``LoadPlugin("")`` and ``LoadCPlugin("")`` (an empty file name) terminated the whole program (uncaught
+  ``std::filesystem`` exception), now the usual "Cannot load file" error. Regression since 3.7.6.
 - Fix: RGBAdjust, ColorYUV ``analyze=true``: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust ``analyze=true``, planar RGB 32 bit float: crash on NaN pixels, which can come from ``Expr`` or from a NaN parameter.
