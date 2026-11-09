@@ -180,7 +180,7 @@
   /* avs_prop_get_xxx: before V14 pass a non-NULL error pointer (NULL: process terminated on a failed read) */ \
   X(avs_prop_get_int) \
   X(avs_prop_get_float) \
-  X(avs_prop_get_data) /* usable from V9.1 */ \
+  X(avs_prop_get_data) /* usable from V10 */ \
   X(avs_prop_get_data_size) \
   X(avs_prop_get_clip) /* usable from V14 (returned an invalid AVS_Clip) */ \
   X(avs_prop_get_frame) /* V11: *error was always 0, check the result for NULL */ \
@@ -195,8 +195,8 @@
   X(avs_prop_set_int_array) \
   X(avs_prop_set_float_array) \
   X(avs_clear_map) \
-  X(avs_new_video_frame_p) /* non-NULL prop_src usable from V9.1 */ \
-  X(avs_new_video_frame_p_a) /* non-NULL prop_src usable from V9.1 */ \
+  X(avs_new_video_frame_p) /* non-NULL prop_src usable from V10 */ \
+  X(avs_new_video_frame_p_a) /* non-NULL prop_src usable from V10 */ \
   X(avs_get_env_property) /* AVS_AEP_INTERFACE_VERSION and AVS_AEP_INTERFACE_BUGFIX from V9 */ \
   X(avs_pool_allocate) \
   X(avs_pool_free) \
@@ -281,14 +281,16 @@ struct AVS_Library {
   // Filled by avs_library_create_script_environment (hosts) or avs_library_detect_plugin_env (plugins),
   // all 0 before.
   int interface_version;  // e.g. 6, 8, 11, 14
-  int interface_bugfix;   // e.g. 1 for V9.1
+  int interface_bugfix;   // e.g. 1 for V11.1 (3.7.5)
   int has_at_least_v8;    // frame property API entries, avs_new_video_frame_p (frame property source).
                           // C API frame property access crashes in V8, use it from V9.
   int has_at_least_v9;    // C API frame property access works, avs_is/make_property_writable,
                           // AVS_AEP_INTERFACE_VERSION/BUGFIX queries
-  int has_at_least_v9_1;  // avs_new_video_frame_p(_a) with a non-NULL prop_src, avs_prop_get_data
-  int has_at_least_v9_2;  // C filters: an error of the child clip (fi->child->error) is passed on
-  int has_at_least_v10;   // AVS_VideoFrame pixel_type (avs_video_frame_get/amend_pixel_type)
+  int has_at_least_v9_1;  // kept for compatibility: V9.1 and V9.2 were test builds only, in releases
+  int has_at_least_v9_2;  // these are the same as has_at_least_v10
+  int has_at_least_v10;   // AVS_VideoFrame pixel_type (avs_video_frame_get/amend_pixel_type),
+                          // avs_new_video_frame_p(_a) with a non-NULL prop_src, avs_prop_get_data,
+                          // C filters: an error of the child clip (fi->child->error) is passed on
   int has_at_least_v11;   // the core knows 64 bit AVS_Value types (double, long). Whether this caller
                           // gets them: has_64bit_values
   int has_at_least_v12;   // avs_acquire/release_global_lock, avs_get_cpu_flags_ex, AVS_AEP_CACHESIZE_L2
@@ -374,7 +376,7 @@ AVSC_INLINE void avs_free_library(AVS_Library* library)
 
 // Returns the interface version of the loaded AviSynth (e.g. 6, 8, 11, 14), 0 if unknown.
 // bugfix (may be NULL) receives the bugfix version (V9 and above, otherwise 0).
-// E.g. interface 9 with bugfix 1 is "V9.1".
+// E.g. interface 11 with bugfix 1 is "V11.1" (3.7.5).
 // avs_get_env_property with AVS_AEP_INTERFACE_VERSION is only asked from V9, earlier versions did not know it.
 AVSC_INLINE int avs_library_interface_version(const AVS_Library* library, AVS_ScriptEnvironment* env, int* bugfix)
 {

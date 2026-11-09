@@ -121,7 +121,7 @@ It replaces the Windows-only ``avs_load_library`` which was part of ``avisynth_c
 - ``int avs_library_interface_version(const AVS_Library* library, AVS_ScriptEnvironment* env, int* bugfix)``
 
   Low level: returns the interface version of the loaded AviSynth (e.g. 6, 8, 11, 14), 0 if unknown;
-  ``*bugfix`` (may be NULL) receives the bugfix version (interface 9 with bugfix 1 is "V9.1").
+  ``*bugfix`` (may be NULL) receives the bugfix version (interface 11 with bugfix 1 is "V11.1", 3.7.5).
   ``AVS_AEP_INTERFACE_VERSION`` is asked only from V9, earlier versions did not know it.
 
 Version fields of ``AVS_Library``, filled by the two functions above, with the important feature steps:
@@ -131,7 +131,7 @@ Version fields of ``AVS_Library``, filled by the two functions above, with the i
 +=======================+============================================================================+
 | ``interface_version`` | e.g. 6, 8, 11, 14                                                          |
 +-----------------------+----------------------------------------------------------------------------+
-| ``interface_bugfix``  | e.g. 1 for V9.1                                                            |
+| ``interface_bugfix``  | e.g. 1 for V11.1 (3.7.5), V14.1 (3.7.7)                                    |
 +-----------------------+----------------------------------------------------------------------------+
 | ``has_at_least_v8``   | frame property API entries, ``avs_new_video_frame_p`` (property source);   |
 |                       | C API frame property access crashes in V8, use it from V9                  |
@@ -139,12 +139,9 @@ Version fields of ``AVS_Library``, filled by the two functions above, with the i
 | ``has_at_least_v9``   | C API frame property access works, ``avs_is/make_property_writable``,      |
 |                       | ``AVS_AEP_INTERFACE_VERSION/BUGFIX`` queries                               |
 +-----------------------+----------------------------------------------------------------------------+
-| ``has_at_least_v9_1`` | ``avs_new_video_frame_p(_a)`` with a non-NULL ``prop_src``,                |
-|                       | ``avs_prop_get_data``                                                      |
-+-----------------------+----------------------------------------------------------------------------+
-| ``has_at_least_v9_2`` | C filters: an error of the child clip is passed on                         |
-+-----------------------+----------------------------------------------------------------------------+
-| ``has_at_least_v10``  | ``AVS_VideoFrame`` pixel_type                                              |
+| ``has_at_least_v10``  | ``AVS_VideoFrame`` pixel_type, ``avs_new_video_frame_p(_a)`` with a        |
+|                       | non-NULL ``prop_src``, ``avs_prop_get_data``; C filters: an error of the   |
+|                       | child clip is passed on                                                    |
 +-----------------------+----------------------------------------------------------------------------+
 | ``has_at_least_v11``  | the core knows 64 bit ``AVS_Value`` types (double, long); whether this     |
 |                       | caller gets them: ``has_64bit_values``                                     |
