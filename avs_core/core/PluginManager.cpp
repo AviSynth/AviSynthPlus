@@ -900,7 +900,9 @@ void PluginManager::AutoloadPlugins()
           continue;
 
         // Try to load script
-        Env->Invoke("Import", p.FilePath.c_str()); // FIXME: utf8?
+        // At this point p.FilePath is always UTF-8
+        AVSValue import_args[2] = { p.FilePath.c_str(), true };
+        Env->Invoke("Import", AVSValue(import_args, 2));
         AutoLoadedImports.push_back(p);
       }
     }

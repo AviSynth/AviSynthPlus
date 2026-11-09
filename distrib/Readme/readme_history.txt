@@ -9,7 +9,7 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
 
-20261105 3.7.6.rXXXX (pre 3.7.7)
+20261109 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
 Additions, changes:
 - Frame properties: _Range is added, the number follows ITU-T H.273, as in VapourSynth: 1 is full, 0 is limited.
@@ -52,6 +52,13 @@ Bugfixes:
   comparing the output of the different CPU paths, then analysed and fixed with AI tools. Some were reported by users.
 
 Bugfixes, bugs in normal use:
+- Fix #462 (part 2): autoload of .avsi files with non-ASCII names, e.g. "CleanÁrvíztűrőTükörfúrógép.avsi" or
+  "Clean_SC(シーンチェンジフレーム置換).avsi" (report on Doom9). The first #462 fix (3.7.6) made autoload UTF-8, but
+  passed the UTF-8 .avsi path to Import without utf8=true, so Import read it as ANSI. On a non-UTF-8 ANSI code page
+  (e.g. 1250, 1252) any non-ASCII name failed with "Import: couldn't open"; with a UTF-8 code page (host manifest,
+  or the system-wide UTF-8 setting) it worked. Regression since 3.7.6.
+  3.7.5 handled names that fit the ANSI code page, but crashed the host on any other (unhandled exception in the
+  file name conversion), also when the script did not use that .avsi. Now any name works on any code page.
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
   10-16 bit or 32 bit float YUVA, or ConvertToPlanarRGBA(bits=8).
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:
