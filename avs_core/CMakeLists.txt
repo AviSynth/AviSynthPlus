@@ -373,6 +373,10 @@ INSTALL(TARGETS AvsCore
 INSTALL(DIRECTORY "include/"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/avisynth")
 
+# C API dynamic loader: a sample to copy into a project, not an installed header (it was in 3.7.6)
+INSTALL(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/../distrib/FilterSDK/c_loader/"
+        DESTINATION "${CMAKE_INSTALL_DATAROOTDIR}/doc/avisynth/examples/c_loader")
+
 INSTALL(FILES "${CMAKE_CURRENT_BINARY_DIR}/version.h"
               "${CMAKE_CURRENT_BINARY_DIR}/arch.h"
         DESTINATION "${CMAKE_INSTALL_INCLUDEDIR}/avisynth/avs")

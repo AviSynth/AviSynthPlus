@@ -150,9 +150,7 @@
 //              Fix avs_prop_get_xxx: NULL error pointer no longer terminates the process;
 //              Fix avs_prop_get_clip: now returns a valid AVS_Clip;
 //              Fix avs_prop_get_clip/frame set *error
-//              Dynamic loader moved out to avisynth_c_loader.h: all platforms, all API functions (missing ones NULL),
-//              avs_load_library(path), avs_library_interface_version. Removed the Windows-only avs_load_library,
-//              AVS26_FALLBACK_SIMULATION and EXTERNAL_AVS_C_API_LOADER from avisynth_c.h.
+//              Removed the Windows-only avs_load_library, AVS26_FALLBACK_SIMULATION and EXTERNAL_AVS_C_API_LOADER.
 // 20261109 V14.1 Frame properties: _Range is the stored key (ITU-T H.273: 0 limited, 1 full), _ColorRange is its
 //              older name with 0 and 1 swapped, an alias of the same key. No API change.
 
@@ -162,12 +160,11 @@
 // - Use #define AVSC_NO_DECLSPEC for function pointer definitions only: each AVSC_API(ret, name)
 //   becomes a function pointer type name_func instead of a declaration.
 // - Load the library dynamically and get the necessary API functions as needed.
-//   avisynth_c_loader.h is a ready loader for all platforms: it fills a struct with every API function.
 // - Earlier AviSynth versions may contain fewer API functions.
 //   By detecting the loaded AviSynth/interface version, it's the caller's responsibility
 //   to call only those API functions which have valid function pointers and are documented to work.
 //   E.g., you should only use frame property-related functions when the interface version is >= 9.
-//   (avs_library_interface_version in avisynth_c_loader.h, or see avs_check_version and avs_get_env_property)
+//   (see avs_check_version and avs_get_env_property)
 // - The AVSC_INLINE helpers which call into the API are not defined with AVSC_NO_DECLSPEC.
 // For linking avisynth.lib/libavisynth directly to your module:
 // - Leave AVSC_NO_DECLSPEC undefined.

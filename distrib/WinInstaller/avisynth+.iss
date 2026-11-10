@@ -205,8 +205,8 @@ Source: "..\docs\english\build\html\*"; DestDir: "{app}\docs\English"; Component
 
 #ifdef WITH_SDK
 Source: "..\FilterSDK\*"; DestDir: "{app}\FilterSDK"; Components: sdk; Flags: ignoreversion recursesubdirs
-Source: "{#BuildDir32}\Output\include\*"; DestDir: "{app}\FilterSDK\include\x86"; Components: sdk; Flags: ignoreversion recursesubdirs
-Source: "{#BuildDir64}\Output\include\*"; DestDir: "{app}\FilterSDK\include\x64"; Components: sdk; Flags: ignoreversion recursesubdirs
+Source: "{#BuildDir32}\Output\include\*"; DestDir: "{app}\FilterSDK\include\x86"; Components: sdk; Flags: ignoreversion recursesubdirs; Excludes: "avisynth_c_loader.h"
+Source: "{#BuildDir64}\Output\include\*"; DestDir: "{app}\FilterSDK\include\x64"; Components: sdk; Flags: ignoreversion recursesubdirs; Excludes: "avisynth_c_loader.h"
 Source: "{#BuildDir32}\Output\c_api\*"; DestDir: "{app}\FilterSDK\lib\x86"; Components: sdk; Flags: ignoreversion recursesubdirs
 Source: "{#BuildDir64}\Output\c_api\*"; DestDir: "{app}\FilterSDK\lib\x64"; Components: sdk; Flags: ignoreversion recursesubdirs
 #endif

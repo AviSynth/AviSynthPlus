@@ -993,6 +993,12 @@ if defined INC_SRC (
     rem  SDK includes them.
     xcopy /e /y /i /q "%SOURCE_ROOT%\avs_core\include" "%DEST%\include" > nul
 )
+rem  C API dynamic loader sample (not an installed header since 3.7.7):
+rem  the same FilterSDK\c_loader folder as in the installer's SDK.
+rem  An Output\include of an older build dir may still hold the loader header
+rem  (CMake copy_directory does not remove files): drop it from include.
+if exist "%DEST%\include\avisynth_c_loader.h" del /q "%DEST%\include\avisynth_c_loader.h"
+xcopy /e /y /i /q "%SOURCE_ROOT%\distrib\FilterSDK\c_loader" "%DEST%\FilterSDK\c_loader" > nul
 
 
 rem ============================================================
