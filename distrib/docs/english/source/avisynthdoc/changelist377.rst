@@ -17,11 +17,27 @@ Additions, changes
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-- Interface version 14.1 (``AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION`` 1), no API change: it marks the ``_Range`` /
-  ``_ColorRange`` alias. C API loader: new ``has_at_least_v14_1``.
 - Fix: GCC build with LTO (link-time optimization) failed with "inlining failed in call to 'always_inline'
   ... target specific option mismatch" in the SSE4.1 Overlay/Layer mask row preparation (x86/x64).
   (`issue #531 <https://github.com/AviSynth/AviSynthPlus/issues/531>`_)
+- Interface version 14.1 (``AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION`` 1), no API change: it marks the ``_Range`` /
+  ``_ColorRange`` alias. C API loader: new ``has_at_least_v14_1``.
+- C API loader moved from the installed headers to the ``FilterSDK/c_loader`` samples (source: ``distrib/``).
+  Copy the chosen loader and ``avisynth_c_loader_common.h`` into your project.
+  CMake location: ``share/doc/avisynth/examples/c_loader``.
+- New C++17 loader ``avisynth_c_loader.hpp`` (``avsc::Library``), with automatic reference cleanup and API helpers.
+  The C variant targets C11; both share compatibility handling and released-version capability flags.
+  See :ref:`Dynamic loading<c_api_dynamic_loading>`.
+- C API loader: improved load-error diagnostics (``avs_load_library_ex`` / ``lib.error()``), UTF-8 on Windows.
+  Windows paths no longer use a fixed ``MAX_PATH`` buffer; OS long-path rules still apply.
+- C API loader: ``avs_attach_library`` / ``lib.attach()`` acquires a reference to an already-loaded core.
+  For plugins, ``avs_bind_plugin_library`` / ``lib.bind_plugin()`` binds without retaining a library reference
+  or requiring cleanup at plugin unload. The host must keep the core loaded throughout plugin activity.
+- C API loader: new ``has_frame_props`` flag for V9+ frame property support; required API pointers still need checking.
+- C API loader: host examples and a plugin example covering both C entry points and 64 bit values.
+  Plugin initialization is synchronized with C11/C++ atomics, without TLS or synchronization cleanup.
+- C API loader: fallbacks for selected missing APIs on older cores, including V11 value accessors.
+  Details and platform restrictions: :ref:`Dynamic loading<c_api_dynamic_loading>`.
 
 Bugfixes
 ~~~~~~~~
@@ -185,7 +201,7 @@ Documentation
 Please report bugs at `github AviSynthPlus page`_ - or - `Doom9's AviSynth+
 forum`_
 
-$Date: 2026/11/09 11:00:00 $
+$Date: 2026/11/10 21:00:00 $
 
 .. _github AviSynthPlus page:
     https://github.com/AviSynth/AviSynthPlus

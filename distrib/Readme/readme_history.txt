@@ -7,9 +7,9 @@ The "rst" version of the documentation just lists changes in brief.
 For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 
 Actual:
-https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist376.html
+https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist377.html
 
-20261109 3.7.6.rXXXX (pre 3.7.7)
+20261110 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
 Additions, changes:
 - Frame properties: _Range is added, the number follows ITU-T H.273, as in VapourSynth: 1 is full, 0 is limited.
@@ -40,16 +40,30 @@ Additions, changes:
 - Subtitle(gdi=true): the chroma processing range has a one chroma block margin, for the same reason.
 
 Build environment:
-- Interface version 14.1: AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 (avisynth.h, avisynth_c.h), no API change.
-  It marks the _Range / _ColorRange alias, so a plugin can check whether the AviSynth it runs on understands
-  _Range (before, only _ColorRange): AEP_INTERFACE_VERSION > 14, or 14 with AEP_INTERFACE_BUGFIX >= 1.
-  C API loader: new has_at_least_v14_1.
 - Fix #531: GCC build with LTO (-flto) failed at link time on x86/x64 Linux:
   "inlining failed in call to 'always_inline' prepare_effective_mask_for_row_float_sse41: target specific
   option mismatch". The force-inlined SSE4.1 function, defined in another source file, was called from a
   function without the SSE4.1 target; LTO tried to inline it across the files.
   The caller now has the SSE4.1 target, and the needless force-inline was removed (also from the AVX2 twin).
   Existed since 3.7.6.
+- Interface version 14.1: AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 (avisynth.h, avisynth_c.h), no API change.
+  It marks the _Range / _ColorRange alias, so a plugin can check whether the AviSynth it runs on understands
+  _Range (before, only _ColorRange): AEP_INTERFACE_VERSION > 14, or 14 with AEP_INTERFACE_BUGFIX >= 1.
+- C API loader moved from the installed headers to the FilterSDK/c_loader samples.
+  Copy the chosen loader and avisynth_c_loader_common.h into your project.
+  CMake location: share/doc/avisynth/examples/c_loader.
+- New C++17 loader avisynth_c_loader.hpp (avsc::Library), with automatic reference cleanup and API helpers.
+  The C variant targets C11; both share compatibility handling and released-version capability flags.
+- C API loader: improved load-error diagnostics (avs_load_library_ex / lib.error()), UTF-8 on Windows.
+  Windows paths no longer use a fixed MAX_PATH buffer; OS long-path rules still apply.
+- C API loader: avs_attach_library / lib.attach() acquires a reference to an already-loaded core.
+  For plugins, avs_bind_plugin_library / lib.bind_plugin() binds without retaining a library reference
+  or requiring cleanup at plugin unload.
+- C API loader: new has_frame_props flag for V9+ frame property support; required API pointers still need checking.
+- C API loader: host examples and a plugin example covering both C entry points and 64 bit values.
+  Plugin initialization is synchronized with C11/C++ atomics, without TLS or synchronization cleanup.
+- C API loader: fallbacks for selected missing APIs on older cores, including V11 value accessors.
+  Details and platform restrictions: FilterSDK/C_api.rst, "Dynamic loading".
 
 Bugfixes:
   Most of these bugs were found by AddressSanitizer (ASan) and UndefinedBehaviorSanitizer (UBSan) builds, or by

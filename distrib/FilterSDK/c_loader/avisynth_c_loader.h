@@ -1,71 +1,123 @@
-// AviSynth+ C API dynamic loader (header only, Windows, Linux, macOS, BSD, Haiku)
+// AviSynth+ C API dynamic loader, C variant
+// (headers only, no source file to build; Windows, Linux, macOS, BSD, Haiku).
+// Needs avisynth_c_loader_common.h next to it.
+// For C++ use avisynth_c_loader.hpp.
+//
 // Copyright 2026 AviSynth+ project
 // Same license and linking exception as avisynth_c.h.
 
-// Sample loader for using the C API without linking avisynth.lib/libavisynth:
-// loads AviSynth at runtime and fills a struct with the address of every C API function.
-// Use it as is, or copy and trim it for your project.
+// What it is for: using the AviSynth C API without linking avisynth.lib/libavisynth.
+// Loads AviSynth at runtime for hosts, or attaches to an already-loaded AviSynth for plugins
+// (subject to the platform restrictions documented below). Both variants resolve C API function
+// pointers, provide fallbacks for older cores, and detect the interface version through an environment.
+// avs_load_library/avs_attach_library own a library reference; avs_bind_plugin_library keeps only function pointers.
+//
+// Two variants sharing the loading, binding and compatibility handling:
+//
+// 1. avisynth_c_loader.h:
+//    C11, also compiles as C++.
+//    A struct, AVS_Library, and free functions. For C code, or C++ code which prefers the C style.
+//
+// 2. avisynth_c_loader.hpp:
+//    C++17.
+//    A class, avsc::Library, which releases any owned library reference in its destructor.
+//    For C++ hosts and plugins using the C API, the usual case.
+//
+// Their common part (function list, fallbacks, version query, platform calls) is avisynth_c_loader_common.h.
+//
+// Samples, not installed AviSynth headers (avisynth_c_loader.h was installed in 3.7.6):
+// FilterSDK/c_loader in the source tree, Windows packages and installer SDK;
+// share/doc/avisynth/examples/c_loader in a CMake install. Copy the chosen loader header and
+// avisynth_c_loader_common.h into your project, as they are or trimmed. avisynth_c.h and its avs/
+// folder must be on the include path; any avisynth_c.h from V14 (3.7.6) on works.
 //
 // Usage (host, e.g. an encoder or player):
 //   #include "avisynth_c_loader.h" // instead of avisynth_c.h, it defines AVSC_NO_DECLSPEC
 //
 //   AVS_Library* lib = avs_load_library(NULL); // NULL: default library name, see below
 //   if (!lib) { ... AviSynth not found ... }
-//   // the highest version both sides know: requests V14, then 11, 8, 6, 3
+//   // or, with the reason of a failure (optional):
+//   char error[AVSC_LOADER_ERROR_SIZE];
+//   AVS_Library* lib = avs_load_library_ex(NULL, error, sizeof(error));
+//   if (!lib) { printf("%s\n", error); ... }  // e.g. "avisynth: a DLL it needs is missing (...)"
+//   // Negotiate the environment version; see AVSC_LOADER_ENV_REQUESTS.
 //   AVS_ScriptEnvironment* env = avs_library_create_script_environment(lib);
 //   if (!env) { ... }
-//   if (lib->has_at_least_v9) { ... frame properties ... }
+//   if (lib->has_frame_props) { ... avs_prop_xxx, avs_get_frame_props_ro ... } // check required pointers too
 //   if (lib->has_64bit_values) { ... double and long (int64) values are kept ... }
 //   if (lib->has_at_least_v14) { ... function values, avs_invoke2/3 ... }
 //   ...
 //   lib->avs_delete_script_environment(env);
 //   avs_free_library(lib);
 //
-// Usage (C plugin): export both entry points, avisynth_c_plugin_init2 forwarding to
-// avisynth_c_plugin_init (AviSynth V10 and below knows only the latter):
-//   static AVS_Library* lib;
-//   static int from_init2;
-//   const char* AVSC_CC avisynth_c_plugin_init(AVS_ScriptEnvironment* env) {
-//     lib = avs_load_library(NULL);
-//     if (!lib) return "...";
-//     avs_library_detect_plugin_env(lib, env, from_init2); // the same fields, plus has_64bit_values
-//     lib->avs_add_function(env, ...);
+// Usage (C11 plugin): export both entry points through a shared initializer
+// (AviSynth V10 and below knows only avisynth_c_plugin_init):
+//   #include <stdatomic.h>
+//   static AVS_Library lib; // caller-owned storage, no allocation or retained library reference
+//   static atomic_flag init_lock = ATOMIC_FLAG_INIT;
+//   static const char* init_plugin(AVS_ScriptEnvironment* env, int from_init2) {
+//     while (atomic_flag_test_and_set_explicit(&init_lock, memory_order_acquire)) {}
+//     if (!lib.avs_create_script_environment) {
+//       if (!avs_bind_plugin_library(&lib, NULL, 0)) {
+//         atomic_flag_clear_explicit(&init_lock, memory_order_release);
+//         return "...";
+//       }
+//       avs_library_detect_plugin_env(&lib, env, from_init2); // initialize once, then read-only
+//     }
+//     atomic_flag_clear_explicit(&init_lock, memory_order_release);
+//     lib.avs_add_function(env, ...);
 //     return "...";
 //   }
-//   const char* AVSC_CC avisynth_c_plugin_init2(AVS_ScriptEnvironment* env) {
-//     from_init2 = 1; // AviSynth V11+ found it: the plugin's functions get double and long values
-//     return avisynth_c_plugin_init(env);
+//   const char* AVSC_CC avisynth_c_plugin_init(AVS_ScriptEnvironment* env) {
+//     return init_plugin(env, 0);
 //   }
-//   (Win32 .def: avisynth_c_plugin_init2@4 = _avisynth_c_plugin_init2@4 as well)
+//   const char* AVSC_CC avisynth_c_plugin_init2(AVS_ScriptEnvironment* env) {
+//     return init_plugin(env, 1); // the plugin's functions get double and long values
+//   }
 //
-// Creating the environment yourself: for a version newer than the loaded DLL's interface version
-// (the AVISYNTH_INTERFACE_VERSION compiled into that avisynth.dll/libavisynth, not the one of the
-// included avisynth_c.h), the core refuses the request (its CreateScriptEnvironment returns NULL),
-// but avs_create_script_environment still returns a non-NULL wrapper, holding a NULL core pointer.
-// From 3.7.6 avs_get_error tells the refusal, older versions give no error message. Any call
-// through it crashes; check it with avs_library_env_failed. A fixed low version is no solution
-// either: below 11 AviSynth converts double values to float and long (int64) values to 32 bit int
-// for the caller.
+// Notes:
+// - Initialization: avs_load_library/avs_load_library_ex and avs_attach_library return NULL on failure.
+//   Binding requires avs_create_script_environment. Optional diagnostics: avs_load_library_ex and
+//   avs_attach_library accept an error buffer. Release successful results with avs_free_library.
+//   avs_bind_plugin_library returns nonzero on success and uses caller-owned storage; do not free it.
+// - Synchronization: AVS_Library does not lock internally. The plugin pattern serializes binding and
+//   version detection, then leaves shared fields read-only; registration still runs for every env.
+//   Its C11 atomic_flag needs no cleanup, TLS or optional threads.h support; older compilers need
+//   their own guard. A failed bind can be retried. Core unload/reload does not refresh the cached binding.
+// - Missing functions: fallbacks are installed where possible; other entries remain NULL.
+//   Examples: avs_is_444 aliases avs_is_yv24 on classic 2.6; V11 AVS_Value accessors have legacy
+//   fallbacks. See AVSC_LOADER_FALLBACKS. Fallbacks (added in 3.7.7) make pointer presence unsuitable
+//   for version detection; use interface_version/interface_bugfix and has_at_least_xxx.
+// - API compatibility: require both the function pointer and its usable interface version.
+//   has_frame_props checks the version only. AVSC_LOADER_FUNCTIONS documents introduction versions
+//   and later fixes; see also "API functions fixed later than they appeared" in avisynth_c.h.
+// - Version flags: both variants expose released milestones plus the current WIP, not the
+//   development steps V9.1/V9.2/V12/V13. Exact comparisons use interface_version/interface_bugfix.
+// - Environment creation: prefer avs_library_create_script_environment for version negotiation.
+//   Direct avs_create_script_environment calls require avs_library_env_failed: unsupported requests
+//   can return a non-NULL wrapper with a NULL core. V14+ reports this through avs_get_error; older
+//   cores may leave the error unset. Do not call core-dependent functions through a failed wrapper.
+// - 64-bit values: hosts must request V11+; plugins must export avisynth_c_plugin_init2.
+//   Otherwise the core converts double/long values to float/int. has_64bit_values describes the
+//   caller's value support, not just the core version.
+// - Plugin attachment: use avs_bind_plugin_library, not default-name loading, which may fail or select
+//   another copy on POSIX. It releases its temporary library reference before returning. See
+//   avs_loader_attach for platform limits and macOS concurrency requirements; multiple cores remain ambiguous.
+// - Lifetime: release values, clips, frames and host-created environments before freeing the loader.
+//   Keep the plugin's storage for its callback lifetime. The host must keep the core loaded until all
+//   environments and plugin activity finish. Caller-owned plugin storage needs no cleanup.
+//   Do not free an owning loader during DLL detach, since it calls FreeLibrary.
+// - Plugin exports (Win32): AviSynth+ accepts name, _name@4 and name@4 for both C init entry points.
+//   Undecorated names also support classic 2.6; see example_plugin.cpp.
+// - API exports (Win32): 3.6.x through 3.7.1 exported V8 functions only under decorated names
+//   (e.g. _avs_get_frame_props_ro@8); this loader leaves those entries NULL. Fixed in 3.7.2.
+// - Helpers: AVSC_NO_DECLSPEC disables avisynth_c.h inline helpers that call the linked API.
+//   Use lib-> function pointers, e.g. avs_new_video_frame_a and avs_get_pitch_p.
+// - Linkage: loader functions are static inline in C, inline in C++.
 //
-// - avs_load_library returns NULL only if the library cannot be loaded.
-// - Every function missing from the loaded library (e.g. an older AviSynth) is NULL in the struct.
-//   Check the pointer before calling a function newer than the AviSynth versions you support.
-// - A function existing in a library does not mean it works there: some were fixed in a later
-//   interface version than the one they appeared in. The comments below give for each function the
-//   interface version it appeared in, and where it differs, the version from which it is usable
-//   reliably. See also "API functions fixed later than they appeared" in avisynth_c.h.
-//   The has_at_least_xxx fields of the struct give the important steps, interface_version and
-//   interface_bugfix the exact version.
-//   Interface versions: 3: AviSynth 2.5, 6: AviSynth 2.6 and AviSynth+ up to 3.5.0; 7: 3.5.1;
-//   8: 3.6.x, 3.7.0; 9: 3.7.1, 3.7.2; 10: 3.7.3; 11: 3.7.4, 3.7.5 (11.1); 14: 3.7.6; 14.1: 3.7.7.
-//   "AVS+": exists in every AviSynth+ (not in classic AviSynth).
-// - Win32 (32 bit) AviSynth+ 3.6.x - 3.7.1 exported the V8 functions only with decorated names
-//   (_avs_get_frame_props_ro@8), they are NULL there. Fixed in 3.7.2.
-// - The AVSC_INLINE helpers of avisynth_c.h which call into the API (e.g. avs_new_video_frame,
-//   avs_get_pitch) are not available with AVSC_NO_DECLSPEC: call the API function through lib->.
-// - Plugins: AviSynth is already loaded by the time the plugin is, avs_load_library(NULL) gets the
-//   same instance on Windows. On other systems pass the path of the running AviSynth if it is not
-//   in the default library search path.
+// Interface versions: V3: classic 2.5; V6: classic 2.6 and AviSynth+ through 3.5.0; V7: 3.5.1;
+// V8: 3.6.x/3.7.0; V9: 3.7.1/3.7.2; V10: 3.7.3; V11: 3.7.4; V11.1: 3.7.5;
+// V14: 3.7.6; V14.1: 3.7.7 WIP. "AVS+" in the function list means all AviSynth+ versions.
 
 #ifndef AVISYNTH_C_LOADER_H
 #define AVISYNTH_C_LOADER_H
@@ -78,227 +130,50 @@
 #define AVSC_NO_DECLSPEC
 #endif
 #include "avisynth_c.h"
-
-#include <stdlib.h>
-#ifdef AVS_WINDOWS
-#include <windows.h>
-#else
-#include <dlfcn.h>
-#endif
-
-// The list of all C API functions: X(name), grouped by the interface version they appeared in.
-#define AVSC_LOADER_FUNCTIONS(X) \
-  /* V3: AviSynth 2.5 */ \
-  X(avs_add_function) \
-  X(avs_at_exit) \
-  X(avs_bit_blt) \
-  X(avs_check_version) \
-  X(avs_clip_get_error) \
-  X(avs_copy_clip) \
-  X(avs_copy_value) \
-  X(avs_copy_video_frame) \
-  X(avs_create_script_environment) \
-  X(avs_function_exists) \
-  X(avs_get_audio) \
-  X(avs_get_cpu_flags) \
-  X(avs_get_frame) \
-  X(avs_get_parity) \
-  X(avs_get_var) \
-  X(avs_get_version) \
-  X(avs_get_video_info) \
-  X(avs_invoke) \
-  X(avs_make_writable) \
-  X(avs_new_c_filter) /* AVS_MT_NICE_FILTER C filters: error reporting reliable from V14 */ \
-  X(avs_new_video_frame_a) \
-  X(avs_release_clip) \
-  X(avs_release_value) \
-  X(avs_release_video_frame) \
-  X(avs_save_string) \
-  X(avs_set_cache_hints) \
-  X(avs_set_global_var) \
-  X(avs_set_memory_max) \
-  X(avs_set_to_clip) \
-  X(avs_set_var) \
-  X(avs_set_working_dir) \
-  X(avs_subframe) \
-  X(avs_take_clip) \
-  X(avs_vsprintf) \
-  X(avs_sprintf) \
-  /* V6: AviSynth 2.6 */ \
-  X(avs_delete_script_environment) \
-  X(avs_subframe_planar) \
-  X(avs_get_error) \
-  X(avs_is_yv24) \
-  X(avs_is_yv16) \
-  X(avs_is_yv12) \
-  X(avs_is_yv411) \
-  X(avs_is_y8) \
-  X(avs_is_color_space) \
-  X(avs_get_plane_width_subsampling) \
-  X(avs_get_plane_height_subsampling) \
-  X(avs_bits_per_pixel) \
-  X(avs_bytes_from_pixels) \
-  X(avs_row_size) \
-  X(avs_bmp_size) \
-  X(avs_get_pitch_p) \
-  X(avs_get_row_size_p) \
-  X(avs_get_height_p) \
-  X(avs_get_read_ptr_p) \
-  X(avs_is_writable) \
-  X(avs_get_write_ptr_p) \
-  /* AVS+ */ \
-  X(avs_num_components) \
-  X(avs_component_size) \
-  X(avs_bits_per_component) \
-  X(avs_is_444) \
-  X(avs_is_422) \
-  X(avs_is_420) \
-  X(avs_is_y) \
-  X(avs_is_yuva) \
-  X(avs_is_planar_rgb) \
-  X(avs_is_planar_rgba) \
-  X(avs_is_rgb48) \
-  X(avs_is_rgb64) \
-  /* AVS+, deprecated */ \
-  X(avs_is_yuv444p16) \
-  X(avs_is_yuv422p16) \
-  X(avs_is_yuv420p16) \
-  X(avs_is_y16) \
-  X(avs_is_yuv444ps) \
-  X(avs_is_yuv422ps) \
-  X(avs_is_yuv420ps) \
-  X(avs_is_y32) \
-  /* V8: frame properties. Frame property access is usable from V9 (crashed in V8) */ \
-  X(avs_subframe_planar_a) \
-  X(avs_copy_frame_props) /* usable from V9 */ \
-  X(avs_get_frame_props_ro) /* usable from V9 */ \
-  X(avs_get_frame_props_rw) /* usable from V9 */ \
-  X(avs_prop_num_keys) \
-  X(avs_prop_get_key) \
-  X(avs_prop_num_elements) \
-  X(avs_prop_get_type) \
-  /* avs_prop_get_xxx: before V14 pass a non-NULL error pointer (NULL: process terminated on a failed read) */ \
-  X(avs_prop_get_int) \
-  X(avs_prop_get_float) \
-  X(avs_prop_get_data) /* usable from V10 */ \
-  X(avs_prop_get_data_size) \
-  X(avs_prop_get_clip) /* usable from V14 (returned an invalid AVS_Clip) */ \
-  X(avs_prop_get_frame) /* V11: *error was always 0, check the result for NULL */ \
-  X(avs_prop_delete_key) \
-  X(avs_prop_set_int) \
-  X(avs_prop_set_float) \
-  X(avs_prop_set_data) \
-  X(avs_prop_set_clip) \
-  X(avs_prop_set_frame) /* usable from V9 */ \
-  X(avs_prop_get_int_array) \
-  X(avs_prop_get_float_array) \
-  X(avs_prop_set_int_array) \
-  X(avs_prop_set_float_array) \
-  X(avs_clear_map) \
-  X(avs_new_video_frame_p) /* non-NULL prop_src usable from V10 */ \
-  X(avs_new_video_frame_p_a) /* non-NULL prop_src usable from V10 */ \
-  X(avs_get_env_property) /* AVS_AEP_INTERFACE_VERSION and AVS_AEP_INTERFACE_BUGFIX from V9 */ \
-  X(avs_pool_allocate) \
-  X(avs_pool_free) \
-  X(avs_get_var_try) \
-  X(avs_get_var_bool) \
-  X(avs_get_var_int) \
-  X(avs_get_var_double) \
-  X(avs_get_var_string) \
-  X(avs_get_var_long) \
-  /* V9 */ \
-  X(avs_is_property_writable) \
-  X(avs_make_property_writable) \
-  /* V10 */ \
-  X(avs_video_frame_get_pixel_type) \
-  X(avs_video_frame_amend_pixel_type) \
-  /* V10.1 */ \
-  X(avs_is_channel_mask_known) \
-  X(avs_set_channel_mask) \
-  X(avs_get_channel_mask) \
-  /* V11: 64 bit AVS_Value types */ \
-  X(avs_set_to_void) \
-  X(avs_set_to_error) \
-  X(avs_set_to_bool) \
-  X(avs_set_to_int) \
-  X(avs_set_to_string) \
-  X(avs_set_to_float) \
-  X(avs_set_to_double) \
-  X(avs_set_to_long) \
-  X(avs_set_to_array) /* NULL src with nonzero size: usable from V14 */ \
-  X(avs_get_as_bool) \
-  X(avs_get_as_clip) \
-  X(avs_get_as_int) \
-  X(avs_get_as_long) \
-  X(avs_get_as_string) \
-  X(avs_get_as_float) \
-  X(avs_get_as_error) \
-  X(avs_get_as_array) \
-  X(avs_get_array_elt) \
-  X(avs_get_array_size) \
-  X(avs_val_defined) \
-  X(avs_val_is_clip) \
-  X(avs_val_is_bool) \
-  X(avs_val_is_int) \
-  X(avs_val_is_long_strict) \
-  X(avs_val_is_float) \
-  X(avs_val_is_floatf_strict) \
-  X(avs_val_is_string) \
-  X(avs_val_is_array) \
-  X(avs_val_is_error) \
-  X(avs_prop_get_int_saturated) \
-  X(avs_prop_get_float_saturated) \
-  X(avs_prop_get_data_type_hint) \
-  X(avs_prop_set_data_h) \
-  X(avs_add_function_r) \
-  /* V12 */ \
-  X(avs_get_cpu_flags_ex) \
-  X(avs_acquire_global_lock) \
-  X(avs_release_global_lock) \
-  /* V13: new pixel formats */ \
-  X(avs_is_440) \
-  X(avs_is_410) \
-  X(avs_is_411) \
-  X(avs_is_ya) \
-  /* V14 */ \
-  X(avs_val_is_function) \
-  X(avs_val_get_type) \
-  X(avs_invoke_try) \
-  X(avs_invoke2) \
-  X(avs_invoke2_try) \
-  X(avs_invoke3) \
-  X(avs_invoke3_try) \
-  X(avs_create_map) \
-  X(avs_free_map) \
-  X(avs_apply_message)
+#include "avisynth_c_loader_common.h"
 
 typedef struct AVS_Library AVS_Library;
 
 struct AVS_Library {
-  void* handle; // HMODULE on Windows, dlopen handle elsewhere
+  void* handle; // owned HMODULE/dlopen handle; NULL for a caller-owned plugin binding
+
+  // Detected when binding by directly looking up the V14-only avs_create_map export.
+  // Independent of the function table (which users may trim) and any fallbacks.
+  int has_env_creation_error_reporting;
 
   // Interface version of the loaded AviSynth and the feature steps.
   // Filled by avs_library_create_script_environment (hosts) or avs_library_detect_plugin_env (plugins),
   // all 0 before.
-  int interface_version;  // e.g. 6, 8, 11, 14
-  int interface_bugfix;   // e.g. 1 for V11.1 (3.7.5)
-  int has_at_least_v8;    // frame property API entries, avs_new_video_frame_p (frame property source).
-                          // C API frame property access crashes in V8, use it from V9.
-  int has_at_least_v9;    // C API frame property access works, avs_is/make_property_writable,
-                          // AVS_AEP_INTERFACE_VERSION/BUGFIX queries
-  int has_at_least_v9_1;  // kept for compatibility: V9.1 and V9.2 were test builds only, in releases
-  int has_at_least_v9_2;  // these are the same as has_at_least_v10
-  int has_at_least_v10;   // AVS_VideoFrame pixel_type (avs_video_frame_get/amend_pixel_type),
-                          // avs_new_video_frame_p(_a) with a non-NULL prop_src, avs_prop_get_data,
-                          // C filters: an error of the child clip (fi->child->error) is passed on
-  int has_at_least_v11;   // the core knows 64 bit AVS_Value types (double, long). Whether this caller
-                          // gets them: has_64bit_values
-  int has_at_least_v12;   // avs_acquire/release_global_lock, avs_get_cpu_flags_ex, AVS_AEP_CACHESIZE_L2
-  int has_at_least_v13;   // YUV(A) 4:4:0, 4:1:1, 4:1:0, YA pixel formats
-  int has_at_least_v14;   // function values, avs_invoke2/3(_try), avs_create_map; avs_prop_get_xxx fixes
-                          // (NULL error pointer, avs_prop_get_clip), AVS_MT_NICE_FILTER error reporting
-  int has_at_least_v14_1; // frame properties: _Range is the stored key, _ColorRange its alias (0 and 1 swapped).
-                          // Before, AviSynth knew only _ColorRange
+  int interface_version;   // e.g. 6, 8, 11, 14
+  int interface_bugfix;    // e.g. 1 for V11.1 (3.7.5) and V14.1 (3.7.7)
+  int has_at_least_v8;     // 3.6.x, 3.7.0: frame property API entries, avs_new_video_frame_p.
+                           // Do not use for C frame property access: it crashes in V8; require V9.
+  int has_at_least_v9;     // 3.7.1, 3.7.2: C frame property access fixed, avs_is/make_property_writable,
+                           // AVS_AEP_INTERFACE_VERSION/BUGFIX queries
+  int has_at_least_v10;    // 3.7.3: includes the V9.1/V9.2 development fixes.
+                           // AVS_VideoFrame pixel_type (avs_video_frame_get/amend_pixel_type),
+                           // avs_new_video_frame_p(_a) with a non-NULL prop_src, avs_prop_get_data,
+                           // C filters: an error of the child clip (fi->child->error) is passed on
+  int has_at_least_v11;    // 3.7.4: 64-bit AVS_Value types (double, long) and related C API additions.
+                           // Use the core's numeric accessors: V11.0 non-x86 64-bit storage differs
+                           // from current inline helpers. Caller value support: has_64bit_values.
+  int has_at_least_v11_1;  // 3.7.5: aligns non-x86 64-bit AVS_Value storage with current inline helpers.
+  // V12/V13: WIP before V14; not set.
+  int has_at_least_v14;    // 3.7.6: includes the V12/V13 development additions:
+                           // avs_acquire/release_global_lock, avs_get_cpu_flags_ex, AVS_AEP_CACHESIZE_L2;
+                           // YUV(A) 4:4:0, 4:1:1, 4:1:0, YA pixel formats.
+                           // Function values, avs_invoke2/3(_try), avs_create_map; avs_prop_get_xxx fixes
+                           // (NULL error pointer, avs_prop_get_clip), AVS_MT_NICE_FILTER error reporting
+  int has_at_least_v14_1;  // 3.7.7 WIP: frame properties: _Range is the stored key, _ColorRange its alias
+                           // (0 and 1 swapped). Before, AviSynth knew only _ColorRange
+
+  // Same as has_at_least_v9; does not check function pointers or all later frame property fixes:
+  // - avs_prop_get_data and avs_prop_get_data_size work from V10 (has_at_least_v10),
+  // - avs_prop_get_clip from V14 (has_at_least_v14)
+  // - before V14 pass a non-NULL error pointer to avs_prop_get_xxx.
+  int has_frame_props;
+
+  // The above version-dependent fields are all 0 until the version is detected
 
   // This caller gets 64 bit AVS_Value types: double and long (int64) values are kept, not converted
   // to float and 32 bit int.
@@ -312,119 +187,163 @@ struct AVS_Library {
 #undef AVSC_LOADER_DECLARE
 };
 
-// Loads AviSynth and all C API functions, missing ones are NULL.
-// library_path: UTF-8 file name or path; NULL: "avisynth" (Windows), "libavisynth.dylib" (macOS),
-// "libavisynth.so" (others).
-// Returns NULL if the library cannot be loaded. Free the result with avs_free_library.
-AVSC_INLINE AVS_Library* avs_load_library(const char* library_path)
+// ** Missing function fallback handling.**
+// Fills the missing (NULL) entries which can be served without the loaded AviSynth, the same way as
+// the C++ ABI (avisynth.h) does: see AVSC_LOADER_FALLBACKS in avisynth_c_loader_common.h.
+// E.g. make avs_is_444 or avs_bits_per_component usable against classic AviSynth 2.6,
+// or avs_is_440 before Avisynth 3.7.6.
+// Called during binding. Returns the number of entries filled (a second call fills nothing).
+AVSC_LOADER_INLINE int avs_library_set_fallbacks(AVS_Library* library)
 {
-  AVS_Library* library = (AVS_Library*)calloc(1, sizeof(AVS_Library)); // zero filled: missing entries are NULL
-  if (library == NULL)
-    return NULL;
+  int filled = 0;
+#define AVSC_LOADER_FALLBACK(name, fn) \
+  if (library->name == NULL) { library->name = (fn); filled++; }
+#define AVSC_LOADER_ALIAS(name, older) \
+  AVSC_LOADER_FALLBACK(name, library->older != NULL ? library->older : avs_loader_fallback_false)
+#define AVSC_LOADER_ALIAS_IF_EXISTS(name, older) \
+  if (library->older != NULL) AVSC_LOADER_FALLBACK(name, library->older)
+  AVSC_LOADER_FALLBACKS(AVSC_LOADER_FALLBACK, AVSC_LOADER_ALIAS, AVSC_LOADER_ALIAS_IF_EXISTS)
+#undef AVSC_LOADER_ALIAS_IF_EXISTS
+#undef AVSC_LOADER_ALIAS
+#undef AVSC_LOADER_FALLBACK
+  return filled;
+}
 
-#ifdef AVS_WINDOWS
-  {
-    wchar_t wpath[MAX_PATH];
-    if (library_path == NULL)
-      library_path = "avisynth";
-    // library_path is UTF-8. For a path in the ANSI code page use CP_ACP here instead, or call
-    // LoadLibraryA directly (it takes the process code page, UTF-8 with an activeCodePage manifest).
-    if (MultiByteToWideChar(CP_UTF8, 0, library_path, -1, wpath, MAX_PATH) == 0) {
-      free(library);
-      return NULL;
-    }
-    library->handle = (void*)LoadLibraryW(wpath);
+// Fills caller-owned storage from a live handle; does not take ownership of or close the handle.
+// Storage must not own a library reference. Clears it on failure. name: for the error text.
+AVSC_LOADER_INLINE int avs_library_bind_handle(AVS_Library* library, void* handle,
+  const char* name, char* error, size_t error_size)
+{
+  memset(library, 0, sizeof(*library));
+#define AVSC_LOADER_LOAD(name) *(void**)&library->name = avs_loader_symbol(handle, #name);
+  AVSC_LOADER_FUNCTIONS(AVSC_LOADER_LOAD)
+#undef AVSC_LOADER_LOAD
+  if (library->avs_create_script_environment == NULL) {
+    avs_loader_not_avisynth_error(name, error, error_size);
+    memset(library, 0, sizeof(*library));
+    return 0;
   }
-#else
-  if (library_path == NULL) {
-#ifdef AVS_MACOS
-    library_path = "libavisynth.dylib";
-#else
-    library_path = "libavisynth.so";
-#endif
+  library->has_env_creation_error_reporting = avs_loader_symbol(handle, "avs_create_map") != NULL;
+  avs_library_set_fallbacks(library);
+  return 1;
+}
+
+// Allocates the owning loader for avs_load_library_ex and avs_attach_library.
+// Takes over the handle, including closing it on failure.
+AVSC_LOADER_INLINE AVS_Library* avs_library_from_handle(void* handle, const char* name, char* error, size_t error_size)
+{
+  AVS_Library* library = (AVS_Library*)malloc(sizeof(AVS_Library));
+  if (library == NULL) {
+    if (error != NULL && error_size > 0)
+      avs_loader_append_error(error, error_size, "out of memory");
+    avs_loader_close(handle);
+    return NULL;
   }
-  library->handle = dlopen(library_path, RTLD_NOW | RTLD_LOCAL);
-#endif
-  if (library->handle == NULL) {
+  if (!avs_library_bind_handle(library, handle, name, error, error_size)) {
+    avs_loader_close(handle);
     free(library);
     return NULL;
   }
-
-  // the address is copied through void* : the POSIX way of converting dlsym's result to a function pointer
-#ifdef AVS_WINDOWS
-#define AVSC_LOADER_LOAD(name) { FARPROC proc = GetProcAddress((HMODULE)library->handle, #name); *(void**)&library->name = *(void**)&proc; }
-#else
-#define AVSC_LOADER_LOAD(name) { void* proc = dlsym(library->handle, #name); *(void**)&library->name = proc; }
-#endif
-  AVSC_LOADER_FUNCTIONS(AVSC_LOADER_LOAD)
-#undef AVSC_LOADER_LOAD
-
+  library->handle = handle;
   return library;
 }
 
-AVSC_INLINE void avs_free_library(AVS_Library* library)
+// Loads AviSynth and all C API functions. Missing ones get a fallback where possible
+// (avs_library_set_fallbacks), the others are NULL.
+// library_path: UTF-8 file name or path; NULL: "avisynth" (Windows), "libavisynth.dylib" (macOS),
+// "libavisynth.so" (others).
+// error (optional, may be NULL): receives the reason of a failure as UTF-8 text, at most error_size
+// bytes with the terminating zero (AVSC_LOADER_ERROR_SIZE is enough); an empty string on success. E.g.
+// "avisynth: invalid library image or incompatible architecture for this 64 bit process (error 193)".
+// Returns NULL if the library cannot be loaded, or if it is not AviSynth with a C interface.
+// Free the result with avs_free_library.
+AVSC_LOADER_INLINE AVS_Library* avs_load_library_ex(const char* library_path, char* error, size_t error_size)
+{
+  void* handle = avs_loader_open(library_path, error, error_size);
+  if (handle == NULL)
+    return NULL;
+  return avs_library_from_handle(handle, library_path, error, error_size);
+}
+
+// Like avs_load_library_ex, but acquires a reference to an already-loaded AviSynth instead of loading one by name.
+// Plugins should normally use the non-owning avs_bind_plugin_library below.
+// On POSIX avs_load_library(NULL) loads "libavisynth.so" from the library search path, which may not exist
+// (it is usually in the -dev packages only) or may be another copy than the running one, and the plugin
+// would work with another AviSynth. On Windows both give the same instance.
+// Windows: the module named "avisynth" (a renamed AviSynth.dll is not found). Linux, BSD, macOS: the loaded
+// library named libavisynth.so[.N] / libavisynth[.N].dylib. Haiku: not supported.
+// Returns NULL if there is none; load it by name as a fallback if you want:
+//   lib = avs_attach_library(NULL, 0); if (!lib) lib = avs_load_library(path);
+// Free with avs_free_library; other owners determine whether AviSynth stays loaded.
+AVSC_LOADER_INLINE AVS_Library* avs_attach_library(char* error, size_t error_size)
+{
+  void* handle = avs_loader_attach(error, error_size);
+  if (handle == NULL)
+    return NULL;
+  return avs_library_from_handle(handle, "AviSynth", error, error_size);
+}
+
+// Plugins: resolve the already-loaded core into caller-owned storage without retaining a reference.
+// Call during plugin init, not DLL attach/detach. The host must keep the core loaded throughout plugin
+// activity. Storage must be zero-initialized or previously bound by this function, never an owning
+// loader from avs_load_library/avs_attach_library. Keep it for all callbacks; no cleanup is needed and
+// avs_free_library must not be called on it. Discovery restrictions are the same as avs_attach_library.
+// Returns nonzero on success (handle stays NULL); on failure clears the storage and writes error if supplied.
+AVSC_LOADER_INLINE int avs_bind_plugin_library(AVS_Library* library, char* error, size_t error_size)
+{
+  void* handle;
+  int bound;
+  memset(library, 0, sizeof(*library));
+  handle = avs_loader_attach(error, error_size);
+  if (handle == NULL)
+    return 0;
+  bound = avs_library_bind_handle(library, handle, "AviSynth", error, error_size);
+  avs_loader_close(handle);
+  return bound;
+}
+
+// The same as avs_load_library_ex, without the error text.
+AVSC_LOADER_INLINE AVS_Library* avs_load_library(const char* library_path)
+{
+  return avs_load_library_ex(library_path, NULL, 0);
+}
+
+// Only for heap-allocated owning loaders returned by avs_load_library/avs_attach_library.
+AVSC_LOADER_INLINE void avs_free_library(AVS_Library* library)
 {
   if (library == NULL)
     return;
-#ifdef AVS_WINDOWS
-  FreeLibrary((HMODULE)library->handle);
-#else
-  dlclose(library->handle);
-#endif
+  avs_loader_close(library->handle);
   free(library);
 }
 
 // Returns the interface version of the loaded AviSynth (e.g. 6, 8, 11, 14), 0 if unknown.
 // bugfix (may be NULL) receives the bugfix version (V9 and above, otherwise 0).
 // E.g. interface 11 with bugfix 1 is "V11.1" (3.7.5).
-// avs_get_env_property with AVS_AEP_INTERFACE_VERSION is only asked from V9, earlier versions did not know it.
-AVSC_INLINE int avs_library_interface_version(const AVS_Library* library, AVS_ScriptEnvironment* env, int* bugfix)
+AVSC_LOADER_INLINE int avs_library_interface_version(const AVS_Library* library, AVS_ScriptEnvironment* env, int* bugfix)
 {
-  int version = 0;
-  int fix = 0;
-  if (library->avs_check_version != NULL) {
-    if (library->avs_get_env_property != NULL && library->avs_check_version(env, 9) == 0) {
-      version = (int)library->avs_get_env_property(env, AVS_AEP_INTERFACE_VERSION);
-      fix = (int)library->avs_get_env_property(env, AVS_AEP_INTERFACE_BUGFIX);
-    }
-    else {
-      // below v9 we can only poll
-      int version_probe;
-      for (version_probe = 8; version_probe >= 1; version_probe--) {
-        if (library->avs_check_version(env, version_probe) == 0) {
-          version = version_probe;
-          break;
-        }
-      }
-    }
-  }
-  if (bugfix != NULL)
-    *bugfix = fix;
-  return version;
+  return avs_loader_query_version(library->avs_check_version, library->avs_get_env_property, env, bugfix);
 }
 
-// Fills interface_version, interface_bugfix and the has_at_least_xxx steps of the library struct.
-AVSC_INLINE void avs_library_set_version(AVS_Library* library, int version, int bugfix)
+// Records the exact interface version and sets flags for released milestones plus the current WIP.
+// Development steps V9.1/V9.2/V12/V13 have no separate flags.
+AVSC_LOADER_INLINE void avs_library_set_version(AVS_Library* library, int version, int bugfix)
 {
-#define AVSC_LOADER_AT_LEAST(v, b) (version > (v) || (version == (v) && bugfix >= (b)))
   library->interface_version = version;
   library->interface_bugfix = bugfix;
-  library->has_at_least_v8 = AVSC_LOADER_AT_LEAST(8, 0);
-  library->has_at_least_v9 = AVSC_LOADER_AT_LEAST(9, 0);
-  library->has_at_least_v9_1 = AVSC_LOADER_AT_LEAST(9, 1);
-  library->has_at_least_v9_2 = AVSC_LOADER_AT_LEAST(9, 2);
-  library->has_at_least_v10 = AVSC_LOADER_AT_LEAST(10, 0);
-  library->has_at_least_v11 = AVSC_LOADER_AT_LEAST(11, 0);
-  library->has_at_least_v12 = AVSC_LOADER_AT_LEAST(12, 0);
-  library->has_at_least_v13 = AVSC_LOADER_AT_LEAST(13, 0);
-  library->has_at_least_v14 = AVSC_LOADER_AT_LEAST(14, 0);
-  library->has_at_least_v14_1 = AVSC_LOADER_AT_LEAST(14, 1);
-#undef AVSC_LOADER_AT_LEAST
+  library->has_at_least_v8 = avs_loader_at_least(version, bugfix, 8, 0);
+  library->has_at_least_v9 = avs_loader_at_least(version, bugfix, 9, 0);
+  library->has_at_least_v10 = avs_loader_at_least(version, bugfix, 10, 0);
+  library->has_at_least_v11 = avs_loader_at_least(version, bugfix, 11, 0);
+  library->has_at_least_v11_1 = avs_loader_at_least(version, bugfix, 11, 1);
+  library->has_at_least_v14 = avs_loader_at_least(version, bugfix, 14, 0);
+  library->has_at_least_v14_1 = avs_loader_at_least(version, bugfix, 14, 1);
+  library->has_frame_props = library->has_at_least_v9;
 }
 
 // Detects the version of the loaded AviSynth through env.
 // Fills interface_version, interface_bugfix and the has_at_least_xxx steps; returns the version.
-AVSC_INLINE int avs_library_detect_version(AVS_Library* library, AVS_ScriptEnvironment* env)
+AVSC_LOADER_INLINE int avs_library_detect_version(AVS_Library* library, AVS_ScriptEnvironment* env)
 {
   int bugfix;
   int version = avs_library_interface_version(library, env, &bugfix);
@@ -440,61 +359,27 @@ AVSC_INLINE int avs_library_detect_version(AVS_Library* library, AVS_ScriptEnvir
 // the plugin's functions get double and long values. Otherwise it calls avisynth_c_plugin_init and
 // converts these values to float and 32 bit int for the plugin's functions. Older AviSynth (V10 and
 // below) knows only avisynth_c_plugin_init and has no 64 bit values at all.
-AVSC_INLINE int avs_library_detect_plugin_env(AVS_Library* library, AVS_ScriptEnvironment* env, int called_from_init2)
+AVSC_LOADER_INLINE int avs_library_detect_plugin_env(AVS_Library* library, AVS_ScriptEnvironment* env, int called_from_init2)
 {
   int version = avs_library_detect_version(library, env);
-  library->has_64bit_values = called_from_init2 && version >= 11;
+  library->has_64bit_values = called_from_init2 && version >= AVSC_LOADER_64BIT_VALUES_VERSION;
   return version;
 }
 
-// Returns nonzero if avs_create_script_environment failed. For a version newer than the loaded
-// DLL's interface version, the core refuses the request (its CreateScriptEnvironment returns NULL),
-// but the C wrapper returned by avs_create_script_environment is still non-NULL: it holds the NULL
-// core pointer; any call through it crashes.
-// - From 3.7.6 (V14) avs_get_error reports the refusal.
-// - Older versions give no error message, the only sign of the refusal is that NULL core pointer,
-//   the first member of the opaque struct: its layout { core, error } has been the same since the
-//   first C interface (2003).
-AVSC_INLINE int avs_library_env_failed(const AVS_Library* library, AVS_ScriptEnvironment* env)
+// Returns nonzero if avs_create_script_environment failed: see avs_loader_env_failed in
+// avisynth_c_loader_common.h (a refused request gives a non-NULL environment with a NULL core pointer).
+AVSC_LOADER_INLINE int avs_library_env_failed(const AVS_Library* library, AVS_ScriptEnvironment* env)
 {
-  if (env == NULL)
-    return 1;
-  if (library->avs_get_error != NULL && library->avs_get_error(env) != NULL)
-    return 1;
-  {
-    // mirror of the core-only struct AVS_ScriptEnvironment { IScriptEnvironment* env; const char* error; }
-    typedef struct { const void* core; const char* error; } AVS_ScriptEnvironment_Layout;
-    return ((const AVS_ScriptEnvironment_Layout*)env)->core == NULL;
-  }
+  return avs_loader_env_failed(library->avs_get_error, env, library->has_env_creation_error_reporting);
 }
 
 // Hosts: creates the script environment with the highest interface version known by both
 // the loaded DLL and the avisynth_c.h this loader was compiled with, and fills the version fields
-// of the library struct.
-// Two different versions are involved:
-// - the header's AVISYNTH_INTERFACE_VERSION (compile time): what this caller understands, the first
-//   request. Rebuilding with a newer avisynth_c.h raises it automatically; then extend the
-//   has_at_least_xxx steps and the function list if needed. An avisynth_c.h older than V14 does not
-//   compile with this loader (missing function types).
-// - the loaded DLL's interface version (run time): requests above it are refused.
-// The requested version matters: it tells AviSynth what the caller understands.
-// Below 11 AviSynth converts double values to float and long (int64) values to 32 bit int,
-// even if it supports them itself.
-// Only the steps which make a difference are requested, the first accepted one is kept;
-// a refused request is cheap (no environment is built):
-// - AVISYNTH_INTERFACE_VERSION: what this caller understands
-// - 11: a V11..V13 AviSynth: 64 bit AVS_Value types. Any version from 11 up to the DLL's interface version
-//   gives the same environment.
-// - 8: a V8..V10 AviSynth (frame properties, avs_new_video_frame_p). The environment is the same as
-//   with 6, the step only follows the has_at_least_v8 feature level.
-// - 6 (classic): older AviSynth. Any version below 11 gives the same environment; bugfix versions
-//   cannot be requested at all.
-// - 3: AviSynth 2.5
-// The exact version and the has_at_least_xxx steps are then queried through the environment.
+// of the library struct. The request order and why: AVSC_LOADER_ENV_REQUESTS in avisynth_c_loader_common.h.
 // Returns NULL on failure. Delete the result with lib->avs_delete_script_environment.
-AVSC_INLINE AVS_ScriptEnvironment* avs_library_create_script_environment(AVS_Library* library)
+AVSC_LOADER_INLINE AVS_ScriptEnvironment* avs_library_create_script_environment(AVS_Library* library)
 {
-  static const int request[] = { AVISYNTH_INTERFACE_VERSION, 11, 8, AVISYNTH_INTERFACE_CLASSIC_VERSION, 3 };
+  static const int request[] = AVSC_LOADER_ENV_REQUESTS;
   int i;
   if (library->avs_create_script_environment == NULL)
     return NULL;
@@ -502,7 +387,7 @@ AVSC_INLINE AVS_ScriptEnvironment* avs_library_create_script_environment(AVS_Lib
     AVS_ScriptEnvironment* env = library->avs_create_script_environment(request[i]);
     if (!avs_library_env_failed(library, env)) {
       avs_library_detect_version(library, env); // the DLL's exact version, also if the DLL is newer than the header
-      library->has_64bit_values = request[i] >= 11; // accepted only by a V11+ core
+      library->has_64bit_values = request[i] >= AVSC_LOADER_64BIT_VALUES_VERSION; // accepted only by a V11+ core
       return env;
     }
     if (env != NULL && library->avs_delete_script_environment != NULL)
