@@ -528,8 +528,9 @@ and do not modify it during later environment initialization::
     }
 
 On Win32 no .def file is needed for the loader: AviSynth+ finds both entry points under any of the names
-``name``, ``_name@4`` and ``name@4``. (Undecorated names, e.g. g++ ``-Wl,--kill-at``, also load on classic
-AviSynth 2.6.)
+``name``, ``_name@4`` and ``name@4``. Classic AviSynth 2.6 (``LoadCPlugin``) looks for ``name@4`` and
+``name`` only: MinGW g++ exports ``name@4`` (``-Wl,--kill-at``: ``name``), both load there; MSVC exports
+``_name@4``, which classic 2.6 does not find unless a .def file adds ``name@4 = _name@4``.
 
 ``avs_library_detect_plugin_env`` works through the camouflaged pre-V11 environment that a plugin with only
 ``avisynth_c_plugin_init`` receives: it forwards ``avs_check_version`` and ``avs_get_env_property`` to the

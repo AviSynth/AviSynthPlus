@@ -21,9 +21,12 @@
 // Build, e.g.:
 //   Windows x64: g++ -std=c++17 -shared -I<avisynth include dir> example_plugin.cpp -o LoaderSample.dll
 //                cl /std:c++17 /EHsc /LD /I<avisynth include dir> example_plugin.cpp /Fe:LoaderSample.dll
-//   Win32 (x86): the entry points are __stdcall, the compilers export them decorated (_name@4).
-//                AviSynth+ finds them under any of name, _name@4 and name@4, so nothing more is needed.
-//                Undecorated names (g++: add -Wl,--kill-at) also load on classic AviSynth 2.6 (LoadCPlugin).
+//   Win32 (x86): the entry points are __stdcall and exported decorated: MSVC as _name@4, g++ as name@4
+//                (with -Wl,--kill-at: name). AviSynth+ finds any of name, _name@4 and name@4, so nothing
+//                more is needed. Classic AviSynth 2.6 (LoadCPlugin) looks for name@4 and name only: the
+//                g++ builds load there, an MSVC build needs a .def file with the line
+//                  avisynth_c_plugin_init@4 = _avisynth_c_plugin_init@4
+//                (classic 2.6 does not know init2, no alias needed for it).
 //   Linux:       g++ -std=c++17 -shared -fPIC -I<avisynth include dir> example_plugin.cpp -o libloadersample.so -ldl
 // Script:
 //   LoadPlugin("LoaderSample.dll")

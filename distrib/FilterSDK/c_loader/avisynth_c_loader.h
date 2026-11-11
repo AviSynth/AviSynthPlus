@@ -109,7 +109,8 @@
 //   environments and plugin activity finish. Caller-owned plugin storage needs no cleanup.
 //   Do not free an owning loader during DLL detach, since it calls FreeLibrary.
 // - Plugin exports (Win32): AviSynth+ accepts name, _name@4 and name@4 for both C init entry points.
-//   Undecorated names also support classic 2.6; see example_plugin.cpp.
+//   Classic 2.6 accepts only name@4 and name (g++ default and -Wl,--kill-at; not MSVC _name@4 without
+//   a .def alias); see example_plugin.cpp.
 // - API exports (Win32): 3.6.x through 3.7.1 exported V8 functions only under decorated names
 //   (e.g. _avs_get_frame_props_ro@8); this loader leaves those entries NULL, so has_frame_props is
 //   false even on the V9 3.7.1. Fixed in 3.7.2.

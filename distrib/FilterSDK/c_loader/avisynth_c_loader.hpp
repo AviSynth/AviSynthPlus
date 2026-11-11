@@ -113,7 +113,8 @@
 //   environments and plugin activity finish. A non-owning Library can be destroyed during DLL detach:
 //   it makes no FreeLibrary/dlclose call. Do not destroy an owning Library during DLL detach.
 // - Plugin exports (Win32): AviSynth+ accepts name, _name@4 and name@4 for both C init entry points.
-//   Undecorated names also support classic 2.6; see example_plugin.cpp.
+//   Classic 2.6 accepts only name@4 and name (g++ default and -Wl,--kill-at; not MSVC _name@4 without
+//   a .def alias); see example_plugin.cpp.
 // - API exports (Win32): 3.6.x through 3.7.1 exported V8 functions only under decorated names
 //   (e.g. _avs_get_frame_props_ro@8); this loader leaves those entries nullptr, so has_frame_props
 //   is false even on the V9 3.7.1. Fixed in 3.7.2.
