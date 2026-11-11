@@ -37,6 +37,10 @@
 #include <mach-o/dyld.h>
 #elif !defined(AVS_HAIKU)
 #include <limits.h> // PATH_MAX: loaded-library path buffer and bounds check (Linux, BSD)
+#ifndef PATH_MAX
+// glibc defines it only with POSIX features enabled, e.g. not with gcc -std=c11 (gnu11 has it)
+#define PATH_MAX 4096
+#endif
 #include <link.h> // dl_iterate_phdr: Linux, BSD
 #if defined(__GLIBC__) && !defined(__USE_GNU)
 // glibc declares dl_iterate_phdr only with _GNU_SOURCE (g++ defines it, plain C does not, and it is too late
@@ -834,5 +838,173 @@ AVSC_LOADER_INLINE int avs_loader_env_failed(avs_get_error_func get_error, AVS_S
 //   exports it, then the plugin's functions get them; through avisynth_c_plugin_init they are converted.
 //   Only a V11+ AviSynth (3.7.4+) knows init2, the version check is just a guard there.
 #define AVSC_LOADER_64BIT_VALUES_VERSION 11
+
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+// avs_add_function(_r) proxy for AviSynth+ 3.7.4 and 3.7.5 (V11, V11.1)
+//
+// The bug: these cores store each registration ({user_data, apply, apply_r}) with SaveString, whose
+// cache compared entries with strncmp. strncmp stops at the first zero byte, so the comparison ended
+// inside user_data: NULL, or the same pointer for all functions on x64 (its top bytes are zero), made
+// the registrations of different functions equal. When two of them fell into the same hash bucket,
+// the later function got the earlier one's callback: a script call ran another function of the
+// plugin. Fixed in 3.7.6 (V14, commit 8a4edc62); reported from the masktools C port.
+// Only the builds made with MSVC or clang-cl (the official Windows ones) are affected: the MSVC STL
+// compares the keys of a bucket with the equality alone; libstdc++ and libc++ (MinGW, Linux, macOS)
+// compare the stored full hash first, which covers all bytes. The loader cannot tell how a core was
+// built, so it works around it on every V11/V11.1 core; it costs nothing on the others.
+//
+// The proxy: on a V11/V11.1 core the loader's avs_add_function and avs_add_function_r entries point
+// here (set with the version, avs_loader_set_add_function_proxy). Each distinct (apply, user_data)
+// gets a slot and is registered through a loader trampoline (a small function in between which only
+// forwards the call) with a tag pointer as user_data. The tag pointers have distinct, nonzero low
+// bytes, so strncmp differs at the first byte. The trampoline calls the plugin's function with its
+// own user_data: the plugin sees no difference.
+// - Up to 255 slots; a registration over that goes to the core directly.
+// - Other cores: the entries are the core's functions, nothing changes.
+// - One core per process: the proxy keeps one core function pointer (a plugin has one core anyway).
+// - C: each source file has its own copy of the state (static inline); a library always uses the
+//   copy of the file which set its version, so this works with the loader in several files too.
+// - Two plugins using the loader on one core: their slot k tags have the same low byte. strncmp then
+//   goes on to the second byte, which differs unless the two tag blocks happen to match there too, and
+//   the two entries must also share a hash bucket: very unlikely, not worth a bigger tag search.
+// - Little endian assumed: the low byte comes first in memory. A big-endian core would compare the
+//   zero high byte first, the tags would not help, but no MSVC build is big-endian (not affected).
+
+typedef struct avs_loader_apply_slot {
+  AVS_ApplyFunc apply;
+  AVS_ApplyFuncR apply_r;
+  void* user_data;
+} avs_loader_apply_slot;
+
+#define AVSC_LOADER_APPLY_SLOTS 255
+
+typedef struct avs_loader_proxy_state {
+  avs_add_function_func core_add_function;
+  avs_add_function_r_func core_add_function_r;
+  volatile long lock;
+  int count;
+  unsigned char* tag_base; // tag of slot k: tag_base + k + 1 (low byte k + 1)
+  avs_loader_apply_slot slots[AVSC_LOADER_APPLY_SLOTS];
+  unsigned char tag_buffer[768]; // contains a 256 byte block for the tags, see avs_loader_proxy_slot
+} avs_loader_proxy_state;
+
+// Zero-initialized static (no constructor): C++ has one per program, C one per source file.
+AVSC_LOADER_INLINE avs_loader_proxy_state* avs_loader_proxy(void)
+{
+  static avs_loader_proxy_state state;
+  return &state;
+}
+
+AVSC_LOADER_INLINE void avs_loader_proxy_lock(avs_loader_proxy_state* s)
+{
+#ifdef AVS_WINDOWS
+  while (InterlockedExchange((volatile LONG*)&s->lock, 1) != 0) {}
+#else
+  while (__atomic_exchange_n(&s->lock, 1, __ATOMIC_ACQUIRE) != 0) {}
+#endif
+}
+
+AVSC_LOADER_INLINE void avs_loader_proxy_unlock(avs_loader_proxy_state* s)
+{
+#ifdef AVS_WINDOWS
+  InterlockedExchange((volatile LONG*)&s->lock, 0);
+#else
+  __atomic_store_n(&s->lock, 0, __ATOMIC_RELEASE);
+#endif
+}
+
+// The tag (user_data for the core) of the slot of (apply or apply_r, user_data), NULL if all slots are used.
+AVSC_LOADER_INLINE void* avs_loader_proxy_slot(AVS_ApplyFunc apply, AVS_ApplyFuncR apply_r, void* user_data)
+{
+  avs_loader_proxy_state* s = avs_loader_proxy();
+  void* tag = NULL;
+  int i;
+  avs_loader_proxy_lock(s);
+  if (s->tag_base == NULL) {
+    // A 256 byte aligned address whose second byte is nonzero too, so that strncmp also gets past
+    // it when two plugins use the same low bytes. Of two neighbouring 256 byte boundaries at most
+    // one has a zero second byte; in 768 bytes there are two, each followed by 255 bytes for tags.
+    unsigned char* p = s->tag_buffer;
+    while (((uintptr_t)p & 0xFF) != 0 || (((uintptr_t)p >> 8) & 0xFF) == 0)
+      ++p;
+    s->tag_base = p;
+  }
+  for (i = 0; i < s->count; i++) {
+    if (s->slots[i].apply == apply && s->slots[i].apply_r == apply_r && s->slots[i].user_data == user_data)
+      break;
+  }
+  if (i == s->count && s->count < AVSC_LOADER_APPLY_SLOTS) {
+    s->slots[i].apply = apply;
+    s->slots[i].apply_r = apply_r;
+    s->slots[i].user_data = user_data;
+    s->count++;
+  }
+  if (i < s->count)
+    tag = s->tag_base + i + 1;
+  avs_loader_proxy_unlock(s);
+  return tag;
+}
+
+AVSC_LOADER_INLINE const avs_loader_apply_slot* avs_loader_proxy_slot_of(void* tag)
+{
+  avs_loader_proxy_state* s = avs_loader_proxy();
+  return &s->slots[(unsigned char*)tag - s->tag_base - 1];
+}
+
+AVSC_LOADER_INLINE AVS_Value AVSC_CC avs_loader_apply_trampoline(AVS_ScriptEnvironment* env, AVS_Value args, void* tag)
+{
+  const avs_loader_apply_slot* slot = avs_loader_proxy_slot_of(tag);
+  return slot->apply(env, args, slot->user_data);
+}
+
+AVSC_LOADER_INLINE void AVSC_CC avs_loader_apply_r_trampoline(AVS_ScriptEnvironment* env, AVS_Value* ret, AVS_Value args, void* tag)
+{
+  const avs_loader_apply_slot* slot = avs_loader_proxy_slot_of(tag);
+  slot->apply_r(env, ret, args, slot->user_data);
+}
+
+AVSC_LOADER_INLINE int AVSC_CC avs_loader_add_function_proxy(AVS_ScriptEnvironment* env, const char* name,
+  const char* params, AVS_ApplyFunc apply, void* user_data)
+{
+  void* tag = avs_loader_proxy_slot(apply, NULL, user_data);
+  avs_loader_proxy_state* s = avs_loader_proxy();
+  if (tag == NULL)
+    return s->core_add_function(env, name, params, apply, user_data);
+  return s->core_add_function(env, name, params, avs_loader_apply_trampoline, tag);
+}
+
+AVSC_LOADER_INLINE int AVSC_CC avs_loader_add_function_r_proxy(AVS_ScriptEnvironment* env, const char* name,
+  const char* params, AVS_ApplyFuncR apply, void* user_data)
+{
+  void* tag = avs_loader_proxy_slot(NULL, apply, user_data);
+  avs_loader_proxy_state* s = avs_loader_proxy();
+  if (tag == NULL)
+    return s->core_add_function_r(env, name, params, apply, user_data);
+  return s->core_add_function_r(env, name, params, avs_loader_apply_r_trampoline, tag);
+}
+
+// Called with the detected version: points the two entries to the proxy on V11/V11.1, back to the
+// core's functions otherwise.
+AVSC_LOADER_INLINE void avs_loader_set_add_function_proxy(avs_add_function_func* add_function,
+  avs_add_function_r_func* add_function_r, int version)
+{
+  avs_loader_proxy_state* s = avs_loader_proxy();
+  if (version == 11) {
+    if (*add_function != NULL && *add_function != avs_loader_add_function_proxy) {
+      s->core_add_function = *add_function;
+      *add_function = avs_loader_add_function_proxy;
+    }
+    if (*add_function_r != NULL && *add_function_r != avs_loader_add_function_r_proxy) {
+      s->core_add_function_r = *add_function_r;
+      *add_function_r = avs_loader_add_function_r_proxy;
+    }
+  }
+  else {
+    if (*add_function == avs_loader_add_function_proxy)
+      *add_function = s->core_add_function;
+    if (*add_function_r == avs_loader_add_function_r_proxy)
+      *add_function_r = s->core_add_function_r;
+  }
+}
 
 #endif // AVISYNTH_C_LOADER_COMMON_H

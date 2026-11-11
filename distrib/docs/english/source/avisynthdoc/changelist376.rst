@@ -373,6 +373,11 @@ Build environment, Interface
 
 Bugfixes
 ~~~~~~~~
+- Fix: C plugins on 3.7.4 and 3.7.5: a script call could run another function of the same plugin. It happened
+  when several functions were registered with the same ``user_data``, e.g. NULL (masktools' C port hit it).
+  The cache of ``SaveString`` compared the stored registrations only up to their first zero byte.
+  Only Windows builds made with MSVC or clang-cl (the official ones): the C++ library of the other builds
+  (MinGW, Linux, macOS) compares the full hash first. Commit 8a4edc62; its message says "theoretical", it is not.
 - Fix: escaped strings ending with an escaped backslash, e.g. ``e"C:\\Temp\\"`` or ``e"\\"``, gave
   "missing closing quotation mark".
   See :doc:`Script variables <./syntax/syntax_script_variables>`.

@@ -67,6 +67,10 @@ Build environment:
   Details and platform restrictions: FilterSDK/C_api.rst, "Dynamic loading".
 - avisynth_c.h: the variadic avs_sprintf is declared __cdecl (new AVSC_API_VARARGS, AVSC_CC_VARARGS in avs/capi.h).
   32 bit clang warned that __stdcall is ignored on a variadic function. Same ABI and export name as before.
+- C API loader: on 3.7.4/3.7.5 (V11, V11.1) functions registered with the same user_data (e.g. NULL) could get
+  mixed up. The loader's avs_add_function(_r) now registers each one with its own user_data and passes the
+  plugin's own user_data on to it.
+- C API loader: compiles in strict ISO C mode on Linux too (gcc -std=c11: PATH_MAX was missing).
 
 Bugfixes:
   Most of these bugs were found by AddressSanitizer (ASan) and UndefinedBehaviorSanitizer (UBSan) builds, or by
@@ -281,6 +285,11 @@ Optimizations:
 - Fix: Linux/macOS/BSD: an autoload plugin which cannot be loaded (e.g. a missing dependency, like ImageSeq without
   DevIL) made the whole autoload fail, and with it LoadPlugin of any other plugin. Now it is skipped like on Windows;
   an explicit LoadPlugin of it still reports the reason. Reported by MysteryX
+- Fix: C plugins on 3.7.4 and 3.7.5: a script call could run another function of the same plugin. It happened
+  when several functions were registered with the same user_data, e.g. NULL (masktools' C port hit it).
+  The cache of SaveString compared the stored registrations only up to their first zero byte.
+  Only Windows builds made with MSVC or clang-cl (the official ones): the C++ library of the other builds
+  (MinGW, Linux, macOS) compares the full hash first. Commit 8a4edc62; its message says "theoretical", it is not.
 - Fix: escaped strings ending with an escaped backslash, e.g. e"C:\\Temp\\" or e"\\", gave "missing closing
   quotation mark": a quotation mark after \\ was taken as an escaped one. Now it is escaped only after an odd
   number of backslashes.

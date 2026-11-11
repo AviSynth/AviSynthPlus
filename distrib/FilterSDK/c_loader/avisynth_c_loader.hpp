@@ -112,6 +112,10 @@
 //   Keep the plugin's Library for its callback lifetime. The host must keep the core loaded until all
 //   environments and plugin activity finish. A non-owning Library can be destroyed during DLL detach:
 //   it makes no FreeLibrary/dlclose call. Do not destroy an owning Library during DLL detach.
+// - avs_add_function(_r) on 3.7.4/3.7.5 (V11, V11.1): with one user_data for several functions (e.g. NULL)
+//   a script call could run another function of the plugin (core bug of the MSVC/clang-cl Windows builds,
+//   fixed in 3.7.6). With the version detected, these entries register each function with its own
+//   user_data on those versions and pass the plugin's user_data on to it; the plugin needs no workaround.
 // - Plugin exports (Win32): AviSynth+ accepts name, _name@4 and name@4 for both C init entry points.
 //   Classic 2.6 accepts only name@4 and name (g++ default and -Wl,--kill-at; not MSVC _name@4 without
 //   a .def alias); see example_plugin.cpp.
@@ -345,6 +349,7 @@ public:
 #define AVSC_LOADER_FRAME_PROP_PRESENT(name) && name != nullptr
     has_frame_props = has_at_least_v9 AVSC_LOADER_FRAME_PROP_FUNCTIONS(AVSC_LOADER_FRAME_PROP_PRESENT);
 #undef AVSC_LOADER_FRAME_PROP_PRESENT
+    avs_loader_set_add_function_proxy(&avs_add_function, &avs_add_function_r, version);
   }
 
   // True if the detected interface version is at least version.bugfix

@@ -108,6 +108,10 @@
 //   Keep the plugin's storage for its callback lifetime. The host must keep the core loaded until all
 //   environments and plugin activity finish. Caller-owned plugin storage needs no cleanup.
 //   Do not free an owning loader during DLL detach, since it calls FreeLibrary.
+// - avs_add_function(_r) on 3.7.4/3.7.5 (V11, V11.1): with one user_data for several functions (e.g. NULL)
+//   a script call could run another function of the plugin (core bug of the MSVC/clang-cl Windows builds,
+//   fixed in 3.7.6). With the version detected, these entries register each function with its own
+//   user_data on those versions and pass the plugin's user_data on to it; the plugin needs no workaround.
 // - Plugin exports (Win32): AviSynth+ accepts name, _name@4 and name@4 for both C init entry points.
 //   Classic 2.6 accepts only name@4 and name (g++ default and -Wl,--kill-at; not MSVC _name@4 without
 //   a .def alias); see example_plugin.cpp.
@@ -310,7 +314,10 @@ AVSC_LOADER_INLINE int avs_bind_plugin_library(AVS_Library* library, char* error
 // The same as avs_load_library_ex, without the error text.
 AVSC_LOADER_INLINE AVS_Library* avs_load_library(const char* library_path)
 {
-  return avs_load_library_ex(library_path, NULL, 0);
+  // A 1 byte buffer, not NULL: with NULL, GCC 15 -O2 gave a false -Wnonnull warning in
+  // avs_loader_append_error (its NULL check is before the strlen).
+  char error[1];
+  return avs_load_library_ex(library_path, error, sizeof(error));
 }
 
 // Only for heap-allocated owning loaders returned by avs_load_library/avs_attach_library.
@@ -346,6 +353,7 @@ AVSC_LOADER_INLINE void avs_library_set_version(AVS_Library* library, int versio
 #define AVSC_LOADER_FRAME_PROP_PRESENT(name) && library->name != NULL
   library->has_frame_props = library->has_at_least_v9 AVSC_LOADER_FRAME_PROP_FUNCTIONS(AVSC_LOADER_FRAME_PROP_PRESENT);
 #undef AVSC_LOADER_FRAME_PROP_PRESENT
+  avs_loader_set_add_function_proxy(&library->avs_add_function, &library->avs_add_function_r, version);
 }
 
 // Detects the version of the loaded AviSynth through env.

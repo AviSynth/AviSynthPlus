@@ -415,9 +415,25 @@ Notes:
   +-----------------------------------------------------------+----------+--------------------------------------------+
   | ``avs_new_c_filter`` with ``AVS_MT_NICE_FILTER``          | V3       | V14: error reporting of concurrent calls   |
   +-----------------------------------------------------------+----------+--------------------------------------------+
+  | ``avs_add_function(_r)``: one ``user_data`` for several   | V3, V11  | V14; on V11 a call could run another       |
+  | functions, e.g. NULL                                      |          | function of the plugin, see below          |
+  +-----------------------------------------------------------+----------+--------------------------------------------+
   | ``avs_set_to_array`` with NULL ``src``, size > 0          | V11      | V14                                        |
   +-----------------------------------------------------------+----------+--------------------------------------------+
 
+- AviSynth+ 3.7.4 and 3.7.5 (V11, V11.1): a C plugin's functions could get mixed up, a script call ran
+  the callback of another function of the same plugin. It happened when several functions were
+  registered with the same ``user_data``: NULL, or on x64 any shared pointer. The core stored each
+  registration with ``SaveString``, whose cache compared entries with ``strncmp``, which stops at the
+  first zero byte: the comparison ended inside ``user_data`` and never reached the callback. Only
+  Windows builds made with MSVC or clang-cl are affected (the official ones): the C++ standard library
+  of the MinGW, Linux and macOS builds compares the full hash of two entries before comparing them, and
+  the hash covers all bytes. Fixed in 3.7.6 (commit 8a4edc62).
+  The loader works around it on V11/V11.1, on any build (it cannot tell them apart): its
+  ``avs_add_function`` and ``avs_add_function_r`` register a small function of the loader in between, with its own
+  ``user_data`` for each plugin function; when the script calls it, it calls the plugin's function with
+  the plugin's own ``user_data``. Without the loader: give each function a ``user_data`` pointer of its
+  own whose lowest byte is nonzero and differs from the others.
 - Win32 (32 bit) AviSynth+ 3.6.x - 3.7.1 exported the V8 C API functions (frame properties,
   ``avs_subframe_planar_a``, ...) only with decorated ``__stdcall`` names, e.g.
   ``_avs_get_frame_props_ro@8``: the 32 bit ``avisynth.def`` did not list them. The loader looks
