@@ -1148,7 +1148,7 @@ AVSValue __cdecl SetProperty::Create(AVSValue args, void* user_data, IScriptEnvi
   const int defaultMode = AVSPropAppendMode::PROPAPPENDMODE_REPLACE;
 
   int mode = AVSPropAppendMode::PROPAPPENDMODE_REPLACE;
-  if(kind != 4) // at propSetArray there is no mode parameter
+  if (kind != 4 && kind != 13) // propSetArray and propSet(array) have no mode parameter
     mode = args[3].AsInt(defaultMode);
 
   /*
