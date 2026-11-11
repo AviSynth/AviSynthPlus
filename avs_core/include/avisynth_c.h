@@ -1455,7 +1455,7 @@ AVSC_API(int64_t, avs_get_cpu_flags_ex)(AVS_ScriptEnvironment *); // V12
 AVSC_API(int, avs_check_version)(AVS_ScriptEnvironment *, int version);
 
 AVSC_API(char *, avs_save_string)(AVS_ScriptEnvironment *, const char* s, int length);
-AVSC_API(char *, avs_sprintf)(AVS_ScriptEnvironment *, const char * fmt, ...);
+AVSC_API_VARARGS(char *, avs_sprintf)(AVS_ScriptEnvironment *, const char * fmt, ...);
 
 AVSC_API(char *, avs_vsprintf)(AVS_ScriptEnvironment *, const char * fmt, va_list val);
 

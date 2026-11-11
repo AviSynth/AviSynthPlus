@@ -39,6 +39,8 @@ Build environment, Interface
   Plugin initialization is synchronized with C11/C++ atomics, without TLS or synchronization cleanup.
 - C API loader: fallbacks for selected missing APIs on older cores, including V11 value accessors.
   Details and platform restrictions: :ref:`Dynamic loading<c_api_dynamic_loading>`.
+- ``avisynth_c.h``: the variadic ``avs_sprintf`` is declared ``__cdecl`` (new ``AVSC_API_VARARGS``, ``AVSC_CC_VARARGS`` in ``avs/capi.h``).
+  32 bit clang warned that ``__stdcall`` is ignored on a variadic function. Same ABI and export name as before.
 
 Bugfixes
 ~~~~~~~~

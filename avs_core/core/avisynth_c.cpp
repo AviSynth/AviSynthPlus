@@ -1292,7 +1292,7 @@ char* AVSC_CC avs_save_string(AVS_ScriptEnvironment * p, const char* s, int leng
 }
 
 extern "C"
-char* AVSC_CC avs_sprintf(AVS_ScriptEnvironment * p, const char* fmt, ...)
+char* AVSC_CC_VARARGS avs_sprintf(AVS_ScriptEnvironment * p, const char* fmt, ...)
 {
   p->error = 0;
   va_list vl;

@@ -74,6 +74,17 @@
 #    define AVSC_CC
 #endif
 
+// Variadic API functions (avs_sprintf): __stdcall cannot take a variable argument list, compilers use
+// __cdecl for them anyway (clang warns about the ignored __stdcall). AVSC_CC_VARARGS states this.
+// Wherever AVSC_CC is empty, so is AVSC_CC_VARARGS. Same ABI and export name as before.
+#if defined(AVS_WINDOWS) && \
+    !(defined(BUILDING_AVSCORE) && defined(GCC) && defined(X86_32)) && \
+    !(!defined(BUILDING_AVSCORE) && defined(AVSC_WIN32_GCC32))
+#  define AVSC_CC_VARARGS __cdecl
+#else
+#  define AVSC_CC_VARARGS
+#endif
+
 // On 64-bit Windows, there's only one calling convention,
 // so there is no difference between MSVC and GCC. On 32-bit,
 // this isn't true. The convention that GCC needs to use to
@@ -100,9 +111,11 @@
 #    define AVSC_EXPORT
 #  endif
 #  define AVSC_API(ret, name) AVS_EXTERN_C AVSC_EXPORT ret AVSC_CC name
+#  define AVSC_API_VARARGS(ret, name) AVS_EXTERN_C AVSC_EXPORT ret AVSC_CC_VARARGS name
 #else
 #  define AVSC_EXPORT AVS_EXTERN_C
 #  define AVSC_API(ret, name) AVS_EXTERN_C ret AVSC_CC name
+#  define AVSC_API_VARARGS(ret, name) AVS_EXTERN_C ret AVSC_CC_VARARGS name
 #endif
 #else
 #  define AVSC_EXPORT AVS_EXTERN_C __declspec(dllexport)
@@ -113,8 +126,10 @@
 #  endif
 #  ifndef AVSC_NO_DECLSPEC
 #    define AVSC_API(ret, name) AVS_EXTERN_C AVSC_IMPORT ret AVSC_CC name
+#    define AVSC_API_VARARGS(ret, name) AVS_EXTERN_C AVSC_IMPORT ret AVSC_CC_VARARGS name
 #  else
 #    define AVSC_API(ret, name) typedef ret (AVSC_CC *name##_func)
+#    define AVSC_API_VARARGS(ret, name) typedef ret (AVSC_CC_VARARGS *name##_func)
 #  endif
 #endif
 
