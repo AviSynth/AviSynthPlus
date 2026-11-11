@@ -326,9 +326,11 @@ plugin-environment detection. Both variants expose the same released milestones 
 | ``has_at_least_v14_1``| ``_Range`` is the stored frame property, ``_ColorRange`` its alias (0 and  |
 |                       | 1 swapped). Before, AviSynth knew only ``_ColorRange``                     |
 +-----------------------+----------------------------------------------------------------------------+
-| ``has_frame_props``   | version >= 9; does not check required function pointers or all later fixes |
-|                       | ``avs_prop_get_data(_size)`` needs V10, ``avs_prop_get_clip`` needs V14.   |
-|                       | Before V14, pass a non-NULL error pointer to ``avs_prop_get_xxx``.         |
+| ``has_frame_props``   | version >= 9 and all V8/V9 frame property functions present: one check is  |
+|                       | enough before using them. False on Win32 3.6.x - 3.7.1, see below.         |
+|                       | Later fixes still depend on the version: ``avs_prop_get_data(_size)``      |
+|                       | needs V10, ``avs_prop_get_clip`` needs V14. Before V14, pass a non-NULL    |
+|                       | error pointer to ``avs_prop_get_xxx``.                                     |
 +-----------------------+----------------------------------------------------------------------------+
 | ``has_64bit_values``  | this caller gets double and long (int64) values, not converted to float    |
 |                       | and 32 bit int. Hosts: environment requested with version >= 11.           |
@@ -416,8 +418,29 @@ Notes:
   | ``avs_set_to_array`` with NULL ``src``, size > 0          | V11      | V14                                        |
   +-----------------------------------------------------------+----------+--------------------------------------------+
 
-- Win32 (32 bit) AviSynth+ 3.6.x - 3.7.1 exported the V8 functions only with decorated names
-  (``_avs_get_frame_props_ro@8``), they are NULL there. Fixed in 3.7.2.
+- Win32 (32 bit) AviSynth+ 3.6.x - 3.7.1 exported the V8 C API functions (frame properties,
+  ``avs_subframe_planar_a``, ...) only with decorated ``__stdcall`` names, e.g.
+  ``_avs_get_frame_props_ro@8``: the 32 bit ``avisynth.def`` did not list them. The loader looks
+  up the plain names, so these entries are NULL there. 3.7.1 is already V9, so the interface version
+  alone does not tell whether the frame property functions can be called; ``has_frame_props`` checks
+  the pointers as well. ``avs_get_env_property`` (V8) is NULL there too, so the loader finds V9 by
+  polling ``avs_check_version``, without the bugfix version. Fixed in 3.7.2 (#276). Checked on the
+  export tables of the official release DLLs and with the loader:
+
+  +-----------------+-----------+------------------------------------------------------------+
+  | Release         | Interface | Frame property exports                                     |
+  +=================+===========+============================================================+
+  | 3.6.x, 3.7.0    | V8        | x86, x86 XP: decorated only (NULL in the loader); not      |
+  |                 |           | usable anyway, C frame property access crashes in V8       |
+  +-----------------+-----------+------------------------------------------------------------+
+  | 3.7.1, 3.7.1a   | V9        | x86, x86 XP: decorated only (NULL in the loader),          |
+  |                 |           | ``has_frame_props`` is false                               |
+  +-----------------+-----------+------------------------------------------------------------+
+  | 3.7.2 and later | V9 and up | x86, x86 XP: plain names                                   |
+  +-----------------+-----------+------------------------------------------------------------+
+  | all versions    |           | x64, x64 XP, ARM64, Linux, macOS: plain names (no          |
+  |                 |           | ``__stdcall`` decoration on these platforms)               |
+  +-----------------+-----------+------------------------------------------------------------+
 - Plugins: use ``avs_bind_plugin_library`` (C++ ``lib.bind_plugin()``) to resolve the already-loaded
   core without retaining a library reference. Default-name loading on POSIX may fail or load another
   copy. Platform restrictions and ambiguity between multiple loaded cores still apply.

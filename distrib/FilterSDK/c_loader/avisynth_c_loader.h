@@ -43,7 +43,7 @@
 //   // Negotiate the environment version; see AVSC_LOADER_ENV_REQUESTS.
 //   AVS_ScriptEnvironment* env = avs_library_create_script_environment(lib);
 //   if (!env) { ... }
-//   if (lib->has_frame_props) { ... avs_prop_xxx, avs_get_frame_props_ro ... } // check required pointers too
+//   if (lib->has_frame_props) { ... avs_prop_xxx, avs_get_frame_props_ro ... } // V9 and the functions are there
 //   if (lib->has_64bit_values) { ... double and long (int64) values are kept ... }
 //   if (lib->has_at_least_v14) { ... function values, avs_invoke2/3 ... }
 //   ...
@@ -89,7 +89,8 @@
 //   fallbacks. See AVSC_LOADER_FALLBACKS. Fallbacks (added in 3.7.7) make pointer presence unsuitable
 //   for version detection; use interface_version/interface_bugfix and has_at_least_xxx.
 // - API compatibility: require both the function pointer and its usable interface version.
-//   has_frame_props checks the version only. AVSC_LOADER_FUNCTIONS documents introduction versions
+//   has_frame_props checks both for the V8/V9 frame property set (one check is enough there).
+//   AVSC_LOADER_FUNCTIONS documents introduction versions
 //   and later fixes; see also "API functions fixed later than they appeared" in avisynth_c.h.
 // - Version flags: both variants expose released milestones plus the current WIP, not the
 //   development steps V9.1/V9.2/V12/V13. Exact comparisons use interface_version/interface_bugfix.
@@ -110,7 +111,8 @@
 // - Plugin exports (Win32): AviSynth+ accepts name, _name@4 and name@4 for both C init entry points.
 //   Undecorated names also support classic 2.6; see example_plugin.cpp.
 // - API exports (Win32): 3.6.x through 3.7.1 exported V8 functions only under decorated names
-//   (e.g. _avs_get_frame_props_ro@8); this loader leaves those entries NULL. Fixed in 3.7.2.
+//   (e.g. _avs_get_frame_props_ro@8); this loader leaves those entries NULL, so has_frame_props is
+//   false even on the V9 3.7.1. Fixed in 3.7.2.
 // - Helpers: AVSC_NO_DECLSPEC disables avisynth_c.h inline helpers that call the linked API.
 //   Use lib-> function pointers, e.g. avs_new_video_frame_a and avs_get_pitch_p.
 // - Linkage: loader functions are static inline in C, inline in C++.
@@ -167,7 +169,9 @@ struct AVS_Library {
   int has_at_least_v14_1;  // 3.7.7 WIP: frame properties: _Range is the stored key, _ColorRange its alias
                            // (0 and 1 swapped). Before, AviSynth knew only _ColorRange
 
-  // Same as has_at_least_v9; does not check function pointers or all later frame property fixes:
+  // has_at_least_v9 and all V8/V9 frame property functions present (AVSC_LOADER_FRAME_PROP_FUNCTIONS):
+  // a single check before using them. 0 on Win32 3.6.x-3.7.1 (decorated-only exports) and on V8.
+  // Later fixes still depend on the version:
   // - avs_prop_get_data and avs_prop_get_data_size work from V10 (has_at_least_v10),
   // - avs_prop_get_clip from V14 (has_at_least_v14)
   // - before V14 pass a non-NULL error pointer to avs_prop_get_xxx.
@@ -338,7 +342,9 @@ AVSC_LOADER_INLINE void avs_library_set_version(AVS_Library* library, int versio
   library->has_at_least_v11_1 = avs_loader_at_least(version, bugfix, 11, 1);
   library->has_at_least_v14 = avs_loader_at_least(version, bugfix, 14, 0);
   library->has_at_least_v14_1 = avs_loader_at_least(version, bugfix, 14, 1);
-  library->has_frame_props = library->has_at_least_v9;
+#define AVSC_LOADER_FRAME_PROP_PRESENT(name) && library->name != NULL
+  library->has_frame_props = library->has_at_least_v9 AVSC_LOADER_FRAME_PROP_FUNCTIONS(AVSC_LOADER_FRAME_PROP_PRESENT);
+#undef AVSC_LOADER_FRAME_PROP_PRESENT
 }
 
 // Detects the version of the loaded AviSynth through env.

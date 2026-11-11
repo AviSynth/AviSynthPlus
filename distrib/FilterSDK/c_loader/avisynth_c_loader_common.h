@@ -243,6 +243,38 @@ extern int dl_iterate_phdr(int (*callback)(struct dl_phdr_info*, size_t, void*),
   X(avs_free_map) \
   X(avs_apply_message)
 
+// The V8/V9 frame property functions: has_frame_props requires V9 and all of these (none has a fallback).
+// The version alone is not enough: Win32 (x86) 3.7.1 is V9, but exports them only with decorated names
+// (_avs_get_frame_props_ro@8), so they are NULL there; 3.6.x/3.7.0 (V8) the same. Fixed in 3.7.2.
+// If you trim AVSC_LOADER_FUNCTIONS, trim this list too.
+#define AVSC_LOADER_FRAME_PROP_FUNCTIONS(X) \
+  X(avs_copy_frame_props) \
+  X(avs_get_frame_props_ro) \
+  X(avs_get_frame_props_rw) \
+  X(avs_prop_num_keys) \
+  X(avs_prop_get_key) \
+  X(avs_prop_num_elements) \
+  X(avs_prop_get_type) \
+  X(avs_prop_get_int) \
+  X(avs_prop_get_float) \
+  X(avs_prop_get_data) \
+  X(avs_prop_get_data_size) \
+  X(avs_prop_get_clip) \
+  X(avs_prop_get_frame) \
+  X(avs_prop_delete_key) \
+  X(avs_prop_set_int) \
+  X(avs_prop_set_float) \
+  X(avs_prop_set_data) \
+  X(avs_prop_set_clip) \
+  X(avs_prop_set_frame) \
+  X(avs_prop_get_int_array) \
+  X(avs_prop_get_float_array) \
+  X(avs_prop_set_int_array) \
+  X(avs_prop_set_float_array) \
+  X(avs_clear_map) \
+  X(avs_is_property_writable) \
+  X(avs_make_property_writable)
+
 /////////////////////////////////////////////////////////////////////////////////////////////////////
 // Platform part
 
@@ -721,9 +753,11 @@ AVSC_LOADER_INLINE int avs_loader_query_version(avs_check_version_func check_ver
       fix = (int)get_env_property(env, AVS_AEP_INTERFACE_BUGFIX);
     }
     else {
-      // below v9 we can only poll
+      // Below V9 we can only poll. So also on Win32 3.7.1: it is V9, but avs_get_env_property is
+      // exported only with a decorated name there (NULL), so polling starts at 9 (3.7.2 and later export
+      // it). No bugfix version.
       int version_probe;
-      for (version_probe = 8; version_probe >= 1; version_probe--) {
+      for (version_probe = 9; version_probe >= 1; version_probe--) {
         if (check_version(env, version_probe) == 0) {
           version = version_probe;
           break;

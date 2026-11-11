@@ -59,7 +59,8 @@ Build environment:
 - C API loader: avs_attach_library / lib.attach() acquires a reference to an already-loaded core.
   For plugins, avs_bind_plugin_library / lib.bind_plugin() binds without retaining a library reference
   or requiring cleanup at plugin unload.
-- C API loader: new has_frame_props flag for V9+ frame property support; required API pointers still need checking.
+- C API loader: new has_frame_props flag: V9+ and all V8/V9 frame property functions present (false on Win32 3.7.1,
+  which is V9 but exports them only with decorated names). Win32 3.7.1 is detected as V9, not V8.
 - C API loader: host examples and a plugin example covering both C entry points and 64 bit values.
   Plugin initialization is synchronized with C11/C++ atomics, without TLS or synchronization cleanup.
 - C API loader: fallbacks for selected missing APIs on older cores, including V11 value accessors.
