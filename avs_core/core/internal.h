@@ -191,11 +191,11 @@ private:
 class DllDirChanger
 {
 public:
-  DllDirChanger(const char* new_cwd);
+  DllDirChanger(const wchar_t* new_dir);
   ~DllDirChanger(void);
 
 private:
-  std::unique_ptr<char[]> old_directory;
+  std::unique_ptr<wchar_t[]> old_directory;
   bool restore;
 };
 

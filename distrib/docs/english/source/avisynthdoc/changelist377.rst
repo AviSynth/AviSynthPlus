@@ -66,6 +66,10 @@ Bugs in normal use
   up to 3 bytes (UTF-8) for one UTF-16 character, the buffer was sized for one byte each. The ``*Utf8`` variants were
   correct.
   Existed since AviSynth+ r2487 (2017).
+- Fix: ``LoadPlugin`` and plugin autoload: a plugin DLL in a folder with non-ASCII characters (e.g. ``C:\Videók\`` or
+  ``C:\Users\Pintér\``) failed with "Cannot load file ... code 126" on a non-UTF-8 ANSI code page, also with
+  ``utf8=true``. The UTF-8 path was passed to the ANSI Windows API. After loading, the DLL search directory is set
+  back, the plugin's folder no longer stays in the host's search path. Regression since 3.7.6.
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ``ConvertToRGB32`` from
   10-16 bit or 32 bit float YUVA, or ``ConvertToPlanarRGBA(bits=8)``. Existed since 3.7.6.
 - Fix: YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit to 32 bit float, AVX2: memory

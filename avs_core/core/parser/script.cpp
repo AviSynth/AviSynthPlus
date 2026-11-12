@@ -488,19 +488,23 @@ CWDChanger::~CWDChanger(void)
     SetCurrentDirectoryW(old_working_directory.get());
 }
 
-DllDirChanger::DllDirChanger(const char* new_dir)
+// Wide API: plugin paths may be outside the ANSI code page.
+// GetDllDirectory gives an empty string both when none is set and when the host set "" (e.g. ffmpeg, to drop
+// the current directory from the DLL search). Restore "" then: NULL (default search order) would undo the
+// host's setting, while not restoring would leave the plugin's directory in the search path.
+DllDirChanger::DllDirChanger(const wchar_t* new_dir)
 {
-  uint32_t len = GetDllDirectory (0, NULL);
-  old_directory = std::make_unique<char[]>(len + 1); // instead of new char[len+1]
-  uint32_t save_success = GetDllDirectory (len, old_directory.get());
-  bool set_success = SetDllDirectory(new_dir);
-  restore = (save_success && set_success);
+  DWORD len = GetDllDirectoryW(0, NULL); // with the terminating zero
+  old_directory = std::make_unique<wchar_t[]>((size_t)len + 1); // zero filled
+  if (len > 0 && GetDllDirectoryW(len, old_directory.get()) >= len)
+    old_directory[0] = 0;
+  restore = SetDllDirectoryW(new_dir) != 0;
 }
 
 DllDirChanger::~DllDirChanger(void)
 {
   if (restore)
-    SetDllDirectory(old_directory.get());
+    SetDllDirectoryW(old_directory.get());
 }
 #else // copied from AvxSynth
 CWDChanger::CWDChanger(const char* new_cwd)

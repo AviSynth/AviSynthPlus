@@ -101,6 +101,15 @@ Bugfixes, bugs in normal use:
   ScriptFile() "試験.", StrFromUtf8("テスト漢字") "テス".
   The *Utf8 variants (ScriptDirUtf8 ...) and Import itself were correct.
   Existed since AviSynth+ r2487 (2017, Unicode script names in Import; StrFromUtf8 since r2502).
+- Fix: LoadPlugin and plugin autoload: a plugin DLL in a folder with non-ASCII characters (e.g. "C:\Videók\" or
+  "C:\Users\Pintér\") failed with "Cannot load file ... Platform returned code 126" on a non-UTF-8 ANSI code page
+  (1250, 1252 ...), also with utf8=true. Plugin paths are UTF-8 inside since 3.7.6, but LoadLibraryEx, the DLL
+  directory setting and the 32/64 bit check got them through the ANSI Windows API, which read the UTF-8 bytes in the
+  ANSI code page ("Videók" became "VideĂłk"). It worked only with a UTF-8 ANSI code page. Now the wide API is used:
+  LoadLibraryExW, Get/SetDllDirectoryW, and the 32/64 bit check reads the PE header itself (no imagehlp dependency).
+  The DLL search directory is now always set back after loading. It stayed the plugin's folder when the host had
+  none set (the usual case); now it becomes "" then, which keeps a host's SetDllDirectory("") (e.g. ffmpeg).
+  Regression since 3.7.6; 3.7.5 loaded them by the ANSI path.
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
   10-16 bit or 32 bit float YUVA, or ConvertToPlanarRGBA(bits=8).
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:

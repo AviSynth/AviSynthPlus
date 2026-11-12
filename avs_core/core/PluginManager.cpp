@@ -16,9 +16,7 @@
   #include <avs/posix.h>
 #endif
 
-#ifdef AVS_WINDOWS
-    #include <imagehlp.h>
-#endif
+#include <algorithm>
 #include "parser/script.h"
 #include "parser/expression.h" // TODO we only need FunctionInstance from here
 
@@ -977,23 +975,35 @@ bool PluginManager::LoadPlugin(const char* path, bool throwOnError, AVSValue *re
   return LoadPlugin(pf, throwOnError, result);
 }
 #ifdef AVS_WINDOWS
-static bool Is64BitDLL(std::string sDLL, bool &bIs64BitDLL)
+// Reads the machine type from the PE header. Wide path: imagehlp's MapAndLoad takes only an ANSI path.
+static bool Is64BitDLL(const std::wstring& path_w, bool &bIs64BitDLL)
 {
   bIs64BitDLL = false;
-  LOADED_IMAGE li;
-
-  if (!MapAndLoad((LPSTR)sDLL.c_str(), NULL, &li, TRUE, TRUE))
-  {
-    //error handling (check GetLastError())
+  HANDLE h = CreateFileW(path_w.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL);
+  if (h == INVALID_HANDLE_VALUE)
     return false;
+
+  bool ok = false;
+  IMAGE_DOS_HEADER dos;
+  DWORD read = 0;
+  if (ReadFile(h, &dos, sizeof(dos), &read, NULL) && read == sizeof(dos) &&
+    dos.e_magic == IMAGE_DOS_SIGNATURE && dos.e_lfanew > 0)
+  {
+    LARGE_INTEGER pos;
+    pos.QuadPart = dos.e_lfanew;
+    DWORD signature = 0;
+    IMAGE_FILE_HEADER file_header;
+    if (SetFilePointerEx(h, pos, NULL, FILE_BEGIN) &&
+      ReadFile(h, &signature, sizeof(signature), &read, NULL) && read == sizeof(signature) &&
+      signature == IMAGE_NT_SIGNATURE &&
+      ReadFile(h, &file_header, sizeof(file_header), &read, NULL) && read == sizeof(file_header))
+    {
+      bIs64BitDLL = file_header.Machine != IMAGE_FILE_MACHINE_I386; // 64 bit image
+      ok = true;
+    }
   }
-
-  if (li.FileHeader->FileHeader.Machine != IMAGE_FILE_MACHINE_I386) //64 bit image
-    bIs64BitDLL = true;
-
-  UnMapAndLoad(&li);
-
-  return true;
+  CloseHandle(h);
+  return ok;
 }
 #endif //AVS_WINDOWS
 bool PluginManager::LoadPlugin(PluginFile &plugin, bool throwOnError, AVSValue *result)
@@ -1015,13 +1025,17 @@ bool PluginManager::LoadPlugin(PluginFile &plugin, bool throwOnError, AVSValue *
   plugin.isPluginC = false;
 
 #ifdef AVS_WINDOWS
+  // FilePath is UTF-8: use the wide API, the ANSI one would read it in the ANSI code page.
+  // LOAD_WITH_ALTERED_SEARCH_PATH needs backslashes.
+  std::wstring path_w = Utf8ToWideChar(plugin.FilePath.c_str()).get();
+  std::replace(path_w.begin(), path_w.end(), L'/', L'\\');
+
   // Search for dependent DLLs in the plugin's directory too
-  size_t slash_pos = plugin.FilePath.rfind('/');
-  std::string plugin_dir = plugin.FilePath.substr(0, slash_pos);;
-  DllDirChanger dllchange(plugin_dir.c_str());
+  std::wstring plugin_dir_w = path_w.substr(0, path_w.rfind(L'\\'));
+  DllDirChanger dllchange(plugin_dir_w.c_str());
 
   // Load the dll into memory
-  plugin.Library = LoadLibraryEx(plugin.FilePath.c_str(), 0, LOAD_WITH_ALTERED_SEARCH_PATH);
+  plugin.Library = LoadLibraryExW(path_w.c_str(), 0, LOAD_WITH_ALTERED_SEARCH_PATH);
   if (plugin.Library == NULL)
   {
     DWORD errCode = GetLastError();
@@ -1029,7 +1043,7 @@ bool PluginManager::LoadPlugin(PluginFile &plugin, bool throwOnError, AVSValue *
     // Bitness mixing always throws an error, regardless of throwOnError state
     // By this new behaviour even plugin auto-load will fail
     bool bIs64BitDLL;
-    bool succ = Is64BitDLL(plugin.FilePath, bIs64BitDLL);
+    bool succ = Is64BitDLL(path_w, bIs64BitDLL);
     if (succ) {
       const bool selfIs32 = sizeof(void *) == 4;
       if (selfIs32 && bIs64BitDLL)
