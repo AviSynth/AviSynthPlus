@@ -152,6 +152,12 @@ Bugfixes, bugs in normal use:
 - Fix #530: AddAlphaPlane() refused greyscale (Y) clips. Now Y gives YA (e.g. Y8 -> YA8, Y32 -> YAS), with
   the default opaque alpha, a mask value, opacity= or a mask clip (Y, or any alpha format, also YA).
   RemoveAlphaPlane() turns YA back into Y. Existed since 3.7.6 (new YA formats).
+- Fix: crash at closing a script that uses Prefetch when its clip is also held in a script variable (e.g. "x = last").
+  The environment ran the AtExit functions first, while the Prefetch worker threads of that clip could still be
+  running. These functions delete the script functions and free filter buffers at exit, e.g. the Levels lookup tables.
+  A ScriptClip calling a user function (also one from an .avsi file) then crashed on the deleted function body
+  (access violation or "abort() has been called"). Now the AtExit functions run after the variables are cleared and
+  the worker threads have ended.
 
 Bugfixes, accuracy: rounding, limited range levels:
   Output changes by a rounding step; the values now match ConvertBits and the other paths.

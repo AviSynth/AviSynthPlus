@@ -2741,12 +2741,6 @@ ScriptEnvironment::~ScriptEnvironment() {
   auto tls = threadEnv->GetTLS();
   tls->closing = true;
 
-  // Before we start to pull the world apart
-  // give every one their last wish.
-  at_exit.Execute(threadEnv.get());
-
-  GlobalLockManager::on_environment_exit(this); // V12
-
   delete thread_pool;
 
   tls->var_table.Clear();
@@ -2763,6 +2757,15 @@ ScriptEnvironment::~ScriptEnvironment() {
     pool->Join();
   }
   ThreadPoolRegistry.clear();
+
+  // Give every one their last wish, now that no worker thread is running.
+  // The AtExit functions delete the bodies of script functions and free the buffers of filters
+  // (e.g. the Levels lookup tables). They must not run earlier: until the variables are cleared and
+  // the pools are joined, a Prefetch clip held in a script variable can still have worker threads
+  // running such a filter or a ScriptClip that calls a script function.
+  at_exit.Execute(threadEnv.get());
+
+  GlobalLockManager::on_environment_exit(this); // V12
 
   // Clear all frame properties before the final FrameRegistry cleanup.
   // Frame properties can hold PVideoFrame references, so the order of freeing matters.

@@ -103,6 +103,10 @@ Bugs in normal use
 - Fix: AddAlphaPlane refused greyscale (Y) clips; it now gives a YA clip. RemoveAlphaPlane turns
   YA back into Y. Existed since 3.7.6 (new YA formats).
   (`issue #530 <https://github.com/AviSynth/AviSynthPlus/issues/530>`_)
+- Fix: crash at closing a script that uses ``Prefetch`` when its clip is also held in a script variable
+  (e.g. ``x = last``). Prefetch worker threads could still be running while the environment
+  deleted the script functions (a ScriptClip calling a user function, also from ``.avsi`` files) and the
+  filter buffers freed at exit (e.g. Levels lookup tables). These are now released after the worker threads end.
 
 Accuracy: rounding, limited range levels
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
