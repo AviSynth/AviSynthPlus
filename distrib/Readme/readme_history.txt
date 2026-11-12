@@ -276,6 +276,12 @@ Bugfixes, crash or hang on unusual parameters or input:
   POSIX: CWDChanger (Import) saved the current folder with getcwd(buffer, FILENAME_MAX) into a PATH_MAX buffer, so a
   folder longer than FILENAME_MAX was not set back after Import. Equal on Linux and macOS; smaller on some systems
   (e.g. Haiku). Now the buffer size is used.
+- Haiku: PROGRAMDIR in AddAutoloadDir is the program's folder, read with find_path(B_APP_IMAGE_SYMBOL,
+  B_FIND_PATH_IMAGE_PATH, ...) (Haiku API, libroot). Haiku had no program path code: the path stayed empty, and the
+  folder part was then cut with erase(rfind('/')), which throws std::out_of_range on a path without '/'. That made
+  hosts like avs2yuv or FFmpeg fail, so the cut was skipped on Haiku and PROGRAMDIR stayed empty. Now the cut is
+  guarded on all systems: a program path which cannot be read gives an empty PROGRAMDIR instead of the exception.
+  Haiku: written from the Haiku API reference and headers (FindDirectory.h), not built or tested.
 - Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.

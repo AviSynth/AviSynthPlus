@@ -17,6 +17,9 @@
 #endif
 
 #include <algorithm>
+#if defined(AVS_HAIKU)
+#include <FindDirectory.h> // find_path, B_FIND_PATH_IMAGE_PATH; B_APP_IMAGE_SYMBOL via its image.h
+#endif
 #include "parser/script.h"
 #include "parser/expression.h" // TODO we only need FunctionInstance from here
 
@@ -665,6 +668,14 @@ std::string ExeFilePath;
       ExeFilePath = exe_utf8.get();
     }
   }
+#elif defined(AVS_HAIKU)
+  {
+    // Haiku API (libroot, linked by default): find_path with B_APP_IMAGE_SYMBOL refers to the program image,
+    // B_FIND_PATH_IMAGE_PATH returns the path of its file. B_BUFFER_OVERFLOW if it does not fit.
+    char buf[PATH_MAX + 1] {};
+    if (find_path(B_APP_IMAGE_SYMBOL, B_FIND_PATH_IMAGE_PATH, NULL, buf, sizeof(buf)) == B_OK)
+      ExeFilePath = buf;
+  }
 #else // AVS_POSIX
   char buf[PATH_MAX + 1] {};
 #ifdef AVS_LINUX
@@ -679,13 +690,19 @@ std::string ExeFilePath;
 #endif
   std::string ExeFileDir(ExeFilePath);
   replace(ExeFileDir, '\\', '/');
-#ifndef AVS_HAIKU
-// Haiku's exe path stuff differs enough from the *nix OSes
-// that it fails spectacularly when loading the library in a client
-// like avs2yuv or FFmpeg.  Try to skip this for now and hope
-// this doesn't cause more errors.
-  ExeFileDir = ExeFileDir.erase(ExeFileDir.rfind('/'), std::string::npos);
-#endif
+  // Earlier this cut was skipped on Haiku, with this comment:
+  //   "Haiku's exe path stuff differs enough from the *nix OSes
+  //    that it fails spectacularly when loading the library in a client
+  //    like avs2yuv or FFmpeg.  Try to skip this for now and hope
+  //    this doesn't cause more errors."
+  // Likely cause: Haiku had no path code, the path stayed empty, and erase(rfind('/')) = erase(npos) throws
+  // std::out_of_range. Now Haiku gets the path from find_path, and without a '/' (e.g. the path could not be read)
+  // PROGRAMDIR is empty on any system instead of the exception.
+  const size_t last_slash = ExeFileDir.rfind('/');
+  if (last_slash != std::string::npos)
+    ExeFileDir.erase(last_slash);
+  else
+    ExeFileDir.clear();
 #endif // !AVS_BSD
 
   // variable expansion
