@@ -185,7 +185,7 @@ class Animate : public IClip
 {
   enum { cache_size = 3 };
   PClip cache[cache_size];
-  int cache_stage[cache_size];
+  int64_t cache_stage[cache_size]; // 0 .. last-first, which may exceed int range
   const int first, last;
   std::vector<AVSValue> args_before;
   AVSValue *args_after, *args_now;
@@ -193,6 +193,7 @@ class Animate : public IClip
   const char* name;
   bool range_limit;
   AVSValue custom_fn;
+  void InterpolateArgs(int64_t stage, int64_t scale, IScriptEnvironment* env);
 public:
   Animate( PClip context, int _first, int _last, const char* _name, const AVSValue* _args_before,
            const AVSValue* _args_after, int _num_args, bool _range_limit, const AVSValue& _custom_fn, IScriptEnvironment* env );

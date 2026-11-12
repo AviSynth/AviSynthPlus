@@ -181,7 +181,7 @@ comparing them, and by the sanitizer builds (planes left unset kept the content 
 
 Crash or hang on unusual parameters or input
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-Mostly found by AddressSanitizer (ASan) builds: memory access outside the frame or the buffer, division by zero, endless
+Some were found by AddressSanitizer (ASan) builds: memory access outside the frame or the buffer, division by zero, endless
 loop. Most need an unusual parameter or input.
 
 - Fix: ``LoadPlugin("")`` and ``LoadCPlugin("")`` (an empty file name) terminated the whole program (uncaught
@@ -200,6 +200,14 @@ loop. Most need an unusual parameter or input.
   ``avs_get_var_try``) returned a variable holding a 64 bit ``long`` or ``double`` as it is, a type these plugins
   don't know. Now ``int`` and ``float``, as ``Invoke`` results already were; C plugins: array elements as well.
   Existed since 3.7.4.
+- Fix: Animate ``user_fn``: a function passed as ``Func(name)`` which cannot be called with ``stage`` crashed the host
+  (error message), since 3.7.4; ``OnCPU``, ``OnCUDA`` the same, since 3.6.0. A non-number, NaN or infinity result is an error.
+- Animate: the custom function is not called for the start and end frames, these use the given arguments. In between
+  its result may over- and undershoot, the values are not clamped to the start..end range (3.7.6 clamped them).
+- Fix: Animate, linear integer interpolation is exact, rounded; it could be one off already within 32 bit (since 3.7.4).
+  A frame range longer than 2^31 (negative ``start_frame``) overflowed; it works now, though such a range has no
+  practical use.
+- Fix: ApplyRange, Animate without extra arguments: assertion in debug builds.
 - Fix: RGBAdjust, ColorYUV ``analyze=true``: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust ``analyze=true``, planar RGB 32 bit float: crash on NaN pixels, which can come from ``Expr`` or from a NaN parameter.

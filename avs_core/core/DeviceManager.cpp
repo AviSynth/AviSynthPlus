@@ -1314,10 +1314,12 @@ public:
       }
       catch (IScriptEnvironment::NotFound) {
         const char* name = (upstreamType == DEV_TYPE_CPU) ? "OnCPU" : "OnCUDA";
+        // GetDefinition() is nullptr for a function passed by name: Func(myfunc)
+        const Function* def = func->GetDefinition();
         env->ThrowError(
           "%s: Invalid function parameter type '%s'(%s)\n"
           "Function should have no argument",
-          name, func->GetDefinition()->param_types, func->ToString(env));
+          name, def ? def->param_types : "?", func->ToString(env));
       }
 
       return AVSValue();

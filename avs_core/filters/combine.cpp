@@ -711,9 +711,11 @@ Animate::Animate( PClip context, int _first, int _last, const char* _name, const
       }
     }
     catch (IScriptEnvironment::NotFound) {
-      env->ThrowError("Animate: Invalid function parameter type '%s'(%s)\n"
-        "Function must have exactly one float argument: stage",
-        func->GetDefinition()->param_types, func->ToString(env));
+      // GetDefinition() is nullptr for a function passed by name: Func(myfunc)
+      const Function* def = func->GetDefinition();
+      env->ThrowError("Animate: cannot call the custom function (%s)\n"
+        "It must have one optional float parameter named \"stage\": function f(float \"stage\")%s%s",
+        func->ToString(env), def ? "\nParameter types given: " : "", def ? def->param_types : "");
     }
     catch (const AvisynthError& error) {
       env->ThrowError("Animate: Error in custom function: %s\n%s",
@@ -770,7 +772,7 @@ Animate::Animate( PClip context, int _first, int _last, const char* _name, const
   else {
     // last clip with ending parameter values
     cache[1] = env->Invoke(name, AVSValue(args_after, num_args)).AsClip();
-    cache_stage[1] = last-first;
+    cache_stage[1] = (int64_t)last - first;
     VideoInfo vi2 = cache[1]->GetVideoInfo();
 
     if (vi1.width != vi2.width || vi1.height != vi2.height)
@@ -793,109 +795,161 @@ bool __stdcall Animate::GetParity(int n)
   return cache[0]->GetParity(n);
 }
 
-// 96.32 bit arithmetic helper stuff for Animate
+// Integer arithmetic helpers for Animate, 128 bit intermediates (portable, no __int128)
 
-// 128-bit integer structure
+// 128-bit integer, two's complement
 struct my_int128_t {
-  int64_t H;  // High 64 bits (includes sign)
-  uint64_t L; // Low 64 bits (unsigned)
+  uint64_t H; // high 64 bits (sign in the top bit)
+  uint64_t L; // low 64 bits
 };
 
-// Function to multiply two 64-bit values and produce a 128-bit result
+static inline my_int128_t neg_128(my_int128_t a) {
+  my_int128_t r;
+  r.L = ~a.L + 1;
+  r.H = ~a.H + (r.L == 0 ? 1 : 0);
+  return r;
+}
+
+// unsigned 64 x 64 -> 128
+static inline my_int128_t umul_64_64_to_128(uint64_t a, uint64_t b) {
+  const uint64_t a_lo = a & 0xFFFFFFFF, a_hi = a >> 32;
+  const uint64_t b_lo = b & 0xFFFFFFFF, b_hi = b >> 32;
+  const uint64_t lo_lo = a_lo * b_lo;
+  const uint64_t hi_lo = a_hi * b_lo;
+  const uint64_t lo_hi = a_lo * b_hi;
+  const uint64_t hi_hi = a_hi * b_hi;
+  const uint64_t mid = (lo_lo >> 32) + (hi_lo & 0xFFFFFFFF) + (lo_hi & 0xFFFFFFFF); // < 3 * 2^32
+  my_int128_t r;
+  r.L = (lo_lo & 0xFFFFFFFF) | (mid << 32);
+  r.H = (hi_lo >> 32) + (lo_hi >> 32) + hi_hi + (mid >> 32);
+  return r;
+}
+
+// signed 64 x 64 -> 128
 static inline my_int128_t mul_64_64_to_128(int64_t a, int64_t b) {
-  my_int128_t result;
-
-  // Handle sign separately
-  uint64_t sign = ((a < 0) ^ (b < 0)) ? 1 : 0;
-
-  // Use absolute values for multiplication
-  uint64_t abs_a = (a < 0) ? -a : a;
-  uint64_t abs_b = (b < 0) ? -b : b;
-
-  // Multiply using 32-bit parts to avoid overflow
-  uint64_t a_lo = abs_a & 0xFFFFFFFF;
-  uint64_t a_hi = abs_a >> 32;
-  uint64_t b_lo = abs_b & 0xFFFFFFFF;
-  uint64_t b_hi = abs_b >> 32;
-
-  // Multiply the components
-  uint64_t lo_lo = a_lo * b_lo;
-  uint64_t hi_lo = a_hi * b_lo;
-  uint64_t lo_hi = a_lo * b_hi;
-  uint64_t hi_hi = a_hi * b_hi;
-
-  // Combine the results
-  uint64_t mid = (lo_lo >> 32) + (hi_lo & 0xFFFFFFFF) + (lo_hi & 0xFFFFFFFF);
-  uint64_t carry = mid >> 32;
-
-  result.L = (lo_lo & 0xFFFFFFFF) | ((mid & 0xFFFFFFFF) << 32);
-  result.H = (hi_lo >> 32) + (lo_hi >> 32) + hi_hi + carry;
-
-  // Apply sign if needed
-  if (sign) {
-    // Two's complement negation
-    result.L = ~result.L + 1;
-    result.H = ~result.H + (result.L == 0);
-  }
-
-  return result;
+  // magnitudes as unsigned: no overflow for INT64_MIN
+  const uint64_t abs_a = a < 0 ? 0 - (uint64_t)a : (uint64_t)a;
+  const uint64_t abs_b = b < 0 ? 0 - (uint64_t)b : (uint64_t)b;
+  const my_int128_t r = umul_64_64_to_128(abs_a, abs_b);
+  return ((a < 0) != (b < 0)) ? neg_128(r) : r;
 }
 
-// Function to add two 128-bit integers
 static inline my_int128_t add_128(my_int128_t a, my_int128_t b) {
-  my_int128_t result;
-
-  result.L = a.L + b.L;
-  // Check for carry
-  result.H = a.H + b.H + (result.L < a.L ? 1 : 0);
-
-  return result;
+  my_int128_t r;
+  r.L = a.L + b.L;
+  r.H = a.H + b.H + (r.L < a.L ? 1 : 0);
+  return r;
 }
 
-// Function to shift a 128-bit integer right by 'shift' bits
-static inline int64_t shift_right_128(my_int128_t a, int shift) {
-  if (shift >= 64) {
-    // If shifting by 64 or more, the result comes entirely from the high part
-    return a.H >> (shift - 64);
-  }
-  else {
-    // Combine portions from both high and low parts
-    return (a.H << (64 - shift)) | (a.L >> shift);
-  }
+// arithmetic shift right by 32, saturated to the int64 range
+static inline int64_t sar32_128_saturate(my_int128_t a) {
+  const uint64_t H = (uint64_t)((int64_t)a.H >> 32); // sign extended
+  const uint64_t L = (a.H << 32) | (a.L >> 32);
+  if (H == 0 && L <= (uint64_t)INT64_MAX)
+    return (int64_t)L;
+  if (H == ~0ULL && L >= (uint64_t)INT64_MIN)
+    return (int64_t)L; // two's complement
+  return ((int64_t)H < 0) ? INT64_MIN : INT64_MAX;
 }
 
-// Constants for 96.32 integer arithmetic
+// n / d, the quotient must fit into 64 bits
+static inline uint64_t udiv_128_32(my_int128_t n, uint32_t d) {
+  const uint32_t limbs[4] = { (uint32_t)(n.H >> 32), (uint32_t)n.H, (uint32_t)(n.L >> 32), (uint32_t)n.L };
+  uint64_t rem = 0, q = 0;
+  for (int i = 0; i < 4; i++) {
+    const uint64_t cur = (rem << 32) | limbs[i];
+    q = (q << 32) | (cur / d); // the upper limbs of the quotient are zero by the precondition
+    rem = cur % d;
+  }
+  return q;
+}
+
+// Linear interpolation, exact: a + (b - a) * stage / scale, rounded half up (toward +infinity).
+// 0 < stage < scale < 2^32. The result is always between a and b.
+static int64_t Interpolate_linear_exact(int64_t a, int64_t b, uint32_t stage, uint32_t scale) {
+  const bool up = b >= a;
+  const uint64_t d = up ? (uint64_t)b - (uint64_t)a : (uint64_t)a - (uint64_t)b; // |b-a| < 2^64
+  // N = d * stage < 2^96. Rounding offset: half up (toward +infinity) in both directions
+  my_int128_t N = umul_64_64_to_128(d, stage);
+  const my_int128_t h = { 0, up ? scale / 2 : (scale - 1) / 2 };
+  N = add_128(N, h);
+  const uint64_t q = udiv_128_32(N, scale); // q <= d
+  return (int64_t)(up ? (uint64_t)a + q : (uint64_t)a - q);
+}
+
+// Interpolation with a factor from a user function, 96.32 bit fixed point: factor 2^32 means 1.0.
+// The factor may be outside 0..1 (over- and undershoot), the result saturates to the int64 range.
 constexpr int ANIMATE_INT_ARITH_SCALEBITS = 32;
-constexpr uint64_t ANIMATE_FULL_SCALE = 1ULL << ANIMATE_INT_ARITH_SCALEBITS; // 2^32
-constexpr uint64_t ANIMATE_ROUND = ANIMATE_FULL_SCALE >> 1; // 2^31
+constexpr double ANIMATE_FULL_SCALE_D = 4294967296.0; // 2^32
 
-// Main interpolation function with uint64_t factor
-// factor = 2^32 means 1.0
-static int64_t Muldiv_64_32_integer_arithm(int64_t a, int64_t b, uint64_t factor) {
+static int64_t Interpolate_factor(int64_t a, int64_t b, double stage_mod) {
+  const double f = stage_mod * ANIMATE_FULL_SCALE_D;
+  if (std::fabs(f) >= 9007199254740992.0) {
+    // |stage_mod| >= 2^21: the fixed point factor would not be exact anyway, compute in double
+    const double r = (double)a + ((double)b - (double)a) * stage_mod;
+    if (r >= 9223372036854775807.0) return INT64_MAX;
+    if (r <= -9223372036854775808.0) return INT64_MIN;
+    return (int64_t)std::llround(r);
+  }
+  const int64_t factor = (int64_t)std::llround(f); // |factor| < 2^53
+  // a*(2^32 - factor) + b*factor + 2^31, then >> 32. |each term| < 2^63 * 2^54: fits into 128 bits
+  my_int128_t temp = add_128(mul_64_64_to_128(a, ((int64_t)1 << ANIMATE_INT_ARITH_SCALEBITS) - factor),
+                             mul_64_64_to_128(b, factor));
+  const my_int128_t round = { 0, (uint64_t)1 << (ANIMATE_INT_ARITH_SCALEBITS - 1) };
+  temp = add_128(temp, round);
+  return sar32_128_saturate(temp);
+}
 
-  // Special case handling for factor = 0 or factor = 2^32 (0.0 or 1.0)
-  if (factor == 0)
-    return a;
-  else if (factor == ANIMATE_FULL_SCALE)
-    return b;
+// Fills args_now for 0 < stage < scale. The ends are never computed: they are the given start and end arguments.
+void Animate::InterpolateArgs(int64_t stage, int64_t scale, IScriptEnvironment* env)
+{
+  const double stage_lin = (double)stage / (double)scale; // linear 0.0 .. 1.0
+  double stage_mod = stage_lin;
+  const bool has_fn = custom_fn.IsFunction();
 
-  // Calculate the interpolation
-  // (a*(1-factor) + b*factor + round) / fullscale
-
-  my_int128_t temp_a, temp_b;
-  temp_a = mul_64_64_to_128(a, ANIMATE_FULL_SCALE - factor);
-  temp_b = mul_64_64_to_128(b, factor);
-  my_int128_t temp = add_128(temp_a, temp_b);
-
-  // Add rounding constant
-  temp.L += ANIMATE_ROUND;
-  // Check for carry
-  if (temp.L < ANIMATE_ROUND) {
-    temp.H++;
+  if (has_fn) {
+    // custom function maps x -> fn(x). It is not called at the ends, f(0)=0 and f(1)=1 need no check.
+    // In between the result may be outside 0..1: over- and undershoot, no clamping.
+    PFunction func = custom_fn.AsFunction();
+    const char* argnames[1] = { "stage" };
+    AVSValue actual_args[1] = { stage_lin };
+    const AVSValue actual_args_array = AVSValue(actual_args, 1);
+    AVSValue result = env->Invoke3(AVSValue(), func, actual_args_array, argnames);
+    if (!result.IsFloat()) // int and long are accepted as well
+      env->ThrowError("Animate: custom function must return a number (stage %f)", stage_lin);
+    stage_mod = result.AsFloat();
+    if (!std::isfinite(stage_mod))
+      env->ThrowError("Animate: custom function returned NaN or infinity (stage %f)", stage_lin);
   }
 
-  // Back to the real integer domain
-  return shift_right_128(temp, ANIMATE_INT_ARITH_SCALEBITS);
+  // A function returning its stage (linear) gives the same result as no function.
+  const bool linear = !has_fn || stage_mod == stage_lin;
+
+  for (int a = 0; a < num_args; ++a) {
+    if (args_before[a].IsInt() && args_after[a].IsInt()) {
+      const int64_t start = args_before[a].AsLong();
+      const int64_t end = args_after[a].AsLong();
+      args_now[a] = linear ? Interpolate_linear_exact(start, end, (uint32_t)stage, (uint32_t)scale)
+                           : Interpolate_factor(start, end, stage_mod);
+    }
+    else if (args_before[a].IsFloat() && args_after[a].IsFloat()) {
+      // note: AsFloat() returns double
+      const double start = args_before[a].AsFloat();
+      const double end = args_after[a].AsFloat();
+      // start + (end - start) * s: exactly start when the two are equal
+      double interpolated_value = start + (end - start) * stage_mod;
+      if (linear) {
+        // linear: rounding error can put the result slightly outside start..end
+        interpolated_value = clamp(interpolated_value, std::min(start, end), std::max(start, end));
+      }
+      else if (!std::isfinite(interpolated_value))
+        env->ThrowError("Animate: interpolated value is out of the float range (stage %f)", stage_lin);
+      args_now[a] = interpolated_value;
+    }
+    else {
+      args_now[a] = args_before[a]; // bool, string, clip: no transition
+    }
+  }
 }
 
 PVideoFrame __stdcall Animate::GetFrame(int n, IScriptEnvironment* env)
@@ -906,7 +960,9 @@ PVideoFrame __stdcall Animate::GetFrame(int n, IScriptEnvironment* env)
     }
     return cache[0]->GetFrame(n, env);
   }
-  int stage = clamp(n, first, last) - first;
+  // int64: last - first can exceed the int range
+  const int64_t scale = (int64_t)last - first;
+  const int64_t stage = (int64_t)clamp(n, first, last) - first;
   for (int i=0; i<cache_size; ++i)
     if (cache_stage[i] == stage)
       return cache[i]->GetFrame(n, env);
@@ -914,84 +970,20 @@ PVideoFrame __stdcall Animate::GetFrame(int n, IScriptEnvironment* env)
   // filter not found in cache--create it
   int furthest = 0;
   for (int j=1; j<cache_size; ++j)
-    if (abs(stage-cache_stage[j]) > abs(stage-cache_stage[furthest]))
+    if (std::llabs(stage-cache_stage[j]) > std::llabs(stage-cache_stage[furthest]))
       furthest = j;
 
-  int scale = last-first;
-  double stage_mod = (double)stage / scale; // linear 0.0 .. 1.0
-
-  if (custom_fn.IsFunction()) {
-    // custom function maps x -> fn(x), so that x=0.0 and x=1.0 still returns 0.0 and 1.0 (ideally)
-    PFunction func = custom_fn.AsFunction();
-    const char* argnames[1] = { "stage" };
-    AVSValue actual_args[1] = { stage_mod };
-    const AVSValue actual_args_array = AVSValue(actual_args, 1);
-    stage_mod = env->Invoke3(AVSValue(), func, actual_args_array, argnames).AsFloat();
-    // Used for integer interpolations as well.
-    // Since normalization is at 2^32 (where 1.0 equals 2^32), and int64_t is used,
-    // it can handle up to a 2^31 multiplier from fn(x).
-    // However, a return value range of 0.0 to 1.0 is ideal.
+  const AVSValue* args_use;
+  if (stage == 0)
+    args_use = args_before.data(); // the ends are exact, no interpolation, the custom function is not called
+  else if (stage == scale)
+    args_use = args_after;
+  else {
+    InterpolateArgs(stage, scale, env);
+    args_use = args_now;
   }
-
-  const uint64_t stage_int_arith = (int64_t)(double(ANIMATE_FULL_SCALE) * stage_mod);
-
-  for (int a = 0; a < num_args; ++a) {
-    if (args_before[a].IsInt() && args_after[a].IsInt()) {
-      // 96.32 bit arithmetic, intermediate 128 bits inside. 
-      // Uses proper rounding when returning to real integer domain.
-      int64_t start = args_before[a].AsLong();
-      int64_t end = args_after[a].AsLong();
-      int64_t interpolated_value = Muldiv_64_32_integer_arithm(start, end, stage_int_arith);
-      int64_t lower_bound = std::min(start, end);
-      int64_t upper_bound = std::max(start, end);
-      // rounding error can occur, so that the intermediate result is not between the two values
-      if (interpolated_value < lower_bound) {
-        interpolated_value = lower_bound;
-      }
-      else if (interpolated_value > upper_bound) {
-        interpolated_value = upper_bound;
-      }
-      args_now[a] = interpolated_value;
-    }
-    else if (args_before[a].IsFloat() && args_after[a].IsFloat()) {
-      // note: AsFloat() returns double
-      double start = args_before[a].AsFloat();
-      double end = args_after[a].AsFloat();
-      double interpolated_value = start * (1 - stage_mod) + end * stage_mod;
-      double lower_bound = std::min(start, end);
-      double upper_bound = std::max(start, end);
-      // rounding error can occur, so that the intermediate result is not between the two values
-      if (interpolated_value < lower_bound) {
-        interpolated_value = lower_bound;
-      }
-      else if (interpolated_value > upper_bound) {
-        interpolated_value = upper_bound;
-      }
-      args_now[a] = interpolated_value;
-    }
-    else {
-      args_now[a] = args_before[a]; // bool, string, etc.. no transition
-    }
-  }
-#if 0
-  // old classic linear, 32 bit only kept for reference
-  int scale = last - first;
-
-  for (int a=0; a<num_args; ++a) {
-    if (args_before[a].IsInt() && args_after[a].IsInt()) {
-      // no rounding here
-      args_now[a] = int((Int32x32To64(args_before[a].AsInt(), scale-stage) + Int32x32To64(args_after[a].AsInt(), stage)) / scale);
-    }
-    else if (args_before[a].IsFloat() && args_after[a].IsFloat()) {
-      args_now[a] = (args_before[a].AsFloat()*(scale-stage) + args_after[a].AsFloat()*stage) / scale;
-    }
-    else {
-      args_now[a] = args_before[a];
-    }
-  }
-#endif
   cache_stage[furthest] = stage;
-  cache[furthest] = env->Invoke(name, AVSValue(args_now, num_args)).AsClip();
+  cache[furthest] = env->Invoke(name, AVSValue(args_use, num_args)).AsClip();
   return cache[furthest]->GetFrame(n, env);
 }
 
@@ -1060,7 +1052,9 @@ AVSValue __cdecl Animate::Create(AVSValue args, void* user_data, IScriptEnvironm
   int n = args[param_index].ArraySize();
   if (n&1)
     env->ThrowError("Animate: must have two argument lists of the same length"); // two sets
-  return new Animate(context, first, last, name, &args[param_index][0], &args[param_index][n>>1], n>>1, false, 
+  // no element access on an empty array (operator[] asserts)
+  const AVSValue* list = n > 0 ? &args[param_index][0] : nullptr;
+  return new Animate(context, first, last, name, list, n > 0 ? &args[param_index][n>>1] : nullptr, n>>1, false, 
     anim_kind == 0 ? AVSValue() : args[3], env);
 }
 
@@ -1073,5 +1067,7 @@ AVSValue __cdecl Animate::Create_Range(AVSValue args, void*, IScriptEnvironment*
   const int last = args[2].AsInt();
   const char* const name = args[3].AsString();
   int n = args[4].ArraySize();
-  return new Animate(context, first, last, name, &args[4][0], &args[4][0], n, true, AVSValue(), env);
+  // ApplyRange(0, 10, "Invert"): no extra arguments, no element access on the empty array (operator[] asserts)
+  const AVSValue* list = n > 0 ? &args[4][0] : nullptr;
+  return new Animate(context, first, last, name, list, list, n, true, AVSValue(), env);
 }

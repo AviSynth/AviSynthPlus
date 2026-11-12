@@ -289,6 +289,14 @@ Bugfixes, crash or hang on unusual parameters or input:
   C plugins: array elements at any depth as well, 2.5 plugins: the top level, like Invoke25.
   Done in the compatibility interfaces (GetVar25/GetVarDef25, GetVarPreV11C/GetVarDefPreV11C/GetVarTryPreV11C).
   Existed since 3.7.4.
+- Fix: Animate user_fn passed as Func(name) which cannot be called with "stage": the error message crashed the host
+  (since 3.7.4; OnCPU/OnCUDA the same, since 3.6.0). A non-number, NaN or infinity result is now an error.
+- Animate user_fn: not called for the start and end frames, these use the given arguments. In between the results may
+  over- and undershoot, they are not clamped to start..end (3.7.6 clamped them); integers saturate at 64 bit.
+- Fix: Animate, linear integer interpolation is exact (128 bit intermediates); it could be one off already within 32 bit.
+  Float interpolation is exact for equal start and end values: in 3.7.5 e.g. Tweak endHue=360.0 at both ends came out
+  above 360, an error (Doom9 report). A frame range over 2^31 (negative start_frame) overflowed, only theoretical.
+- Fix: ApplyRange, Animate without extra arguments: assertion in debug builds (empty array access).
 - Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.

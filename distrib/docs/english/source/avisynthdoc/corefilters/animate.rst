@@ -43,8 +43,11 @@ than linear interpolation.
     | At frame ``end_frame`` and later, the filter is evaluated with the
       arguments given by ``end_args``.
     | In between, the arguments are linearly or by a user defined function interpolated 
-      for a smooth transition. Since v3.7.4 integer values are up to 64 bit, interpolation
-      is using a 96.32 bit integer arithmetic. Float parameters are computed with 64 bit double precision.
+      for a smooth transition. Since v3.7.4 integer values are up to 64 bit. Linear integer interpolation
+      is exact, rounded (since v3.7.7; before: 96.32 bit fixed point, which could be off by one);
+      with ``user_fn`` it uses 96.32 bit fixed point arithmetic, saturated to the 64 bit range.
+      Float parameters are computed with 64 bit double precision.
+    | Linear interpolation stays between the start and end values (a rounding error is clamped).
 
 .. describe:: filtername
 
@@ -56,18 +59,24 @@ than linear interpolation.
     The simplest one that acts as the classic linear interpolation is:
     ::
     
-        function myfuncname(float "range") {
-            return range
+        function myfuncname(float "stage") {
+            return stage
         }
         
     The function can be passed as parameter after a ``Func(myfuncname)`` conversion.
     
-    * function is called with "stage" from 0.0 to 1.0.
-    * Since Avisynth handles the first and last frame directly (parameter begin and finish),
-      your function may never receive 0.0 and 1.0 range values. But for proper start-end 
-      conditions please keep the rule that ``f(0.0) = 0.0`` and ``f(1.0) = 1.0``.
-      The returned value may not necessary be between 0.0 and 1.0. You can return larger 
-      values as well. It's your reponsibility how the interpolated parameters bahave in this case.
+    * The function must have one optional float parameter named ``stage``: ``float "stage"``.
+      A non-optional ``float stage`` or another name is an error.
+    * function is called with "stage" between 0.0 and 1.0.
+    * The function is never called for ``start_frame`` and ``end_frame``: there the
+      ``start_args`` and ``end_args`` are used as given. Ideally ``f(0.0) = 0.0`` and
+      ``f(1.0) = 1.0``, to have no jump at the ends.
+    * In between the returned value may be outside 0.0 to 1.0: the parameters then over- or
+      undershoot the start and end values, they are not clamped (since v3.7.7; v3.7.6
+      clamped them). Integer parameters saturate at the 64 bit range. It's your responsibility
+      how the filter behaves with such values.
+    * It must return a number (float or int); a non-number, NaN or infinity is an error.
+    * A function returning its ``stage`` unchanged gives the same result as no function.
 
 
 .. describe:: start_args, end_args
@@ -323,6 +332,16 @@ Changelog
 +-----------------+-------------------------------------------------------------+
 | Version         | Changes                                                     |
 +=================+=============================================================+
+| 3.7.7           || Animate: fine tune integer and float interpolation:        |
+|                 |  linear integer exact and rounded; float exact              |
+|                 |  for equal start and end values                             |
+|                 || Animate: user_fn is not called at the start and end frames |
+|                 || Animate: no clamp of user_fn results between the end       |
+|                 |  points (over- and undershoot)                              |
+|                 || Animate: user_fn result must be a finite number            |
+|                 || Fix: Animate crash on an uncallable ``Func(name)`` user_fn |
+|                 || Fix: Animate, ApplyRange debug assertion without arguments |
++-----------------+-------------------------------------------------------------+
 | 3.7.4           || Custom function option for Animate                         |
 |                 || Animate: more precise granularity for integer interpolation|
 |                 || Animate: add proper rounding for integer interpolation     |
@@ -332,4 +351,4 @@ Changelog
 |                 |  can be equal to ``end_frame``.                             |
 +-----------------+-------------------------------------------------------------+
 
-$Date: 2025/03/11 11:41:22 $
+$Date: 2026/11/12 22:30:00 $
