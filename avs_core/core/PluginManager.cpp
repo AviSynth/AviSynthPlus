@@ -648,18 +648,20 @@ std::string ExeFilePath;
 #ifdef AVS_WINDOWS
   // get folder of our executable as wide char and convert to UTF-8
   {
-    WCHAR ExeFilePathW[AVS_MAX_PATH];
-    // Ensure buffer is zeroed (older Windows may not null-terminate)
-    // e.g. WinXP does not terminate the result of GetModuleFileName with a zero, so me must zero our buffer
-    memset(ExeFilePathW, 0, sizeof(ExeFilePathW));
-    DWORD len = GetModuleFileNameW(NULL, ExeFilePathW, AVS_MAX_PATH);
-    if (len == 0) {
+    // A full buffer means the path may be cut (and on XP it is not zero terminated): retry with a larger one.
+    std::vector<wchar_t> ExeFilePathW(AVS_MAX_PATH);
+    DWORD len;
+    while ((len = GetModuleFileNameW(NULL, ExeFilePathW.data(), (DWORD)ExeFilePathW.size())) >= ExeFilePathW.size()
+      && ExeFilePathW.size() < 32768 * 2)
+      ExeFilePathW.assign(ExeFilePathW.size() * 2, L'\0');
+    if (len == 0 || len >= ExeFilePathW.size()) {
       // Fallback to empty string on failure
       ExeFilePath.clear();
     }
     else {
+      ExeFilePathW[len] = L'\0';
       // Convert wide-char path to UTF-8 for internal use
-      auto exe_utf8 = WideCharToUtf8(ExeFilePathW);
+      auto exe_utf8 = WideCharToUtf8(ExeFilePathW.data());
       ExeFilePath = exe_utf8.get();
     }
   }

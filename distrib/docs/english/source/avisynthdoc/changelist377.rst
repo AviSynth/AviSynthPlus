@@ -74,6 +74,9 @@ Bugs in normal use
   exist yet stayed relative; with ``flush=true`` (the default) the file is reopened at each frame, when the current
   directory is the host's again, so the lines went to another folder. Now the name is made absolute as on Windows.
   On Windows an invalid or too long name gives an error. Existed since 3.5.0 (Linux support).
+- Fix: Import of a script whose full path is exactly 260 characters long, or a UNC path (``\\server\share\...``)
+  of 260 or more, failed with "couldn't open": the long path prefix was not added, or was wrong for UNC.
+  Existed since 3.7.0 (long path support).
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ``ConvertToRGB32`` from
   10-16 bit or 32 bit float YUVA, or ``ConvertToPlanarRGBA(bits=8)``. Existed since 3.7.6.
 - Fix: YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit to 32 bit float, AVX2: memory
@@ -188,6 +191,9 @@ loop. Most need an unusual parameter or input.
   SegmentedAVISource ``utf8=true`` did not find non-ASCII file names. Existed since classic AviSynth.
 - Fix: opening a script through Video for Windows (e.g. VirtualDub): a path whose ANSI form is longer than 259
   bytes left a buffer without terminating zero, read past its end. Existed since classic AviSynth.
+- Fix: ``PROGRAMDIR`` in ``AddAutoloadDir``: a program path longer than 1039 characters was cut, without terminating
+  zero on Windows XP. POSIX: the current folder was set back after ``Import`` only when it was shorter than
+  ``FILENAME_MAX`` instead of ``PATH_MAX``; they differ on some systems (e.g. Haiku), not on Linux and macOS.
 - Fix: RGBAdjust, ColorYUV ``analyze=true``: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust ``analyze=true``, planar RGB 32 bit float: crash on NaN pixels, which can come from ``Expr`` or from a NaN parameter.

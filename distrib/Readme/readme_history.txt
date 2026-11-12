@@ -118,6 +118,11 @@ Bugfixes, bugs in normal use:
   _fullpath did). Windows: an invalid or too long name was not checked (_fullpath result ignored, the name buffer
   stayed unset), now an error "Write: invalid file name"; the _MAX_PATH limit is gone.
   Existed since 3.5.0 (Linux support).
+- Fix: Import of a script whose full path is exactly 260 characters long, or of a long UNC path, failed with
+  "Import: couldn't open". The \\?\ long path prefix was added only above FILENAME_MAX (260) characters, but
+  MAX_PATH (260) includes the terminating zero, so 260 needs it too. A UNC path "\\server\share\..." got
+  "\\?\\\server\..." instead of "\\?\UNC\server\share\...", so long UNC paths always failed. "\\.\" device paths
+  are left as they are. Existed since 3.7.0 (long path support).
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
   10-16 bit or 32 bit float YUVA, or ConvertToPlanarRGBA(bits=8).
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:
@@ -263,6 +268,12 @@ Bugfixes, crash or hang on unusual parameters or input:
   CJK characters on a DBCS code page), WideCharToMultiByte failed after filling the buffer without a terminating
   zero, and lstrlen/lstrcpy read past it. Now the buffer is sized by the converted length. The script itself was
   and is opened by its UTF-8 name. Existed since classic AviSynth.
+- Fix: PROGRAMDIR in AddAutoloadDir: the program path was read with GetModuleFileNameW into a fixed buffer of
+  AVS_MAX_PATH (1040) characters. A longer path was cut, and on Windows XP left without a terminating zero (the
+  memset did not help when the buffer was full). Now the buffer grows until the path fits. Existed since 3.7.6.
+  POSIX: CWDChanger (Import) saved the current folder with getcwd(buffer, FILENAME_MAX) into a PATH_MAX buffer, so a
+  folder longer than FILENAME_MAX was not set back after Import. Equal on Linux and macOS; smaller on some systems
+  (e.g. Haiku). Now the buffer size is used.
 - Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.

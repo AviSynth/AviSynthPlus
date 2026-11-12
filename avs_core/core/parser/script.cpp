@@ -450,7 +450,7 @@ std::wstring CWDChanger::GetCurrentWorkingDirectory() {
 #else
 
 std::string CWDChanger::GetCurrentWorkingDirectory() {
-  char buffer[FILENAME_MAX];
+  char buffer[PATH_MAX]; // FILENAME_MAX can be smaller (e.g. 256 on Haiku)
   if (getcwd(buffer, sizeof(buffer)) == nullptr) return {};
 
   return std::string(buffer);
@@ -510,7 +510,7 @@ DllDirChanger::~DllDirChanger(void)
 CWDChanger::CWDChanger(const char* new_cwd)
 {
 
-  char* path = getcwd(old_working_directory, FILENAME_MAX);
+  char* path = getcwd(old_working_directory, sizeof(old_working_directory)); // PATH_MAX, not FILENAME_MAX
   bool save_cwd_success = (NULL != path);
   bool set_cwd_success = (0 == chdir(new_cwd));
   restore = (save_cwd_success && set_cwd_success);
@@ -645,10 +645,16 @@ AVSValue Import(AVSValue args, void*, IScriptEnvironment* env)
     auto dir_part = WideCharToAnsi_maxn(full_path_w.get(), dir_part_len);
     auto dir_part_utf8 = WideCharToUtf8_maxn(full_path_w.get(), dir_part_len);
 
-    // supply L"\\\\?\\" if necessary for long file path support
+    // supply L"\\\\?\\" if necessary for long file path support: MAX_PATH (260) includes the terminating zero.
+    // A UNC path (\\server\share\...) gets \\?\UNC\server\share\...
     std::wstring full_path_ex = std::wstring(full_path_w.get());
-    if (full_path_ex.length() > FILENAME_MAX && full_path_ex.substr(0, 4) != L"\\\\?\\")
-      full_path_ex = L"\\\\?\\" + full_path_ex;
+    if (full_path_ex.length() >= MAX_PATH && full_path_ex.compare(0, 4, L"\\\\?\\") != 0
+      && full_path_ex.compare(0, 4, L"\\\\.\\") != 0) {
+      if (full_path_ex.compare(0, 2, L"\\\\") == 0)
+        full_path_ex = L"\\\\?\\UNC\\" + full_path_ex.substr(2);
+      else
+        full_path_ex = L"\\\\?\\" + full_path_ex;
+    }
 
     HANDLE h = ::CreateFileW(full_path_ex.c_str(), GENERIC_READ, FILE_SHARE_READ, NULL, OPEN_EXISTING, 0, NULL);
     if (h == INVALID_HANDLE_VALUE)
