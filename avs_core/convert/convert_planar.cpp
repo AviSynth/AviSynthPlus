@@ -612,9 +612,11 @@ template<ConversionDirection direction, typename pixel_t, bool lessthan16bit, bo
 static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], const BYTE* srcp[3], const int srcPitch[3], int width, int height, const ConversionMatrix& m,
   int bits_per_pixel, int bits_per_pixel_target)
 {
-  // int64_t needed for exact 16 bit pixels in integer workflow
+  // Integer workflow is int32 for all bit depths. Exact 16 bit uses the pivot of the SSE2/AVX2 paths:
+  // the luma/RGB input is moved to the signed range (pixel - 32768), the (32768 + offset_in) * coefficient
+  // part goes into a constant per output. No int64 is needed, so compilers can vectorize it (4 x int32 lanes).
   // float input always uses float workflow
-  typedef typename std::conditional<sizeof(pixel_t) == 1 || lessthan16bit, int, int64_t>::type safe_int_t;
+  typedef int safe_int_t;
 
   // Remark: for RGB->YUV and RGB->Y 16 bit original, we later redirect the constexpr values to a full-float-workflow.
   // Though int64_t would work here in C just fine, but has serious performance issues at Intel SIMD,
@@ -675,9 +677,37 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
   int round_mask_plus_offset_out_i;
   int round_mask_plus_offset_out_chroma_i;
 
+  // Integer workflow: rounder + output offset (+ exact 16 bit: the pivot patch) per output
+  int round_and_offset_0 = 0, round_and_offset_1 = 0, round_and_offset_2 = 0;
   if constexpr (!float_matrix_workflow) {
     round_mask_plus_offset_out_i = final_is_float ? 0 : ROUNDER + (offset_out_scalar << INT_ARITH_SHIFT);
     round_mask_plus_offset_out_chroma_i = final_is_float ? 0 : ROUNDER + (half_pixel_offset << INT_ARITH_SHIFT);
+
+    if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::YUV_TO_YUV) {
+      round_and_offset_0 = round_mask_plus_offset_out_i; // Y
+      round_and_offset_1 = round_mask_plus_offset_out_chroma_i; // U
+      round_and_offset_2 = round_mask_plus_offset_out_chroma_i; // V
+    }
+    else { // YUV_TO_RGB, RGB_TO_RGB: same offset for all; RGB_TO_Y: Y only
+      round_and_offset_0 = round_and_offset_1 = round_and_offset_2 = round_mask_plus_offset_out_i;
+    }
+
+    if constexpr (!lessthan16bit) {
+      // exact 16 bit pivot: coef * (pixel + offset_in) = coef * (pixel - 32768) + coef * (32768 + offset_in)
+      // Chroma inputs are already centered (pixel - 32768), they need no patch.
+      const int pivot = 32768 + offset_in_scalar;
+      if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::YUV_TO_YUV) {
+        // YUV input: only Y (in0) is pivoted
+        round_and_offset_0 += pivot * m.y_g;
+        round_and_offset_1 += pivot * m.y_b;
+        round_and_offset_2 += pivot * m.y_r;
+      }
+      else { // RGB_TO_YUV, RGB_TO_RGB, RGB_TO_Y: G, B and R are pivoted
+        round_and_offset_0 += pivot * (m.y_g + m.y_b + m.y_r);
+        round_and_offset_1 += pivot * (m.u_g + m.u_b + m.u_r);
+        round_and_offset_2 += pivot * (m.v_g + m.v_b + m.v_r);
+      }
+    }
   }
 
   // Float workflow: coefficients pre-multiplied by scale_f, output offsets scaled, summed in the same
@@ -738,7 +768,7 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
       }
 
       float out0_f, out1_f, out2_f;
-      safe_int_t out0_raw, out1_raw, out2_raw; // Keep as int64_t for 16-bit (see would_need_64bit_v_patch remarks above)
+      safe_int_t out0_raw, out1_raw, out2_raw; // int32 also for exact 16 bit (pivot, see safe_int_t)
 
       if constexpr (float_matrix_workflow) {
         // Float workflow
@@ -801,39 +831,22 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
       }
       else {
         // Integer workflow
-        // Apply input offset and centering
+        // Apply input offset and centering. Exact 16 bit: luma/RGB pivot, the rest is in round_and_offset_N.
         if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::YUV_TO_YUV) {
           // YUV input
-          in0_i = in0_i + offset_in_scalar; // Y
+          in0_i = lessthan16bit ? in0_i + offset_in_scalar : in0_i - 32768; // Y
           in1_i = in1_i - half_pixel_offset; // U (centered)
           in2_i = in2_i - half_pixel_offset; // V (centered)
         }
         else if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::RGB_TO_RGB || direction == ConversionDirection::RGB_TO_Y) {
           // RGB input
-          in0_i = in0_i + offset_in_scalar; // G
-          in1_i = in1_i + offset_in_scalar; // B
-          in2_i = in2_i + offset_in_scalar; // R
+          const int rgb_in_offset = lessthan16bit ? offset_in_scalar : -32768;
+          in0_i = in0_i + rgb_in_offset; // G
+          in1_i = in1_i + rgb_in_offset; // B
+          in2_i = in2_i + rgb_in_offset; // R
         }
 
-        // Matrix multiply with appropriate rounding/offset
-        int round_and_offset_0, round_and_offset_1, round_and_offset_2;
-
-        if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::RGB_TO_RGB) {
-          // RGB output: same offset for all
-          round_and_offset_0 = round_mask_plus_offset_out_i;
-          round_and_offset_1 = round_mask_plus_offset_out_i;
-          round_and_offset_2 = round_mask_plus_offset_out_i;
-        }
-        else if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::YUV_TO_YUV) {
-          // YUV output: different offsets
-          round_and_offset_0 = round_mask_plus_offset_out_i; // Y
-          round_and_offset_1 = round_mask_plus_offset_out_chroma_i; // U
-          round_and_offset_2 = round_mask_plus_offset_out_chroma_i; // V
-        }
-        else if constexpr (direction == ConversionDirection::RGB_TO_Y) {
-          // Y output: single Y offset
-          round_and_offset_0 = round_mask_plus_offset_out_i; // Y
-        }
+        // Matrix multiply with rounding/offset (round_and_offset_N, set up before the loop)
 
         if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::YUV_TO_YUV) {
           // YUV input: in0=Y, in1=U, in2=V

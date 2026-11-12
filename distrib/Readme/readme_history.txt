@@ -353,6 +353,12 @@ Optimizations:
   Blur/Sharpen and the 10-14 bit resizers): 2 instructions (saturating subtract trick) instead of 5
   (compare + blend). The pack + clamp-to-limit helpers in avs_simd_c.h (MSVC SSE2 build, e.g. the C resizer):
   min against the biased limit right after the biased signed pack, 5 instructions instead of 9. Output is unchanged.
+- Optimization: planar YUV <-> RGB matrix conversions, C path, exact 16 bit integer workflow (16 bit YUV to RGB/YUV,
+  also to 10-14 bit and to float): int32 instead of int64, with the pivot of the SSE2/AVX2 paths: the luma/RGB input
+  is moved to the signed range (pixel - 32768), (32768 + offset_in) * coefficient is added to the rounder constant.
+  The C path is the main one on aarch64: Clang (21, 22) left the int64 loop scalar, GCC (12, 15) used 2 x 64 bit
+  lanes; now both use 4 x 32 bit lanes. Output is unchanged (old C vs new C bit identical; 0 / 32768 / 65535 edge
+  values in all planes, 8 matrices, 16 bit to 8-16 bit and float).
 
 
 20261025 3.7.6.r4909

@@ -249,6 +249,9 @@ Optimizations
   of the bitmap. About 20-35% quicker (19 lines of text, frame copies excluded) without halo and fading.
 - Optimization: x86 SSE2 (no SSE4.1) emulation of unsigned 16 bit min/max (Limiter, Blur/Sharpen, 10-14 bit
   resizers) and the pack + clamp-to-limit in the MSVC SSE2 build of the C resizer: fewer instructions.
+- Optimization: planar YUV <-> RGB conversions, C path (aarch64, no SIMD), exact 16 bit integer calculation: int32
+  with the pivot of the SSE2/AVX2 paths instead of int64. GCC and Clang vectorize it now (Clang left it scalar,
+  GCC used 2 lanes). Output is unchanged.
 
 Documentation
 ~~~~~~~~~~~~~
