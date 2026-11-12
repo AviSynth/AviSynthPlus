@@ -35,6 +35,7 @@
 
 #include <avisynth.h>
 #include "internal.h"
+#include "strings.h"
 
 // master ifdef
 #ifdef AVS_WINDOWS // inspect for Linux; COM/VfW stuff not needed?
@@ -396,13 +397,13 @@ STDMETHODIMP CAVIFileSynth::IsDirty() {
 }
 
 STDMETHODIMP CAVIFileSynth::Load(LPCOLESTR lpszFileName, DWORD grfMode) {
-  char filename[MAX_PATH];
+  // sized for any length and code page (a fixed MAX_PATH buffer was left without a terminating zero
+  // when the ANSI path did not fit); the script itself is opened by its UTF-8 name
+  auto filename = WideCharToAnsi(lpszFileName);
 
-  WideCharToMultiByte(AreFileApisANSI() ? CP_ACP : CP_OEMCP, 0, lpszFileName, -1, filename, sizeof filename, NULL, NULL);
+  _RPT3(0,"%p->CAVIFileSynth::Load(\"%s\", 0x%X)\n", this, filename.get(), grfMode);
 
-  _RPT3(0,"%p->CAVIFileSynth::Load(\"%s\", 0x%X)\n", this, filename, grfMode);
-
-  return Open(filename, grfMode, lpszFileName);
+  return Open(filename.get(), grfMode, lpszFileName);
 }
 
 STDMETHODIMP CAVIFileSynth::Save(LPCOLESTR lpszFileName, BOOL fRemember) {

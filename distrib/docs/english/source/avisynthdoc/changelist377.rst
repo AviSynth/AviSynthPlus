@@ -182,6 +182,8 @@ loop. Most need an unusual parameter or input.
 - Fix: SegmentedAVISource, SegmentedDirectShowSource: a file name without extension crashed the host, a name longer
   than 259 characters overflowed a stack buffer. ``clip`` now looks for ``clip.00`` ... ``clip.99``.
   SegmentedAVISource ``utf8=true`` did not find non-ASCII file names. Existed since classic AviSynth.
+- Fix: opening a script through Video for Windows (e.g. VirtualDub): a path whose ANSI form is longer than 259
+  bytes left a buffer without terminating zero, read past its end. Existed since classic AviSynth.
 - Fix: RGBAdjust, ColorYUV ``analyze=true``: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust ``analyze=true``, planar RGB 32 bit float: crash on NaN pixels, which can come from ``Expr`` or from a NaN parameter.

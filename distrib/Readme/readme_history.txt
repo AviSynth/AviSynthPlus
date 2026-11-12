@@ -250,6 +250,11 @@ Bugfixes, crash or hang on unusual parameters or input:
   file name only, "C:\my.dir\clip" no longer splits at the folder name.
   SegmentedAVISource(utf8=true): the existence check of the segments used the ANSI API on the UTF-8 name, so a
   non-ASCII name was never found ("no files found!"). Existed since classic AviSynth (crash), r2768 (utf8, 2018).
+- Fix: opening a script through Video for Windows (AVIFile, e.g. VirtualDub): the script path was converted to ANSI
+  into a char[MAX_PATH] buffer. When the ANSI form did not fit (a path over 259 bytes: a long path, or about 130
+  CJK characters on a DBCS code page), WideCharToMultiByte failed after filling the buffer without a terminating
+  zero, and lstrlen/lstrcpy read past it. Now the buffer is sized by the converted length. The script itself was
+  and is opened by its UTF-8 name. Existed since classic AviSynth.
 - Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.
