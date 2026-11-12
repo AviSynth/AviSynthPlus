@@ -244,6 +244,12 @@ Bugfixes, crash or hang on unusual parameters or input:
   called the throwing std::filesystem::absolute, which throws on an empty path, and nothing caught it. It uses the
   error_code overload now and leaves the name as it is, the caller reports "Cannot load file ''".
   Regression since 3.7.6 (the #462 UTF-8 autoload rework); 3.7.5 gave the error.
+- Fix: SegmentedAVISource, SegmentedDirectShowSource: a file name without extension (e.g. "clip") wrote through a NULL
+  pointer and crashed the host; a name longer than 259 characters overflowed a stack buffer (strcpy, wsprintf into
+  char[260]). Now any length works. "clip" looks for "clip.00" ... "clip.99"; the extension dot is searched in the
+  file name only, "C:\my.dir\clip" no longer splits at the folder name.
+  SegmentedAVISource(utf8=true): the existence check of the segments used the ANSI API on the UTF-8 name, so a
+  non-ASCII name was never found ("no files found!"). Existed since classic AviSynth (crash), r2768 (utf8, 2018).
 - Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.

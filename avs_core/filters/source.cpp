@@ -34,6 +34,7 @@
 
 
 #include "../core/internal.h"
+#include "../core/strings.h"
 #include "../convert/convert_matrix.h"
 #include "../convert/convert_helper.h"
 #include "colorbars_const.h"
@@ -2804,7 +2805,7 @@ AVSValue __cdecl Create_SegmentedSource(AVSValue args, void* use_directshow, ISc
   const char* fourCC = 0;
   int vtrack = 0;
   int atrack = 0;
-  bool utf8;
+  bool utf8 = false;
   const int inv_args_count = args.ArraySize();
   AVSValue inv_args[9];
   if (!use_directshow) {
@@ -2822,21 +2823,28 @@ AVSValue __cdecl Create_SegmentedSource(AVSValue args, void* use_directshow, ISc
   PClip result = 0;
   const char* error_msg=0;
   for (int i = 0; i < args.ArraySize(); ++i) {
-    char basename[260];
-    strcpy(basename, args[i].AsString());
-    char* extension = strrchr(basename, '.');
-    if (extension)
-      *extension++ = 0;
-    else
-      extension[0] = 0;
+    // "name.ext" -> "name.00.ext" ... "name.99.ext"; a name without extension gives "name.00" ...
+    // The dot is searched in the file name part only, not in the folder names.
+    std::string basename = args[i].AsString();
+    std::string extension;
+    const size_t slash_pos = basename.find_last_of("\\/");
+    const size_t dot_pos = basename.rfind('.');
+    if (dot_pos != std::string::npos && (slash_pos == std::string::npos || dot_pos > slash_pos)) {
+      extension = basename.substr(dot_pos); // with the dot
+      basename.erase(dot_pos);
+    }
     for (int j = 0; j < 100; ++j) {
-      char filename[260];
-      wsprintf(filename, "%s.%02d.%s", basename, j, extension);
-      if (GetFileAttributes(filename) != (DWORD)-1) {   // check if file exists
+      char number[8];
+      snprintf(number, sizeof(number), ".%02d", j);
+      const std::string filename_s = basename + number + extension;
+      const char* filename = filename_s.c_str();
+      // check if file exists; the name is UTF-8 for AVISource(utf8=true), else ANSI
+      auto filename_w = (!use_directshow && utf8) ? Utf8ToWideChar(filename) : AnsiToWideChar(filename);
+      if (GetFileAttributesW(filename_w.get()) != INVALID_FILE_ATTRIBUTES) {
           PClip clip;
         try {
           if (use_directshow) {
-            inv_args[0] = filename;
+            inv_args[0] = env->SaveString(filename);
             clip = env->Invoke("DirectShowSource",AVSValue(inv_args, inv_args_count)).AsClip(); // no utf8 yet
           } else {
             clip =  (IClip*)(new AVISource(filename, bAudio, pixel_type, fourCC, vtrack, atrack, AVISource::MODE_NORMAL, utf8, env));
