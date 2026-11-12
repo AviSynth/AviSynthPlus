@@ -636,6 +636,11 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
   // RGB_TO_YUV, RGB_TO_Y 16 bit origin case needs 64 bit extension at one point to avoid overflow
   // but it makes it much slower than the full-float path, so we force float path for that case as well
 
+  // Float output always uses the float workflow (the dispatcher passes FORCE_FLOAT): more exact and not slower
+  // than an integer matrix + conversion, and no int32 overflow (16 bit limited RGB to full range scales the
+  // coefficients by 255/219). So the integer workflow below never has a float target.
+  static_assert(!final_is_float || conv_type == YuvRgbConversionType::FORCE_FLOAT, "float target: FORCE_FLOAT only");
+
   // effectively full-float-inside for int full range conversion, but with the same output rules as other float conversions
   constexpr bool force_float = (conv_type == YuvRgbConversionType::FORCE_FLOAT) || would_need_64bit_v_patch;
 
@@ -655,9 +660,8 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
 
   const int bit_diff = need_int_conversion ? bits_per_pixel_target - bits_per_pixel : 0;
   const int target_shift = need_int_conversion_narrow_range ? INT_ARITH_SHIFT - bit_diff : INT_ARITH_SHIFT;
-  const int ROUNDER = (final_is_float || float_matrix_workflow) ? 0 : (1 << (target_shift - 1));
+  const int ROUNDER = float_matrix_workflow ? 0 : (1 << (target_shift - 1));
 
-  const float out_offset_f = m.offset_out_f_32;
   const int half_pixel_offset = 1 << (bits_per_pixel - 1);
   const int half_pixel_offset_target = 1 << (bits_per_pixel_target - 1);
   const int max_pixel_value_target = bits_per_pixel_target <= 16 ? (1 << bits_per_pixel_target) - 1 : 0; // float: n/a
@@ -666,10 +670,7 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
   const bool full_scale_d = m.full_scale_d;
   get_bits_conv_constants(conversion_ranges, false, full_scale_d, full_scale_d, bits_per_pixel, bits_per_pixel_target);
 
-  constexpr int int_arithmetic_shift = 1 << INT_ARITH_SHIFT;
   float scale_f = conversion_ranges.mul_factor;
-  if (final_is_float && !float_matrix_workflow)
-    scale_f = scale_f / int_arithmetic_shift;
 
   const int offset_in_scalar = m.offset_in;
   const int offset_out_scalar = m.offset_out;
@@ -680,8 +681,8 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
   // Integer workflow: rounder + output offset (+ exact 16 bit: the pivot patch) per output
   int round_and_offset_0 = 0, round_and_offset_1 = 0, round_and_offset_2 = 0;
   if constexpr (!float_matrix_workflow) {
-    round_mask_plus_offset_out_i = final_is_float ? 0 : ROUNDER + (offset_out_scalar << INT_ARITH_SHIFT);
-    round_mask_plus_offset_out_chroma_i = final_is_float ? 0 : ROUNDER + (half_pixel_offset << INT_ARITH_SHIFT);
+    round_mask_plus_offset_out_i = ROUNDER + (offset_out_scalar << INT_ARITH_SHIFT);
+    round_mask_plus_offset_out_chroma_i = ROUNDER + (half_pixel_offset << INT_ARITH_SHIFT);
 
     if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::YUV_TO_YUV) {
       round_and_offset_0 = round_mask_plus_offset_out_i; // Y
@@ -865,28 +866,8 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
           out0_raw = (safe_int_t)m.y_g * in0_i + (safe_int_t)m.y_b * in1_i + (safe_int_t)m.y_r * in2_i + round_and_offset_0;
         }
 
-        if constexpr (final_is_float) {
-          // Integer workflow + float output
-          out0_f = static_cast<float>(out0_raw) * scale_f + out_offset_f;
-          if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::RGB_TO_RGB) {
-            // offset for the rest two only RGB output
-            out1_f = static_cast<float>(out1_raw) * scale_f + out_offset_f;
-            out2_f = static_cast<float>(out2_raw) * scale_f + out_offset_f;
-          }
-          else if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::YUV_TO_YUV) {
-            // for YUV the U and V float offset is different : 0.0f
-            out1_f = static_cast<float>(out1_raw) * scale_f; // U
-            out2_f = static_cast<float>(out2_raw) * scale_f; // V
-          }
-
-          d0[x] = static_cast<pixel_t_dst>(out0_f);
-          if constexpr (direction != ConversionDirection::RGB_TO_Y) {
-            d1[x] = static_cast<pixel_t_dst>(out1_f);
-            d2[x] = static_cast<pixel_t_dst>(out2_f);
-          }
-        }
-        else {
-          // Integer workflow + integer output
+        {
+          // Integer workflow + integer output (float output always takes the float workflow)
           int out0_i = static_cast<int>(out0_raw >> target_shift);
           out0_i = std::clamp(out0_i, 0, max_pixel_value_target);
           d0[x] = static_cast<pixel_t_dst>(out0_i);
@@ -968,7 +949,7 @@ void convert_yuv_to_planarrgb_c(BYTE* dstp[3], int dstPitch[3], const BYTE* srcp
           convert_yuv_to_planarrgb_c_internal<direction, pixel_t_src, lessthan16bit, false, uint16_t, YuvRgbConversionType::BITCONV_INT_LIMITED>(dstp, dstPitch, srcp, srcPitch, width, height, m, bits_per_pixel, bits_per_pixel_target);
       }
       else {
-        convert_yuv_to_planarrgb_c_internal<direction, pixel_t_src, lessthan16bit, false, float, YuvRgbConversionType::FLOAT_OUTPUT>(dstp, dstPitch, srcp, srcPitch, width, height, m, bits_per_pixel, bits_per_pixel_target);
+        convert_yuv_to_planarrgb_c_internal<direction, pixel_t_src, lessthan16bit, false, float, YuvRgbConversionType::FORCE_FLOAT>(dstp, dstPitch, srcp, srcPitch, width, height, m, bits_per_pixel, bits_per_pixel_target);
       }
     }
   }

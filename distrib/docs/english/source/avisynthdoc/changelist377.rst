@@ -153,6 +153,11 @@ Output changes by a rounding step; the values now match ConvertBits and the othe
   16 or 240 as out of range.
 - Fix: YToUV without ``clipY``, 32 bit float: the grey Y plane was 126/256, now 126/255, the same as 8 bit limited
   range 126 converted by ConvertBits. Existed since AviSynth+ r2487.
+- Planar YUV <-> RGB conversions to 32 bit float (``bits=32``) from 8-16 bit: always calculated in float, the same as
+  ``quality=true``. The result is more exact: limited range white gives 1.0 (was up to 1.000039 or 0.999953), and
+  ``quality=false`` and ``quality=true`` give the same float output. Not slower.
+- Fix: 16 bit planar RGB to YUV or Y with 32 bit float output: limited range RGB (``_Range`` 0) to full range
+  output wrapped around above nominal white (65535 gave Y -0.904 instead of 1.096), fixed by the above.
 
 Same output on every CPU, OS and compiler
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

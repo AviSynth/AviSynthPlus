@@ -224,6 +224,16 @@ Bugfixes, accuracy: rounding, limited range levels:
 - Fix: YToUV without Y clip, 32 bit float: the grey Y plane was 126/256. The value now comes from the common bit
   depth conversion constants (8 bit limited range to the actual bit depth, like ConvertBits), which gives 126/255.
   10-16 bits stay 126 << (bits-8). Existed since AviSynth+ r2487.
+- Planar YUV <-> RGB matrix conversions with 32 bit float target (bits=32) from an 8-16 bit source: always the float
+  workflow (C, SSE2, AVX2), the same as quality=true; before, the integer matrix was used and only its result was
+  converted to float. One algorithm instead of a special integer path: more exact, the integer coefficient rounding
+  is gone, e.g. 709 limited white to RGB: 1.0 (was 1.0000389 at 8 bit, 0.9999528 at 14 bit), full RGB white to
+  limited Y: 235/255 exactly. Output changes up to 7.5e-5 (0.02 of an 8 bit step). quality=false and quality=true
+  are now identical for float targets. Not slower: SIMD within noise, the C path 40-50% faster.
+- Fix: 16 bit planar RGB to YUV/Y with float output: the integer matrix sum overflowed int32 for limited range RGB
+  input (_Range=0) to full range output, where the coefficients are scaled by 255/219: values above nominal white
+  wrapped around, e.g. RGB 65535 gave Y -0.904 instead of 1.096 (SIMD; C was right with int64). Fixed by the
+  float workflow above (16 bit RGB -> YUV/Y with integer output already used it for the same overflow reason).
 
 Bugfixes, same output on every CPU, OS and compiler:
   The C, the x86 SIMD and the aarch64 NEON paths, or two runs of the same script, gave different output. Found by

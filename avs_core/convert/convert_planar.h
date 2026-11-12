@@ -47,8 +47,7 @@
 
 enum YuvRgbConversionType {
   NATIVE_INT,           // Same bit depth, integer matrix arithmetic, no conversion
-  FORCE_FLOAT,          // Float matrix workflow (required for float input, optional for accuracy)
-  FLOAT_OUTPUT,         // Integer matrix -> float output (for int->float conversions)
+  FORCE_FLOAT,          // Float matrix workflow (required for float input and for float output, optional for accuracy)
   BITCONV_INT_LIMITED,  // Bit-depth change with limited range (shift-based scaling)
   BITCONV_INT_FULL      // Bit-depth change with full range (requires float coefficients)
 };

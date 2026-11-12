@@ -186,6 +186,11 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
   // RGB_TO_YUV, RGB_TO_Y 16 bit origin case needs 64 bit extension at one point to avoid overflow
   // but it makes it much slower than the full-float path, so we force float path for that case as well
 
+  // Float output always uses the float workflow (the dispatcher passes FORCE_FLOAT): more exact and not slower
+  // than an integer matrix + conversion, and no int32 overflow (16 bit limited RGB to full range scales the
+  // coefficients by 255/219). So the integer workflow below never has a float target.
+  static_assert(!final_is_float || conv_type == YuvRgbConversionType::FORCE_FLOAT, "float target: FORCE_FLOAT only");
+
   // effectively full-float-inside for int full range conversion, but with the same output rules as other float conversions
   constexpr bool force_float = (conv_type == YuvRgbConversionType::FORCE_FLOAT) || would_need_64bit_v_patch;
 
@@ -205,8 +210,7 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
 
   const int bit_diff = need_int_conversion ? bits_per_pixel_target - bits_per_pixel : 0;
   const int target_shift = need_int_conversion_narrow_range ? INT_ARITH_SHIFT - bit_diff : INT_ARITH_SHIFT;
-  const int ROUNDER = (final_is_float || float_matrix_workflow) ? 0 : (1 << (target_shift - 1));
-  const float out_offset_f = m.offset_out_f_32;
+  const int ROUNDER = float_matrix_workflow ? 0 : (1 << (target_shift - 1));
   const int half_pixel_offset = 1 << (bits_per_pixel - 1);
   const int half_pixel_offset_target = 1 << (bits_per_pixel_target - 1);
   const int max_pixel_value_target = bits_per_pixel_target <= 16 ? (1 << bits_per_pixel_target) - 1 : 0; // float: n/a
@@ -215,10 +219,7 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
   const bool full_scale_d = m.full_scale_d;
   get_bits_conv_constants(conversion_ranges, false, full_scale_d, full_scale_d, bits_per_pixel, bits_per_pixel_target);
 
-  constexpr int int_arithmetic_shift = 1 << INT_ARITH_SHIFT;
   float scale_f = conversion_ranges.mul_factor;
-  if (final_is_float && !float_matrix_workflow)
-    scale_f = scale_f / int_arithmetic_shift;
 
   __m128i half = _mm_set1_epi16((short)half_pixel_offset);
   __m128i limit = _mm_set1_epi16((short)max_pixel_value_target);
@@ -255,9 +256,8 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
     round_mask_plus_offset_out_scaled_i = ROUNDER / ROUND_SCALE;
     round_mask_plus_offset_out_chroma_scaled_i = ROUNDER / ROUND_SCALE;
 
-    // 32-bit post-conversion adds offset in float domain, this is why it's 0 for final_is_float
-    const int offset_out_for_patch = final_is_float ? 0 : (offset_out_scalar << INT_ARITH_SHIFT);
-    const int chroma_offset_out_for_patch = final_is_float ? 0 : (half_pixel_offset << INT_ARITH_SHIFT);
+    const int offset_out_for_patch = offset_out_scalar << INT_ARITH_SHIFT;
+    const int chroma_offset_out_for_patch = half_pixel_offset << INT_ARITH_SHIFT;
 
     if constexpr (lessthan16bit) {
       // 8-14 bit
@@ -323,7 +323,6 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
     }
   }
 
-  const __m128 out_offset_f_sse2 = _mm_set1_ps(out_offset_f);
   __m128i zero = _mm_setzero_si128();
   const __m128 scale_f_sse2 = _mm_set1_ps(scale_f);
 
@@ -604,17 +603,12 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
         __m128i vr_lo = _mm_unpacklo_epi16(in2, m128i_round_scale);
         __m128i vr_hi = _mm_unpackhi_epi16(in2, m128i_round_scale);
 
-        auto process_plane = [&](BYTE* plane_ptr, __m128i m_uy, __m128i m_vr, __m128i v_patch, auto apply_float_offset_out) {
+        auto process_plane = [&](BYTE* plane_ptr, __m128i m_uy, __m128i m_vr, __m128i v_patch) {
           XP_LAMBDA_CAPTURE_FIX(limit);
-          // Note: v_patch is already set to the right 32 or 64 bits width based on final_is_float and lessthan16bit
+          // Note: v_patch is already set to the right 32 or 64 bits width based on lessthan16bit
           auto madd_scale = [&](__m128i uy, __m128i vr) {
             XP_LAMBDA_CAPTURE_FIX(v_patch); XP_LAMBDA_CAPTURE_FIX(target_shift);
             __m128i sum = _mm_add_epi32(_mm_madd_epi16(m_uy, uy), _mm_madd_epi16(m_vr, vr));
-#ifdef XP_TLS
-            if (!final_is_float)
-#else
-            if constexpr (!final_is_float)
-#endif
             {
               // this one needs to be in sse2, sign extension needed for epi32->64
               __m128i sum_lo, sum_hi;
@@ -668,33 +662,14 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
                 ));
               }
             }
-            else {
-              // no 64-bit needed, no overflow danger in pivot, since no U and V integer offset which is the cause of overflow.
-              sum = _mm_add_epi32(sum, v_patch);
-            }
             return sum;
             };
 
           __m128i res_lo = madd_scale(uy_lo, vr_lo);
           __m128i res_hi = madd_scale(uy_hi, vr_hi);
 
-#ifdef XP_TLS
-          if (final_is_float) {
-#else
-          if constexpr (final_is_float) {
-#endif
-            const int pix_idx = x / sizeof(pixel_t);
-            float* f_dst = reinterpret_cast<float*>(plane_ptr) + pix_idx;
-            auto store_block = [&](float* ptr, __m128i b, auto apply_float_offset_out) {
-              __m128 result = _mm_mul_ps(_mm_cvtepi32_ps(b), scale_f_sse2);
-              if (apply_float_offset_out)
-                result = _mm_add_ps(result, out_offset_f_sse2);
-              _mm_store_ps(ptr, result);
-              };
-            store_block(f_dst, res_lo, apply_float_offset_out);
-            store_block(f_dst + 4, res_hi, apply_float_offset_out);
-          }
-          else {
+          // integer output only, float output always takes the float workflow
+          {
             const int pix_idx = x * sizeof(pixel_t_dst) / sizeof(pixel_t);
             if constexpr (sizeof(pixel_t_dst) == 1) {
               __m128i p = _mm_packs_epi32(res_lo, res_hi);
@@ -716,16 +691,14 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
           };
 
         // Process planes, using pre-packed coefficient, and the 16 bit patch if needed
-        process_plane(dstp[0], m_uy_G, m_vr_G, v_patch_G, true /* apply_float_offset_out */);
-        // only Y,R,G,B needs it uniformly, so for YUV, we call it with false
-        // last param: apply_float_offset_out
+        process_plane(dstp[0], m_uy_G, m_vr_G, v_patch_G);
         if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::RGB_TO_RGB) {
-          process_plane(dstp[1], m_uy_B, m_vr_B, v_patch_B, true);
-          process_plane(dstp[2], m_uy_R, m_vr_R, v_patch_R, true);
+          process_plane(dstp[1], m_uy_B, m_vr_B, v_patch_B);
+          process_plane(dstp[2], m_uy_R, m_vr_R, v_patch_R);
         }
         else if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::YUV_TO_YUV) {
-          process_plane(dstp[1], m_uy_B, m_vr_B, v_patch_B, false);
-          process_plane(dstp[2], m_uy_R, m_vr_R, v_patch_R, false);
+          process_plane(dstp[1], m_uy_B, m_vr_B, v_patch_B);
+          process_plane(dstp[2], m_uy_R, m_vr_R, v_patch_R);
         }
         else if constexpr (direction != ConversionDirection::RGB_TO_Y) {
           // no other planes
@@ -796,7 +769,7 @@ void convert_yuv_to_planarrgb_sse2(BYTE* (&dstp)[3], int(&dstPitch)[3], const BY
           convert_yuv_to_planarrgb_sse2_internal<direction, pixel_t_src, lessthan16bit, false, uint16_t, YuvRgbConversionType::BITCONV_INT_LIMITED>(dstp, dstPitch, srcp, srcPitch, width, height, m, bits_per_pixel, bits_per_pixel_target);
       }
       else { // 32 bit float target
-        convert_yuv_to_planarrgb_sse2_internal<direction, pixel_t_src, lessthan16bit, false, float, YuvRgbConversionType::FLOAT_OUTPUT>(dstp, dstPitch, srcp, srcPitch, width, height, m, bits_per_pixel, bits_per_pixel_target);
+        convert_yuv_to_planarrgb_sse2_internal<direction, pixel_t_src, lessthan16bit, false, float, YuvRgbConversionType::FORCE_FLOAT>(dstp, dstPitch, srcp, srcPitch, width, height, m, bits_per_pixel, bits_per_pixel_target);
       }
     }
   }
