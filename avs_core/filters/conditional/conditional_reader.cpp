@@ -629,9 +629,13 @@ Write::Write(PClip _child, const char* _filename, AVSValue args, int _linecheck,
   }
 #else
   {
+    // As GetFullPathName: "." and ".." are folded in the text (lexically_normal), the folders need not exist.
+    // fs::absolute only prepends the current directory, "nodir/../x" could not be opened then.
     std::error_code ec;
     fs::path full = fs::absolute(fs::path(_filename), ec);
-    filename = ec ? std::string(_filename) : full.string();
+    if (ec || full.empty())
+      env->ThrowError("Write: invalid file name '%s'.", _filename);
+    filename = full.lexically_normal().string();
   }
 #endif
 

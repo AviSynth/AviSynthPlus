@@ -114,9 +114,11 @@ Bugfixes, bugs in normal use:
   realpath, which fails for a file that does not exist yet; the name then stayed relative. With flush=true (the
   default) the file is reopened at each frame, and by then the current directory is the host's again (Import sets it
   to the script's folder only while the script is parsed), so the lines went to a file in another folder.
-  Now std::filesystem::absolute is used, which does not need the file to exist (on Windows GetFullPathName, as
-  _fullpath did). Windows: an invalid or too long name was not checked (_fullpath result ignored, the name buffer
-  stayed unset), now an error "Write: invalid file name"; the _MAX_PATH limit is gone.
+  Now std::filesystem::absolute + lexically_normal is used, which does not need the file to exist, and folds "."
+  and ".." in the text as GetFullPathName does on Windows (so "nodir/../log.txt" works there too, the folders need
+  not exist). An empty or invalid name gives "Write: invalid file name" on both. Windows: GetFullPathName, as
+  _fullpath did, but an invalid or too long name was not checked (_fullpath result ignored, the name buffer
+  stayed unset); the _MAX_PATH limit is gone.
   Existed since 3.5.0 (Linux support).
 - Fix: Import of a script whose full path is exactly 260 characters long, or of a long UNC path, failed with
   "Import: couldn't open". The \\?\ long path prefix was added only above FILENAME_MAX (260) characters, but

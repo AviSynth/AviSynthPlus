@@ -72,8 +72,8 @@ Bugs in normal use
   back, the plugin's folder no longer stays in the host's search path. Regression since 3.7.6.
 - Fix: WriteFile, WriteFileIf, WriteFileStart, WriteFileEnd on Linux/macOS: a relative name of a file which did not
   exist yet stayed relative; with ``flush=true`` (the default) the file is reopened at each frame, when the current
-  directory is the host's again, so the lines went to another folder. Now the name is made absolute as on Windows.
-  On Windows an invalid or too long name gives an error. Existed since 3.5.0 (Linux support).
+  directory is the host's again, so the lines went to another folder. Now the name is made absolute as on Windows,
+  ``.`` and ``..`` folded in the text. An empty, invalid or (Windows) too long name gives an error. Existed since 3.5.0 (Linux support).
 - Fix: Import of a script whose full path is exactly 260 characters long, or a UNC path (``\\server\share\...``)
   of 260 or more, failed with "couldn't open": the long path prefix was not added, or was wrong for UNC.
   Existed since 3.7.0 (long path support).
