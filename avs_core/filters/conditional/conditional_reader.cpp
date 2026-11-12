@@ -33,6 +33,7 @@
 #include <avs/minmax.h>
 #include "../core/parser/scriptparser.h"
 #include "../core/AVSMap.h"
+#include <avs/filesystem.h>
 #include <iostream>
 #include <sstream>
 #include <iomanip>
@@ -614,21 +615,28 @@ Write::Write(PClip _child, const char* _filename, AVSValue args, int _linecheck,
   InternalEnvironment* IEnv = GetAndRevealCamouflagedEnv(env_);
   IScriptEnvironment* env = static_cast<IScriptEnvironment*>(IEnv);
 
+  // Absolute path: with flush=true the file is reopened at each frame, when the current directory
+  // may be another one (Import sets it to the script's folder only while the script is parsed).
+  // The file need not exist yet (realpath required it, so a new file stayed relative).
 #ifdef AVS_WINDOWS
-  _fullpath(filename, _filename, _MAX_PATH);
+  {
+    DWORD len = GetFullPathNameA(_filename, 0, NULL, NULL); // with the terminating zero
+    std::string full(len, '\0');
+    if (len == 0 || GetFullPathNameA(_filename, len, &full[0], NULL) >= len)
+      env->ThrowError("Write: invalid file name '%s'.", _filename);
+    full.resize(strlen(full.c_str()));
+    filename = full;
+  }
 #else
-  // Use realpath and handle possible failure to avoid unused-result warning.
-  if (realpath(_filename, filename) == NULL) {
-    // Fallback: copy original input path into filename safely.
-    size_t len = strlen(_filename);
-    if (len >= sizeof(filename)) len = sizeof(filename) - 1;
-    memcpy(filename, _filename, len);
-    filename[len] = '\0';
+  {
+    std::error_code ec;
+    fs::path full = fs::absolute(fs::path(_filename), ec);
+    filename = ec ? std::string(_filename) : full.string();
   }
 #endif
 
-  fout = fopen(filename, append ? AplusT : WplusT); //append or purge file
-  if (!fout) env->ThrowError("Write: File '%s' cannot be opened.", filename);
+  fout = fopen(filename.c_str(), append ? AplusT : WplusT); //append or purge file
+  if (!fout) env->ThrowError("Write: File '%s' cannot be opened.", filename.c_str());
 
   if (flush) fclose(fout);	//will be reopened in FileOut
 
@@ -730,9 +738,9 @@ Write::~Write(void) {
 void Write::FileOut(IScriptEnvironment* env, const char* mode) {
   int i;
   if (flush) {
-    fout = fopen(filename, mode);
+    fout = fopen(filename.c_str(), mode);
     if (!fout) {
-      if (env) env->ThrowError("Write: File '%s' cannot be opened.", filename);
+      if (env) env->ThrowError("Write: File '%s' cannot be opened.", filename.c_str());
       return;
     }
   }

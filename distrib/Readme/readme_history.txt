@@ -110,6 +110,14 @@ Bugfixes, bugs in normal use:
   The DLL search directory is now always set back after loading. It stayed the plugin's folder when the host had
   none set (the usual case); now it becomes "" then, which keeps a host's SetDllDirectory("") (e.g. ffmpeg).
   Regression since 3.7.6; 3.7.5 loaded them by the ANSI path.
+- Fix: WriteFile, WriteFileIf, WriteFileStart, WriteFileEnd on Linux/macOS: the file name was made absolute with
+  realpath, which fails for a file that does not exist yet; the name then stayed relative. With flush=true (the
+  default) the file is reopened at each frame, and by then the current directory is the host's again (Import sets it
+  to the script's folder only while the script is parsed), so the lines went to a file in another folder.
+  Now std::filesystem::absolute is used, which does not need the file to exist (on Windows GetFullPathName, as
+  _fullpath did). Windows: an invalid or too long name was not checked (_fullpath result ignored, the name buffer
+  stayed unset), now an error "Write: invalid file name"; the _MAX_PATH limit is gone.
+  Existed since 3.5.0 (Linux support).
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
   10-16 bit or 32 bit float YUVA, or ConvertToPlanarRGBA(bits=8).
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:

@@ -89,11 +89,7 @@ private:
   bool append;
   bool local;
 
-#ifdef AVS_WINDOWS
-  char filename[_MAX_PATH];
-#else
-  char filename[PATH_MAX];
-#endif
+  std::string filename; // absolute path
   int arrsize;
   struct exp_res {
     AVSValue expression;

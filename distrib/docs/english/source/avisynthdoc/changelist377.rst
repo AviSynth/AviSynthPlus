@@ -70,6 +70,10 @@ Bugs in normal use
   ``C:\Users\Pintér\``) failed with "Cannot load file ... code 126" on a non-UTF-8 ANSI code page, also with
   ``utf8=true``. The UTF-8 path was passed to the ANSI Windows API. After loading, the DLL search directory is set
   back, the plugin's folder no longer stays in the host's search path. Regression since 3.7.6.
+- Fix: WriteFile, WriteFileIf, WriteFileStart, WriteFileEnd on Linux/macOS: a relative name of a file which did not
+  exist yet stayed relative; with ``flush=true`` (the default) the file is reopened at each frame, when the current
+  directory is the host's again, so the lines went to another folder. Now the name is made absolute as on Windows.
+  On Windows an invalid or too long name gives an error. Existed since 3.5.0 (Linux support).
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ``ConvertToRGB32`` from
   10-16 bit or 32 bit float YUVA, or ``ConvertToPlanarRGBA(bits=8)``. Existed since 3.7.6.
 - Fix: YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit to 32 bit float, AVX2: memory
