@@ -152,49 +152,46 @@ std::unique_ptr<char[]> AnsiToUtf8(const char* input)
   return s_utf8;
 }
 
+// Converts wlen wide chars (-1: up to and including the \0) to code page cp.
+// The output size is asked first: a DBCS ANSI code page (932/936/949/950) or UTF-8
+// may need more bytes than wide chars. The result is always \0 terminated.
+// Characters not in an ANSI code page are replaced by '?'.
+// (wcstombs is no good: it stops at the first non-convertible character.)
+static std::unique_ptr<char[]> WideCharToCodePage(UINT cp, const wchar_t* w_string, int wlen)
+{
+  int len = wlen == 0 ? 0 : WideCharToMultiByte(cp, 0, w_string, wlen, NULL, 0, NULL, NULL);
+  if (len < 0) len = 0;
+  auto s = std::make_unique<char[]>((size_t)len + 1);
+  if (len > 0)
+    len = WideCharToMultiByte(cp, 0, w_string, wlen, s.get(), len, NULL, NULL);
+  s[len] = 0;
+  return s;
+}
+
 std::unique_ptr<char[]> WideCharToUtf8(const wchar_t* w_string)
 {
-  const auto utf8len = WideCharToMultiByte(CP_UTF8, 0, w_string, -1, NULL, 0, 0, 0) - 1; // w/o the \0 terminator
-  auto s_utf8 = std::make_unique<char[]>(utf8len + 1);
-  WideCharToMultiByte(CP_UTF8, 0, w_string, -1, s_utf8.get(), (int)utf8len + 1, 0, 0);
-  return s_utf8;
+  return WideCharToCodePage(CP_UTF8, w_string, -1);
 }
 
 std::unique_ptr<char[]> WideCharToAnsi(const wchar_t* w_string)
 {
-  const auto len = wcslen(w_string);
-  auto s_ansi = std::make_unique<char[]>(len + 1);
-  WideCharToMultiByte(AreFileApisANSI() ? CP_ACP : CP_OEMCP, 0, w_string, -1, s_ansi.get(), (int)len + 1, NULL, NULL); // replaces out-of-CP chars by ?
-  // int succ = wcstombs(s_ansi, w_string, len +1);
-  // no good, stops at non-replacable unicode chars. If wcstombs encounters a wide character it cannot convert to a multibyte character, it returns 1 cast to type size_t and sets errno to EILSEQ.
-  return s_ansi;
+  return WideCharToCodePage(AreFileApisANSI() ? CP_ACP : CP_OEMCP, w_string, -1);
 }
 
 std::unique_ptr<char[]> WideCharToAnsiACP(const wchar_t* w_string)
 {
-  const auto len = wcslen(w_string);
-  auto s_ansi = std::make_unique<char[]>(len + 1);
-  WideCharToMultiByte(CP_ACP, 0, w_string, -1, s_ansi.get(), (int)len + 1, NULL, NULL); // replaces out-of-CP chars by ?
-  // int succ = wcstombs(s_ansi, w_string, len +1);
-  // no good, stops at non-replacable unicode chars. If wcstombs encounters a wide character it cannot convert to a multibyte character, it returns 1 cast to type size_t and sets errno to EILSEQ.
-  return s_ansi;
+  return WideCharToCodePage(CP_ACP, w_string, -1);
 }
 
+// converts the first maxn wide chars
 std::unique_ptr<char[]> WideCharToUtf8_maxn(const wchar_t* w_string, size_t maxn)
 {
-  const auto utf8len = WideCharToMultiByte(CP_UTF8, 0, w_string, (int)maxn, NULL, 0, 0, 0); // no \0 terminator check requested here
-  auto s_utf8 = std::make_unique<char[]>(utf8len + 1);
-  WideCharToMultiByte(CP_UTF8, 0, w_string, -1, s_utf8.get(), utf8len, 0, 0);
-  s_utf8[utf8len] = 0;
-  return s_utf8;
+  return WideCharToCodePage(CP_UTF8, w_string, (int)maxn);
 }
 
 std::unique_ptr<char[]> WideCharToAnsi_maxn(const wchar_t* w_string, size_t maxn)
 {
-  auto s_ansi = std::make_unique<char[]>(maxn + 1);
-  WideCharToMultiByte(AreFileApisANSI() ? CP_ACP : CP_OEMCP, 0, w_string, -1, s_ansi.get(), (int)maxn, NULL, NULL); // replaces out-of-CP chars by ?
-  s_ansi[maxn] = 0;
-  return s_ansi;
+  return WideCharToCodePage(AreFileApisANSI() ? CP_ACP : CP_OEMCP, w_string, (int)maxn);
 }
 
 std::unique_ptr<wchar_t[]> AnsiToWideChar(const char* s_ansi)

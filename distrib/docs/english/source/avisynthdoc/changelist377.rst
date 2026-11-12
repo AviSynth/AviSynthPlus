@@ -58,6 +58,14 @@ Bugs in normal use
 - Fix #462 (part 2): autoload of ``.avsi`` files with non-ASCII names (e.g. Hungarian or Japanese characters) failed
   with "Import: couldn't open" on a non-UTF-8 ANSI code page. Regression since 3.7.6; 3.7.5 crashed on names
   outside the ANSI code page. (`issue #462 <https://github.com/AviSynth/AviSynthPlus/issues/462>`_)
+- Fix: ``ScriptDir``, ``ScriptName``, ``ScriptFile`` (and ``$ScriptDir$`` etc.) and ``StrFromUtf8`` were cut short, or
+  had garbage at the end, when the text had non-ASCII characters and the ANSI code page is multibyte: Chinese, Japanese,
+  Korean Windows (code pages 936, 950, 932, 949), or the Windows "Beta: Use Unicode UTF-8" setting or a host with UTF-8
+  manifest (65001, then accented letters are enough: for ``C:\Videók\próba.avs`` ``ScriptDir`` gave ``C:\Videók``
+  without the closing backslash, ``ScriptName`` ``C:\Videók\próba.avx``). An ANSI character can take 2 bytes (DBCS) or
+  up to 3 bytes (UTF-8) for one UTF-16 character, the buffer was sized for one byte each. The ``*Utf8`` variants were
+  correct.
+  Existed since AviSynth+ r2487 (2017).
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ``ConvertToRGB32`` from
   10-16 bit or 32 bit float YUVA, or ``ConvertToPlanarRGBA(bits=8)``. Existed since 3.7.6.
 - Fix: YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit to 32 bit float, AVX2: memory

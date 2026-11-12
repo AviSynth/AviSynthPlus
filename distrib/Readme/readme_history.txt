@@ -84,6 +84,23 @@ Bugfixes, bugs in normal use:
   or the system-wide UTF-8 setting) it worked. Regression since 3.7.6.
   3.7.5 handled names that fit the ANSI code page, but crashed the host on any other (unhandled exception in the
   file name conversion), also when the script did not use that .avsi. Now any name works on any code page.
+- Fix: ScriptDir(), ScriptName(), ScriptFile() (and $ScriptDir$, $ScriptName$, $ScriptFile$) and StrFromUtf8 were cut
+  short, or had garbage at the end, when the text had non-ASCII characters and the ANSI code page is multibyte.
+  Affected: Chinese, Japanese, Korean Windows (ANSI code page 936, 950, 932, 949: DBCS, 1 or 2 bytes per character);
+  Windows with "Beta: Use Unicode UTF-8 for worldwide language support" or a host exe with a UTF-8 activeCodePage
+  manifest (code page 65001: 1 to 3 bytes per character, so accented letters are enough).
+  Reason: the wide (UTF-16) to ANSI conversion sized its buffer as one byte per UTF-16 character, which holds only for
+  single-byte code pages (1250, 1252 ...). When the text did not fit, WideCharToMultiByte failed after filling the whole
+  buffer, leaving the string cut and without a terminating zero. Now the needed size is asked first
+  (WideCharToCodePage in strings.cpp, used by all WideCharToAnsi/Utf8 helpers).
+  E.g. ACP 65001, script "C:\Videók\próba.avs": ScriptDir() gave "C:\Videók" (no closing backslash, so
+  ScriptDir() + "x.avs" became "C:\Videókx.avs"), ScriptName() "C:\Videók\próba.avx" (the last byte came from
+  memory); ScriptFile() "próba.avs" was right only by luck (no terminating zero).
+  With Japanese (3 bytes per character in UTF-8) the cut is longer: script "...\テスト漢字ディレクトリ\試験.avs"
+  ("test kanji directory\test.avs"): ScriptDir() gave "...\テスト漢", ScriptName() "...\テスト漢字デ",
+  ScriptFile() "試験.", StrFromUtf8("テスト漢字") "テス".
+  The *Utf8 variants (ScriptDirUtf8 ...) and Import itself were correct.
+  Existed since AviSynth+ r2487 (2017, Unicode script names in Import; StrFromUtf8 since r2502).
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
   10-16 bit or 32 bit float YUVA, or ConvertToPlanarRGBA(bits=8).
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:
