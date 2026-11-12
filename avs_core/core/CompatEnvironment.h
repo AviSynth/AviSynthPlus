@@ -40,13 +40,15 @@
 // IScriptEnvironment_Avs25, IScriptEnvironment_AvsPreV11C are used internally.
 // Entries 100% match with IScriptEnvironment to allow typecasting to IScriptEnvironment_Avs25/AvsPreV11.
 // While IScriptEnvironment_Avs25 ends at interface V6 changes, PreV11C version is full copy of IScriptEnvironment.
-// Differences involve three functions:
+// Differences involve three functions and the GetVar family:
 // 1. AddFunction25/PreV11C: Marks the added function as originating from 
 //    an Avs2.5/PreV11C plugin, see also: arrays-deep-copy, 64-bit params.
 // 2. Invoke25/PreV11C: Argument arrays, which must not be deep-freed, 
 //    baked AVSValue code incompatible with deep-array concept and 64 bit data.
 // 3. ManageCache25/PreV11C: Specially returns 1 for key MC_QueryAvs25/PreV11C 
 //    to check if called from AVS2.5/PreV11C interface for cache GetFrame/GetAudio.
+// 4. GetVar25/PreV11C, GetVarDef25/PreV11C, GetVarTryPreV11C: the variable's 64 bit
+//    'l'ong and 'd'ouble values are returned as 'i'nt and 'f'loat, like Invoke25/PreV11C results.
 
 // See also: InternalEnvironment interface conversion methods comment.
 
@@ -79,7 +81,7 @@ public:
   virtual bool __stdcall FunctionExists(const char* name) = 0;
   virtual AVSValue __stdcall Invoke25(const char* name, const AVSValue args, const char* const* arg_names = 0) = 0;
 
-  virtual AVSValue __stdcall GetVar(const char* name) = 0;
+  virtual AVSValue __stdcall GetVar25(const char* name) = 0;
   virtual bool __stdcall SetVar(const char* name, const AVSValue& val) = 0;
   virtual bool __stdcall SetGlobalVar(const char* name, const AVSValue& val) = 0;
 
@@ -130,14 +132,14 @@ public:
 
   // **** AVISYNTH_INTERFACE_VERSION 6 **** defined since classic Avisynth 2.6
   // noThrow version of GetVar
-  virtual AVSValue __stdcall GetVarDef(const char* name, const AVSValue& def = AVSValue()) = 0;
+  virtual AVSValue __stdcall GetVarDef25(const char* name, const AVSValue& def = AVSValue()) = 0;
 
 }; // end class IScriptEnvironment_Avs25. Order is important.
 
 
 // Unlike IScriptEnvironment_Avs25 which ends at the V6 changes,
 // IScriptEnvironment_AvsPreV11C is a complete copy of IScriptEnvironment, 
-// except the name of the above mentioned three methods.
+// except the name of the above mentioned methods.
 class IScriptEnvironment_AvsPreV11C {
 public:
   virtual ~IScriptEnvironment_AvsPreV11C() {}
@@ -162,7 +164,7 @@ public:
   virtual bool __stdcall FunctionExists(const char* name) = 0;
   virtual AVSValue __stdcall InvokePreV11C(const char* name, const AVSValue args, const char* const* arg_names = 0) = 0;
 
-  virtual AVSValue __stdcall GetVar(const char* name) = 0;
+  virtual AVSValue __stdcall GetVarPreV11C(const char* name) = 0;
   virtual bool __stdcall SetVar(const char* name, const AVSValue& val) = 0;
   virtual bool __stdcall SetGlobalVar(const char* name, const AVSValue& val) = 0;
 
@@ -210,7 +212,7 @@ public:
 
   // **** AVISYNTH_INTERFACE_VERSION 6 **** defined since classic Avisynth 2.6
   // noThrow version of GetVar
-  virtual AVSValue __stdcall GetVarDef(const char* name, const AVSValue& def = AVSValue()) = 0;
+  virtual AVSValue __stdcall GetVarDefPreV11C(const char* name, const AVSValue& def = AVSValue()) = 0;
 
 
   // **** AVISYNTH_INTERFACE_VERSION 8 **** AviSynth+ 3.6.0-
@@ -264,7 +266,7 @@ public:
   // these GetVar versions (renamed differently) were moved from IScriptEnvironment2
 
   // Returns TRUE and the requested variable. If the method fails, returns FALSE and does not touch 'val'.
-  virtual bool  __stdcall GetVarTry(const char* name, AVSValue* val) const = 0; // ex virtual bool  __stdcall GetVar(const char* name, AVSValue* val) const = 0;
+  virtual bool  __stdcall GetVarTryPreV11C(const char* name, AVSValue* val) const = 0; // ex virtual bool  __stdcall GetVar(const char* name, AVSValue* val) const = 0;
   // Return the value of the requested variable.
   // If the variable was not found or had the wrong type,
   // return the supplied default value.

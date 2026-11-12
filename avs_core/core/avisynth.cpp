@@ -1487,6 +1487,46 @@ public:
       return def;
   }
 
+  // GetVar variants of the 2.5 and pre-V11 C interfaces. These plugins don't know
+  // 'l'ong and 'd'ouble: a variable holding one is returned as 'i'nt and 'f'loat,
+  // like an Invoke25/InvokePreV11C result. The value is our own copy, converted in place.
+  // 2.5: top level only, like Invoke25. PreV11C: array elements at any depth.
+  AVSValue __stdcall GetVar25(const char* name)
+  {
+    AVSValue val = GetVar(name);
+    ValueTo32bit(val, false);
+    return val;
+  }
+
+  AVSValue __stdcall GetVarDef25(const char* name, const AVSValue& def)
+  {
+    AVSValue val = GetVarDef(name, def);
+    ValueTo32bit(val, false);
+    return val;
+  }
+
+  AVSValue __stdcall GetVarPreV11C(const char* name)
+  {
+    AVSValue val = GetVar(name);
+    ValueTo32bit(val, true);
+    return val;
+  }
+
+  AVSValue __stdcall GetVarDefPreV11C(const char* name, const AVSValue& def)
+  {
+    AVSValue val = GetVarDef(name, def);
+    ValueTo32bit(val, true);
+    return val;
+  }
+
+  bool __stdcall GetVarTryPreV11C(const char* name, AVSValue* val) const
+  {
+    if (!GetVarTry(name, val))
+      return false;
+    ValueTo32bit(*val, true);
+    return true;
+  }
+
   bool __stdcall GetVarBool(const char* name, bool def) const
   {
     if (DISPATCH(closing)) return false;  // We easily risk  being inside the critical section below, while deleting variables.

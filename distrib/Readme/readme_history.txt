@@ -282,6 +282,13 @@ Bugfixes, crash or hang on unusual parameters or input:
   hosts like avs2yuv or FFmpeg fail, so the cut was skipped on Haiku and PROGRAMDIR stayed empty. Now the cut is
   guarded on all systems: a program path which cannot be read gives an empty PROGRAMDIR instead of the exception.
   Haiku: written from the Haiku API reference and headers (FindDirectory.h), not built or tested.
+- Fix: AviSynth 2.5 C++ plugins and C plugins before interface version 11 (and C hosts asking for a version below 11):
+  GetVar, GetVarDef (C API: avs_get_var, avs_get_var_try) returned a variable holding a 64 bit 'l'ong or 'd'ouble as
+  it is. These plugins don't know the two types: their own compiled-in IsInt/IsFloat (avs_is_int/avs_is_float) said no.
+  E.g. x = 3000000000, y = Pi(). Now 'i'nt and 'f'loat, the same conversion as for Invoke25/InvokePreV11C results;
+  C plugins: array elements at any depth as well, 2.5 plugins: the top level, like Invoke25.
+  Done in the compatibility interfaces (GetVar25/GetVarDef25, GetVarPreV11C/GetVarDefPreV11C/GetVarTryPreV11C).
+  Existed since 3.7.4.
 - Fix: RGBAdjust, ColorYUV analyze=true: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust analyze=true, planar RGB 32 bit float: crash on NaN pixels, which can come from Expr or from a NaN parameter.

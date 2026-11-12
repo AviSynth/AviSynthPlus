@@ -87,8 +87,8 @@ copy it as well. ``example_host.c`` and ``example_host.cpp`` in the same folder 
 entry points (both pass their value-support flag to a shared initializer) and the
 64 bit values. The parameter letters are the same for both entry points (``i``, ``f``; there are no ``l``,
 ``d`` letters): through ``avisynth_c_plugin_init2`` an ``i`` parameter may hold a long and an ``f`` parameter
-a double, and ``avs_invoke`` results keep them too; through ``avisynth_c_plugin_init`` AviSynth converts them
-to 32 bit int and float.
+a double, and ``avs_invoke`` results and variables (``avs_get_var``) keep them too; through
+``avisynth_c_plugin_init`` AviSynth converts them to 32 bit int and float.
 
 - ``avisynth_c_loader.hpp`` (C++17): the class ``avsc::Library``, for C++ hosts and plugins using the
   C API, the usual case (the C API keeps them independent of the compiler AviSynth was built with).
@@ -488,7 +488,8 @@ Otherwise ``avisynth_c_plugin_init`` is called and the plugin is marked pre-V11.
   - 64 bit aware plugin: the full environment, double and long values are passed as they are.
   - pre-V11 plugin: a camouflaged pre-V11 environment. The function arguments are converted (long to
     32 bit int, double to float), array elements included, also when the function is called at
-    runtime (e.g. from ScriptClip); ``avs_invoke`` results through this environment as well (3.7.6).
+    runtime (e.g. from ScriptClip); ``avs_invoke`` results through this environment as well (3.7.6),
+    and variables read with ``avs_get_var`` and ``avs_get_var_try`` (3.7.7).
 
 - AviSynth V10 and below (3.7.3 and older) does not know ``avisynth_c_plugin_init2``, calls only
   ``avisynth_c_plugin_init``, and has no 64 bit values at all.

@@ -196,6 +196,10 @@ loop. Most need an unusual parameter or input.
   ``FILENAME_MAX`` instead of ``PATH_MAX``; they differ on some systems (e.g. Haiku), not on Linux and macOS.
 - Haiku: ``PROGRAMDIR`` in ``AddAutoloadDir`` is the program's folder; it was empty. A program path which cannot be
   read gives an empty ``PROGRAMDIR`` on any system, it threw ``std::out_of_range`` before.
+- Fix: AviSynth 2.5 plugins and C plugins before interface version 11: ``GetVar``, ``GetVarDef`` (C: ``avs_get_var``,
+  ``avs_get_var_try``) returned a variable holding a 64 bit ``long`` or ``double`` as it is, a type these plugins
+  don't know. Now ``int`` and ``float``, as ``Invoke`` results already were; C plugins: array elements as well.
+  Existed since 3.7.4.
 - Fix: RGBAdjust, ColorYUV ``analyze=true``: stack buffer overflow in the text of the statistics on very large float pixel
   values or on only NaN pixels.
 - Fix: RGBAdjust ``analyze=true``, planar RGB 32 bit float: crash on NaN pixels, which can come from ``Expr`` or from a NaN parameter.
