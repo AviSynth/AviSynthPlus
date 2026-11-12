@@ -338,6 +338,12 @@ Bugfixes, undefined behaviour, NaN parameters, cosmetics:
   e.g. Format("{}", Pow(2.0, -24)): was 5.9604644775390625e-08, now 5.960464477539063e-08
   Below a power of two the representable values are half as far apart, so the nearest decimal can miss the
   narrower lower half interval while the next decimal up reads back. Now that one is tried as well.
+- Planar YUV <-> RGB matrix conversions, float workflow (quality=true, full range, 16 bit RGB to YUV/Y, float
+  sources): the C path uses the coefficients pre-multiplied by the scale and the summation order of SSE2:
+  ((k0*a + offset) + k1*b) + k2*c, instead of (c0*a + c1*b + c2*c)*scale + offset. Without FMA contraction C and
+  SSE2/SSE4 are bit identical (x64 GCC, 432 test cases); before, they differed by 1 LSB at rounding ties.
+  AVX2 and aarch64 builds (FMA contraction by the compiler) can still differ at ties.
+  Why: C vs SIMD comparison tests no longer show these 1 LSB differences.
 
 Optimizations:
 - Optimization: Text and Subtitle(gdi=false): non-fading luma loops skip empty bitmap bytes; chroma walks only the

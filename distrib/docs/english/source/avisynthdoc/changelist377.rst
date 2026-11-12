@@ -240,6 +240,8 @@ tested platforms. Found by UndefinedBehaviorSanitizer (UBSan) builds.
   more than needed for a few powers of two: 37 of the 2098 double and 3 of the 277 float powers of two,
   e.g. 2^-24 gave ``5.9604644775390625e-08`` (17 digits) instead of ``5.960464477539063e-08``. The value
   read back exactly; only the last digit was superfluous. Existed since 3.7.6.
+- Planar YUV <-> RGB conversions, float inside calculation (``quality=true``, full range, 16 bit RGB to YUV, float
+  sources): the C path computes in the same order as SSE2 (pre-scaled coefficients), so C vs SIMD tests compare clean.
 
 Optimizations
 ~~~~~~~~~~~~~

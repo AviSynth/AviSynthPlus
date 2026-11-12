@@ -680,6 +680,32 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
     round_mask_plus_offset_out_chroma_i = final_is_float ? 0 : ROUNDER + (half_pixel_offset << INT_ARITH_SHIFT);
   }
 
+  // Float workflow: coefficients pre-multiplied by scale_f, output offsets scaled, summed in the same
+  // order as SSE2: ((k0*in0 + offset) + k1*in1) + k2*in2. Bit identical to SSE2 (AVX2 may fuse to FMA).
+  // kN_M: output N, input M. Inputs: Y,U,V for YUV sources, G,B,R for RGB sources.
+  float k0_0 = 0, k0_1 = 0, k0_2 = 0, k1_0 = 0, k1_1 = 0, k1_2 = 0, k2_0 = 0, k2_1 = 0, k2_2 = 0;
+  float off0_f = 0, off1_f = 0, off2_f = 0;
+  if constexpr (float_matrix_workflow) {
+    if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::YUV_TO_YUV) {
+      k0_0 = m.y_g_f * scale_f; k0_1 = m.u_g_f * scale_f; k0_2 = m.v_g_f * scale_f; // G or Y
+      k1_0 = m.y_b_f * scale_f; k1_1 = m.u_b_f * scale_f; k1_2 = m.v_b_f * scale_f; // B or U
+      k2_0 = m.y_r_f * scale_f; k2_1 = m.u_r_f * scale_f; k2_2 = m.v_r_f * scale_f; // R or V
+    }
+    else { // RGB_TO_YUV, RGB_TO_RGB, RGB_TO_Y
+      k0_0 = m.y_g_f * scale_f; k0_1 = m.y_b_f * scale_f; k0_2 = m.y_r_f * scale_f; // Y or G
+      k1_0 = m.u_g_f * scale_f; k1_1 = m.u_b_f * scale_f; k1_2 = m.u_r_f * scale_f; // U or B
+      k2_0 = m.v_g_f * scale_f; k2_1 = m.v_b_f * scale_f; k2_2 = m.v_r_f * scale_f; // V or R
+    }
+    const float out_offset_scaled = m.offset_out_f * scale_f;
+    if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::RGB_TO_RGB) {
+      off0_f = off1_f = off2_f = out_offset_scaled; // RGB output: same offset for all
+    }
+    else { // YUV or Y output
+      off0_f = out_offset_scaled;
+      off1_f = off2_f = final_is_float ? 0.0f : (float)half_pixel_offset_target; // chroma center
+    }
+  }
+
   for (int y = 0; y < height; y++) {
     const pixel_t* src0 = reinterpret_cast<const pixel_t*>(srcp[0]); // Y or G
     const pixel_t* src1 = reinterpret_cast<const pixel_t*>(srcp[1]); // U or B
@@ -743,47 +769,11 @@ static void convert_yuv_to_planarrgb_c_internal(BYTE* dstp[3], int dstPitch[3], 
           }
         }
 
-        // Matrix multiply - coefficient order depends on direction
-        // Note: C is slightly different from Intel SIMD SSE2/AVX2 implementation:
-        // C is using (a+b+c)*scale, SIMD is using a*scale+b*scale+c*scale logic regarding the coeff scaling
-        // and summation. They may not be bit identical here in the float_matrix_workflow (e.g. fullrange destination)
-        if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::YUV_TO_YUV) {
-          // YUV input: in0=Y, in1=U, in2=V
-          out0_f = (m.y_g_f * in0_f + m.u_g_f * in1_f + m.v_g_f * in2_f) * scale_f; // G or Y
-          out1_f = (m.y_b_f * in0_f + m.u_b_f * in1_f + m.v_b_f * in2_f) * scale_f; // B or U
-          out2_f = (m.y_r_f * in0_f + m.u_r_f * in1_f + m.v_r_f * in2_f) * scale_f; // R or V
-        }
-        else if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::RGB_TO_RGB) {
-          // RGB input: in0=G, in1=B, in2=R
-          out0_f = (m.y_g_f * in0_f + m.y_b_f * in1_f + m.y_r_f * in2_f) * scale_f; // Y or G
-          out1_f = (m.u_g_f * in0_f + m.u_b_f * in1_f + m.u_r_f * in2_f) * scale_f; // U or B
-          out2_f = (m.v_g_f * in0_f + m.v_b_f * in1_f + m.v_r_f * in2_f) * scale_f; // V or R
-        }
-        else if constexpr (direction == ConversionDirection::RGB_TO_Y) {
-          // RGB input: in0=G, in1=B, in2=R
-          out0_f = (m.y_g_f * in0_f + m.y_b_f * in1_f + m.y_r_f * in2_f) * scale_f; // Y or G
-        }
-
-        // Add output offset
-        if constexpr (direction == ConversionDirection::YUV_TO_RGB || direction == ConversionDirection::RGB_TO_RGB) {
-          // RGB output: same offset for all
-          float rgb_offset_scaled = m.offset_out_f * scale_f;
-          out0_f += rgb_offset_scaled;
-          out1_f += rgb_offset_scaled;
-          out2_f += rgb_offset_scaled;
-        }
-        else if constexpr (direction == ConversionDirection::RGB_TO_YUV || direction == ConversionDirection::YUV_TO_YUV) {
-          // YUV output: different offsets
-          float y_offset_scaled = m.offset_out_f * scale_f;
-          float uv_center = final_is_float ? 0.0f : (float)half_pixel_offset_target;
-          out0_f += y_offset_scaled; // Y
-          out1_f += uv_center; // U
-          out2_f += uv_center; // V
-        }
-        else if constexpr (direction == ConversionDirection::RGB_TO_Y) {
-          // Y output: single Y offsets
-          float y_offset_scaled = m.offset_out_f * scale_f;
-          out0_f += y_offset_scaled; // Y
+        // Matrix multiply, same order as SSE2 (see the coefficient setup above)
+        out0_f = ((k0_0 * in0_f + off0_f) + k0_1 * in1_f) + k0_2 * in2_f;
+        if constexpr (direction != ConversionDirection::RGB_TO_Y) {
+          out1_f = ((k1_0 * in0_f + off1_f) + k1_1 * in1_f) + k1_2 * in2_f;
+          out2_f = ((k2_0 * in0_f + off2_f) + k2_1 * in1_f) + k2_2 * in2_f;
         }
 
         if constexpr (final_is_float) {
