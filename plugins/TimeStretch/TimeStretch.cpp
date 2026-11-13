@@ -237,7 +237,7 @@ AVSValue __cdecl CreateRational_SoundTouch(AVSValue args, void*, IScriptEnvironm
 }
 
 const AVS_Linkage * AVS_linkage = 0;
-extern "C" __declspec(dllexport) const char* __stdcall AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
+extern "C" AVS_PLUGIN_EXPORT const char* __stdcall AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
   AVS_linkage = vectors;
 
   // clip, base filename, start, end, image format/extension, info

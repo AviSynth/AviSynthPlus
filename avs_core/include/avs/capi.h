@@ -103,6 +103,17 @@
 
 #define AVSC_INLINE static __inline
 
+// Export of a plugin entry point (AvisynthPluginInit3, ...):
+//   extern "C" AVS_PLUGIN_EXPORT const char* __stdcall AvisynthPluginInit3(...)
+// Windows: __declspec(dllexport). POSIX: default symbol visibility, so the entry point stays
+// visible when the plugin is built with -fvisibility=hidden.
+// (Plain __declspec(dllexport) expands to nothing on POSIX, it still works for plugins built with default visibility.)
+#ifdef AVS_WINDOWS
+#  define AVS_PLUGIN_EXPORT __declspec(dllexport)
+#else
+#  define AVS_PLUGIN_EXPORT __attribute__((visibility("default")))
+#endif
+
 #ifdef BUILDING_AVSCORE
 #ifdef AVS_WINDOWS
 #  ifndef AVS_STATIC_LIB
@@ -113,12 +124,14 @@
 #  define AVSC_API(ret, name) AVS_EXTERN_C AVSC_EXPORT ret AVSC_CC name
 #  define AVSC_API_VARARGS(ret, name) AVS_EXTERN_C AVSC_EXPORT ret AVSC_CC_VARARGS name
 #else
-#  define AVSC_EXPORT AVS_EXTERN_C
-#  define AVSC_API(ret, name) AVS_EXTERN_C ret AVSC_CC name
-#  define AVSC_API_VARARGS(ret, name) AVS_EXTERN_C ret AVSC_CC_VARARGS name
+// POSIX: the core is built with hidden default visibility (see avs_core/CMakeLists.txt),
+// only the C API and CreateScriptEnvironment/CreateScriptEnvironment2 are exported, like on Windows.
+#  define AVSC_EXPORT AVS_EXTERN_C __attribute__((visibility("default")))
+#  define AVSC_API(ret, name) AVS_EXTERN_C __attribute__((visibility("default"))) ret AVSC_CC name
+#  define AVSC_API_VARARGS(ret, name) AVS_EXTERN_C __attribute__((visibility("default"))) ret AVSC_CC_VARARGS name
 #endif
 #else
-#  define AVSC_EXPORT AVS_EXTERN_C __declspec(dllexport)
+#  define AVSC_EXPORT AVS_EXTERN_C AVS_PLUGIN_EXPORT // C plugin entry points: avisynth_c_plugin_init, ...
 #  ifndef AVS_STATIC_LIB
 #    define AVSC_IMPORT __declspec(dllimport)
 #  else

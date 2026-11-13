@@ -26,7 +26,7 @@ Copyright (c) 2003, Klaus Post
 #include "supereq.h"
 
 const AVS_Linkage * AVS_linkage = 0;
-extern "C" __declspec(dllexport) const char* __stdcall AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
+extern "C" AVS_PLUGIN_EXPORT const char* __stdcall AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors) {
   AVS_linkage = vectors;
 
   env->AddFunction("SSRC", "ci[fast]b", Create_SSRC, 0);

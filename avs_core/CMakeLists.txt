@@ -87,6 +87,42 @@ endif()
 set_target_properties("AvsCore" PROPERTIES "OUTPUT_NAME" "${CoreName}")
 if (NOT WIN32)
   set_target_properties("AvsCore" PROPERTIES VERSION "${PROJECT_VERSION}" SOVERSION "${AVISYNTH_INTERFACE_VERSION}")
+  # Export only the C API and CreateScriptEnvironment/2 (AVSC_API in capi.h marks them), like the Windows DLL.
+  # Without this ~5000 symbols are exported by default (every non-static one: helpers like BitBlt,
+  # DrawString*, class methods, templates, AVS_linkage) and they would interpose the same symbols
+  # of plugins when a host loads the core with RTLD_GLOBAL.
+  set_target_properties("AvsCore" PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+  # ELF: a version script also drops what the compiler flags cannot hide (libstdc++ template instances
+  # from system headers with default visibility). Not for macOS (Mach-O, no GNU ld).
+  if (BUILD_SHARED_LIBS AND NOT APPLE)
+    # The export list is generated from the C API header: avisynth_c.h is the one place that says what is public.
+    # Regex on the declarations "AVSC_API(return type, avs_name)" and "AVSC_API_VARARGS(...)".
+    # Only names starting with avs_ are taken: this skips the macro placeholder "name" in comments.
+    set(AVS_C_HEADER "${CMAKE_CURRENT_SOURCE_DIR}/include/avisynth_c.h")
+    file(READ "${AVS_C_HEADER}" AVS_C_HEADER_TEXT)
+    string(REGEX MATCHALL "AVSC_API(_VARARGS)?\\([^,()]+,[ \t]*avs_[A-Za-z0-9_]+\\)" AVS_C_DECLS "${AVS_C_HEADER_TEXT}")
+    set(AVS_EXPORT_NAMES "")
+    foreach(DECL ${AVS_C_DECLS})
+      string(REGEX REPLACE ".*,[ \t]*(avs_[A-Za-z0-9_]+)\\)$" "\\1" FUNC_NAME "${DECL}")
+      list(APPEND AVS_EXPORT_NAMES "${FUNC_NAME}")
+    endforeach()
+    list(REMOVE_DUPLICATES AVS_EXPORT_NAMES)
+    list(LENGTH AVS_EXPORT_NAMES AVS_EXPORT_COUNT)
+    if (AVS_EXPORT_COUNT LESS 100)
+      message(FATAL_ERROR "Export list: only ${AVS_EXPORT_COUNT} C API functions found in ${AVS_C_HEADER}, the regex no longer matches")
+    endif()
+    set(AVS_MAP_TEXT "# Generated from avisynth_c.h by avs_core/CMakeLists.txt, do not edit.\n# Exported: the C API and the environment factories. Everything else is local.\n{\n  global:\n    CreateScriptEnvironment;\n    CreateScriptEnvironment2;\n")
+    foreach(FUNC_NAME ${AVS_EXPORT_NAMES})
+      string(APPEND AVS_MAP_TEXT "    ${FUNC_NAME};\n")
+    endforeach()
+    string(APPEND AVS_MAP_TEXT "  local:\n    *;\n};\n")
+    set(AVS_MAP_FILE "${CMAKE_CURRENT_BINARY_DIR}/avisynth.map")
+    file(WRITE "${AVS_MAP_FILE}" "${AVS_MAP_TEXT}")
+    message(STATUS "Export list: ${AVS_EXPORT_COUNT} C API functions + CreateScriptEnvironment/2")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${AVS_C_HEADER}")
+    set_property(TARGET "AvsCore" APPEND_STRING PROPERTY LINK_FLAGS " -Wl,--version-script=${AVS_MAP_FILE}")
+    set_property(TARGET "AvsCore" APPEND PROPERTY LINK_DEPENDS "${AVS_MAP_FILE}")
+  endif()
 endif()
 if (MINGW)
   if(BUILD_SHARED_LIBS)

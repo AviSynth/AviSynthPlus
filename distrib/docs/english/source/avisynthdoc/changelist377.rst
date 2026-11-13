@@ -20,6 +20,14 @@ Build environment, Interface
 - Fix: GCC build with LTO (link-time optimization) failed with "inlining failed in call to 'always_inline'
   ... target specific option mismatch" in the SSE4.1 Overlay/Layer mask row preparation (x86/x64).
   (`issue #531 <https://github.com/AviSynth/AviSynthPlus/issues/531>`_)
+- Linux/macOS: the core exports only the C API (``avs_*``) and ``CreateScriptEnvironment`` / ``CreateScriptEnvironment2``,
+  as the Windows DLL does (about 5000 symbols before). Hidden default symbol visibility, and on ELF platforms
+  (Linux, BSD) also a linker version script generated from ``avisynth_c.h``. Plugins no longer get the core's ``BitBlt``,
+  ``GetBitmapFont``, ``DrawString*``, ``UnQuote``, ``AVS_linkage`` etc. substituted for their own copies when a host
+  loads the core with ``RTLD_GLOBAL``.
+- New macro ``AVS_PLUGIN_EXPORT`` (``avs/capi.h``) for plugin entry points: ``__declspec(dllexport)`` on Windows,
+  default symbol visibility on POSIX, for plugins built with ``-fvisibility=hidden``. ``AVSC_EXPORT`` of C plugins
+  does the same. See :ref:`Exporting the plugin entry point <cplusplus_plugin_export>`.
 - Interface version 14.1 (``AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION`` 1), no API change: it marks the ``_Range`` /
   ``_ColorRange`` alias. C API loader: new ``has_at_least_v14_1``.
 - C API loader moved from the installed headers to the ``FilterSDK/c_loader`` samples (source: ``distrib/``).

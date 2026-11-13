@@ -715,6 +715,33 @@ table. This function takes four arguments: the name of the new script
 function; the parameter-type string; the C++ function implementing the
 script function; and the user_data cookie.
 
+.. _cplusplus_plugin_export:
+
+Exporting the plugin entry point
+""""""""""""""""""""""""""""""""
+
+``AvisynthPluginInit3`` must be visible in the dynamic symbol table of the plugin.
+From 3.7.7 ``avisynth.h`` defines the macro ``AVS_PLUGIN_EXPORT`` for it:
+::
+
+    extern "C" AVS_PLUGIN_EXPORT const char* __stdcall AvisynthPluginInit3(IScriptEnvironment* env, const AVS_Linkage* const vectors)
+
+- Windows: it is ``__declspec(dllexport)``.
+- Linux, macOS and other POSIX systems: it is ``__attribute__((visibility("default")))``.
+  Use it if the plugin is built with ``-fvisibility=hidden`` (CMake: ``CXX_VISIBILITY_PRESET hidden``), as a plugin
+  built that way would otherwise hide the entry point and AviSynth could not load it.
+
+The older spelling ``extern "C" __declspec(dllexport)`` (as in the samples below) still works on every platform.
+On POSIX ``__declspec(...)`` expands to nothing, so it has no effect on the visibility there:
+the plugin has to be built with the default (visible) symbol visibility.
+For the C interface, ``AVSC_EXPORT`` of ``avisynth_c.h`` does the same job
+(``avisynth_c_plugin_init`` and ``avisynth_c_plugin_init2``).
+
+Since 3.7.7 the AviSynth+ core itself on Linux and macOS exports only the C API (``avs_*``),
+``CreateScriptEnvironment`` and ``CreateScriptEnvironment2``. A plugin gets everything else through ``AVS_Linkage``
+and the ``IScriptEnvironment`` interface. Symbols such as ``BitBlt`` or ``AVS_linkage`` of the core were exported
+by earlier versions only because no symbol visibility was set; they are not part of the interface.
+
 The added function is of type AVSValue and can therefore return any
 AVSValue. Here are a few options how to return from the "added"
 function:
