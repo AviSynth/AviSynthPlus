@@ -87,6 +87,13 @@ For example,
 * ``AmplifydB(-20.0)`` is equivalent to  ``Amplify(0.1)``  (much softer)
 
 
+AmplifydB converts the dB value to a linear factor in double precision, rounded to float once. A dB
+value from :doc:`AudioStats <audiostats>` gives back the exact factor: these two are the same::
+
+    s = AudioStats(a)
+    a.AmplifydB(-s["peak_db"])     # peak to 0 dBFS
+    a.Amplify(1.0 / s["peak"])
+
 More examples:
 
 * ``AmplifydB(+3, 0)`` increases the volume of the left channel by a small amount.
@@ -97,6 +104,7 @@ More examples:
 
 * :doc:`Normalize <normalize>` - with *show=true*, can show the maximum
   amplification possible without `clipping`_.
+* :doc:`AudioStats <audiostats>` - peak, RMS and other levels as numbers, also per channel.
 * How the multichannels are mapped can be found in the description of
   :doc:`GetChannel <getchannel>`.
 
@@ -107,12 +115,36 @@ Changelog
 +-----------------+-----------------------------------------+
 | Version         | Changes                                 |
 +=================+=========================================+
+| AviSynth+ 3.7.7 | AmplifydB: the dB to factor conversion  |
+|                 | is calculated in double, see the table  |
+|                 | below.                                  |
++-----------------+-----------------------------------------+
 | AviSynth 2.5.7  | Fixed a small memory leak in Amplify(). |
 +-----------------+-----------------------------------------+
 | AviSynth 1.0.0  | Added Amplify and AmplifydB filters.    |
 +-----------------+-----------------------------------------+
 
-$Date: 2022/03/05 15:10:22 $
+AmplifydB precision, 3.7.7. A sine with the given peak, then ``AmplifydB(-AudioStats(a)["peak_db"])``,
+the resulting peak (should be 1.0):
+
++--------------+---------------------------+--------------------------+
+| Sine peak    | 3.7.6 (float pow)         | 3.7.7 (double pow)       |
++==============+===========================+==========================+
+| 0.5          | 0.99999994                | 1.0                      |
++--------------+---------------------------+--------------------------+
+| 0.3          | 1.00000012 (above full    | 1.0                      |
+|              | scale: clipped when       |                          |
+|              | converted to integer)     |                          |
++--------------+---------------------------+--------------------------+
+| 0.123        | 1.0                       | 1.0                      |
++--------------+---------------------------+--------------------------+
+
+How it works: before, both the dB value and 10\ :sup:`dB/20` were calculated in 32 bit float; the
+float ``pow`` result can be one float step off. Now the script value (64 bit) goes into a double
+``pow``, and only the factor is rounded to float. Output changes by at most one float step of the
+factor.
+
+$Date: 2026/11/14 13:30:00 $
 
 .. _phase:
     http://www.soundonsound.com/sos/apr08/articles/phasedemystified.htm

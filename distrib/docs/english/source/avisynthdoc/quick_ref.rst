@@ -39,6 +39,10 @@ A
 -   ``AddBorders`` (clip, int left, int top, int right, int bottom, int
     "color")
 
+:doc:`AudioStats <corefilters/audiostats>` *[all audio sample types]*
+
+-   ``AudioStats`` (clip, float "threshold", bool "per_channel") *[v3.7.7]*
+
 :doc:`AudioTrim <corefilters/trim>`
 
 -   ``AudioTrim`` (clip, float start_time, float end_time) *[v2.60]*
@@ -764,4 +768,4 @@ W
 :ref:`L` :ref:`M` :ref:`N` :ref:`O` :ref:`P` [Q] :ref:`R` :ref:`S` :ref:`T` [U] :ref:`V` :ref:`W`
 [X] [Y] [Z] ]
 
-$Date: 2013/01/06 13:38:34 $
+$Date: 2026/11/14 14:15:00 $

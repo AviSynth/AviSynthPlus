@@ -49,6 +49,10 @@
 #include <cstdlib>
 #include <new>
 #include <algorithm>
+#include <cmath>
+#include <cstring>
+#include <string>
+#include <vector>
 
 #define BIGBUFFSIZE (2048*1024) // Use a 2Mb buffer for EnsureVBRMP3Sync seeking & Normalize scanning
 
@@ -333,12 +337,15 @@ std::string channel_layout_to_str(const unsigned int channel_layout_mask)
 ***** Declare index of new filters for Avisynth's filter engine *****
 ********************************************************************/
 
+static AVSValue __cdecl AudioStats_Create(AVSValue args, void*, IScriptEnvironment* env);
+
 extern const AVSFunction Audio_filters[] = {
                                 { "DelayAudio", BUILTIN_FUNC_PREFIX, "cf", DelayAudio::Create },
                                 { "AmplifydB", BUILTIN_FUNC_PREFIX, "cf+", Amplify::Create_dB },
                                 { "Amplify", BUILTIN_FUNC_PREFIX, "cf+", Amplify::Create },
                                 { "AssumeSampleRate", BUILTIN_FUNC_PREFIX, "ci", AssumeRate::Create },
                                 { "Normalize", BUILTIN_FUNC_PREFIX, "c[volume]f[show]b", Normalize::Create },
+                                { "AudioStats", BUILTIN_FUNC_PREFIX, "c[threshold]f[per_channel]b", AudioStats_Create },
                                 { "MixAudio", BUILTIN_FUNC_PREFIX, "cc[clip1_factor]f[clip2_factor]f", MixAudio::Create },
                                 { "ResampleAudio", BUILTIN_FUNC_PREFIX, "ci[]i", ResampleAudio::Create },
                                 { "ConvertToMono", BUILTIN_FUNC_PREFIX, "c", ConvertToMono::Create },
@@ -1161,13 +1168,269 @@ AVSValue __cdecl Amplify::Create_dB(AVSValue args, void*, IScriptEnvironment* en
   float* child_array = new float[ch];
   int* i_child_array = new int[ch];
   for (int i = 0; i < ch; ++i) {
-    child_array[i] = dBtoScaleFactorf(args_c[min(i, num_args - 1)].AsFloatf());
-    i_child_array[i] = int(child_array[i] * 131072.0f + 0.5f);
+    // in double, rounded to float once: 20*log10 based dB values (AudioStats) give back the exact factor
+    child_array[i] = (float)std::pow(10.0, args_c[min(i, num_args - 1)].AsFloat() / 20.0);
+    i_child_array[i] = int(child_array[i] * 131072.0f + 0.5f); // .17 int arithmetic
 
   }
   return new Amplify(args[0].AsClip(), child_array, i_child_array);
 }
 
+
+/*****************************
+ ***** Audio scan: shared by Normalize and AudioStats
+ ******************************/
+
+namespace {
+
+struct AudioChannelStats {
+  double min = INFINITY;
+  double max = -INFINITY;
+  double sum = 0.0;
+  double sumsq = 0.0;
+  float peak = 0.0f;         // max |x|
+  int64_t peak_sample = 0;   // first position of the peak, in samples per channel
+  int64_t clipped = 0;       // samples at or beyond full scale
+};
+
+// |x| histogram on the float bit pattern: 8 mantissa bits per bin (about 0.03 dB), no log per sample
+constexpr int AUDIO_HIST_SHIFT = 15;
+constexpr int AUDIO_HIST_BINS = 1 << (31 - AUDIO_HIST_SHIFT); // sign bit cleared
+
+struct AudioScanResult {
+  int64_t samples = 0; // scanned samples per channel
+  std::vector<AudioChannelStats> channels;
+  std::vector<std::vector<uint64_t>> hist; // per channel, empty when not requested
+};
+
+// Reads the clip (SAMPLE_INT16 or SAMPLE_FLOAT) from the start, values normalized to full scale = 1.0.
+// clip_level: positive full scale of the original sample type (an integer source cannot reach +1.0);
+//   the negative full scale is -1.0 for all types.
+// stop_peak: stop after the block in which a channel peak reaches it; 0 (or below) reads everything.
+//   An explicit "off" value: an infinite sample must not end a full scan.
+// Non-finite samples: +-inf counts in min, max, peak and clipped (sum, rms, mean become inf); NaN is skipped by
+//   min, max and peak, but makes sum, rms and mean NaN.
+static void scan_audio(const PClip& clip, float clip_level, bool histogram, float stop_peak,
+  AudioScanResult& r, IScriptEnvironment* env)
+{
+  const VideoInfo& vi = clip->GetVideoInfo();
+  const int nch = vi.AudioChannels();
+  r.samples = 0;
+  r.channels.assign(nch, AudioChannelStats());
+  r.hist.clear();
+  if (histogram)
+    r.hist.assign(nch, std::vector<uint64_t>(AUDIO_HIST_BINS, 0));
+  const int64_t total = vi.num_audio_samples;
+  if (total <= 0 || nch <= 0)
+    return;
+
+  const bool is_int16 = vi.SampleType() == SAMPLE_INT16;
+  const int64_t block = std::max<int64_t>(1, vi.AudioSamplesFromBytes(BIGBUFFSIZE));
+  std::vector<float> fbuf((size_t)(block * nch));
+  std::vector<int16_t> ibuf(is_int16 ? (size_t)(block * nch) : 0);
+
+  for (int64_t pos = 0; pos < total; pos += block) {
+    const int cnt = (int)std::min(block, total - pos);
+    if (is_int16) {
+      clip->GetAudio(ibuf.data(), pos, cnt, env);
+      for (int i = 0; i < cnt * nch; i++)
+        fbuf[i] = ibuf[i] * (1.0f / 32768.0f); // as ConvertAudio int16 -> float
+    }
+    else
+      clip->GetAudio(fbuf.data(), pos, cnt, env);
+
+    bool stop = false;
+    for (int c = 0; c < nch; c++) {
+      AudioChannelStats& st = r.channels[c];
+      uint64_t* h = histogram ? r.hist[c].data() : nullptr;
+      double mn = st.min, mx = st.max, sum = 0.0, sumsq = 0.0;
+      float pk = st.peak;
+      int64_t pk_sample = st.peak_sample;
+      int64_t clipped = 0;
+      const float* p = fbuf.data() + c;
+      for (int s = 0; s < cnt; s++, p += nch) {
+        const float x = *p;
+        if (x < mn) mn = x;
+        if (x > mx) mx = x;
+        sum += x;
+        sumsq += (double)x * x;
+        const float a = std::fabs(x);
+        if (a > pk) {
+          pk = a;
+          pk_sample = pos + s;
+        }
+        if (x >= clip_level || x <= -1.0f)
+          clipped++;
+        if (h) {
+          uint32_t bits;
+          memcpy(&bits, &a, sizeof(bits));
+          h[bits >> AUDIO_HIST_SHIFT]++;
+        }
+      }
+      st.min = mn;
+      st.max = mx;
+      st.sum += sum;
+      st.sumsq += sumsq;
+      st.peak = pk;
+      st.peak_sample = pk_sample;
+      st.clipped += clipped;
+      if (stop_peak > 0.0f && pk >= stop_peak)
+        stop = true;
+    }
+    r.samples = pos + cnt;
+    if (stop)
+      break;
+  }
+}
+
+// The level that at most threshold_percent of the counted samples exceed: upper edge of the histogram bin
+// where the count from the top passes the limit, not above the real peak.
+static double loose_peak_from_hist(const std::vector<uint64_t>& h, uint64_t n, double threshold_percent, float peak)
+{
+  const uint64_t allowed = (uint64_t)(threshold_percent / 100.0 * (double)n);
+  uint64_t acc = 0;
+  for (int b = AUDIO_HIST_BINS - 1; b >= 0; b--) {
+    acc += h[b];
+    if (acc > allowed) {
+      if (b == 0)
+        return 0.0; // the bin of zero (and of denormals below 2^-126 * 2^-8): its upper edge is no level
+      const uint32_t upper = (uint32_t)(b + 1) << AUDIO_HIST_SHIFT;
+      float edge;
+      if (upper >= 0x7F800000u)
+        edge = INFINITY;
+      else
+        memcpy(&edge, &upper, sizeof(edge));
+      return std::min((double)edge, (double)peak);
+    }
+  }
+  return 0.0;
+}
+
+static AVSValue key_value(const char* key, const AVSValue& value)
+{
+  const AVSValue pair[2] = { AVSValue(key), value };
+  return AVSValue(pair, 2);
+}
+
+static double to_db(double v)
+{
+  return 20.0 * std::log10(v); // 0 -> -inf
+}
+
+// Array-type AVSValue access in a dictionary style: x = data["peak"]
+static AVSValue stats_to_dictionary(const AudioChannelStats& st, uint64_t n, double loose_peak)
+{
+  const double rms = n > 0 ? std::sqrt(st.sumsq / (double)n) : 0.0;
+  const AVSValue items[] = {
+    key_value("min", n > 0 ? st.min : 0.0),
+    key_value("max", n > 0 ? st.max : 0.0),
+    key_value("peak", (double)st.peak),
+    key_value("peak_db", to_db(st.peak)),
+    key_value("peak_sample", st.peak_sample),
+    key_value("rms", rms),
+    key_value("rms_db", to_db(rms)),
+    key_value("mean", n > 0 ? st.sum / (double)n : 0.0),
+    key_value("clipped", st.clipped),
+    key_value("loose_peak", loose_peak),
+    key_value("loose_peak_db", to_db(loose_peak)),
+  };
+  return AVSValue(items, (int)(sizeof(items) / sizeof(items[0])));
+}
+
+} // namespace
+
+/*****************************
+ ***** AudioStats ******
+ ******************************/
+
+static AVSValue __cdecl AudioStats_Create(AVSValue args, void*, IScriptEnvironment* env)
+{
+  PClip clip = args[0].AsClip();
+  const VideoInfo& vi_src = clip->GetVideoInfo();
+  if (!vi_src.HasAudio())
+    env->ThrowError("AudioStats: the clip has no audio");
+  check_float_params(args, "AudioStats", { { 1, "threshold" } }, env);
+  const double threshold = args[1].AsFloat(0.0);
+  if (threshold < 0.0 || threshold > 100.0)
+    env->ThrowError("AudioStats: threshold must be between 0 and 100 (percent)");
+  const bool per_channel = args[2].AsBool(false);
+
+  // positive full scale of the original type after the int -> float conversion (x / 2^(bits-1))
+  float clip_level;
+  switch (vi_src.SampleType()) {
+  case SAMPLE_INT8:  clip_level = 127.0f / 128.0f; break;
+  case SAMPLE_INT16: clip_level = 32767.0f / 32768.0f; break;
+  case SAMPLE_INT24: clip_level = 8388607.0f / 8388608.0f; break;
+  case SAMPLE_INT32: clip_level = (float)(2147483647.0 / 2147483648.0); break; // 1.0f in float precision
+  default:           clip_level = 1.0f; break;
+  }
+
+  PClip src = ConvertAudio::Create(clip, SAMPLE_INT16 | SAMPLE_FLOAT, SAMPLE_FLOAT);
+  const VideoInfo& vi = src->GetVideoInfo();
+  const int nch = vi.AudioChannels();
+  const bool histogram = threshold > 0.0;
+
+  AudioScanResult r;
+  scan_audio(src, clip_level, histogram, 0.0f, r, env); // full scan
+
+  // all channels together
+  AudioChannelStats all;
+  std::vector<uint64_t> hist_all;
+  if (histogram)
+    hist_all.assign(AUDIO_HIST_BINS, 0);
+  for (int c = 0; c < nch; c++) {
+    const AudioChannelStats& st = r.channels[c];
+    all.min = std::min(all.min, st.min);
+    all.max = std::max(all.max, st.max);
+    all.sum += st.sum;
+    all.sumsq += st.sumsq;
+    all.clipped += st.clipped;
+    if (st.peak > all.peak || (st.peak == all.peak && st.peak > 0.0f && st.peak_sample < all.peak_sample)) {
+      all.peak = st.peak;
+      all.peak_sample = st.peak_sample;
+    }
+    if (histogram)
+      for (int b = 0; b < AUDIO_HIST_BINS; b++)
+        hist_all[b] += r.hist[c][b];
+  }
+  const uint64_t n_ch = (uint64_t)r.samples;
+  const uint64_t n_all = n_ch * nch;
+  const double loose_all = histogram ? loose_peak_from_hist(hist_all, n_all, threshold, all.peak) : all.peak;
+  AVSValue overall = stats_to_dictionary(all, n_all, loose_all);
+  if (!per_channel)
+    return overall;
+
+  // per channel: keyed by the speaker names of the channel mask, or by the channel number
+  std::vector<const char*> names(nch, nullptr);
+  const unsigned int mask = vi.IsChannelMaskKnown() ? vi.GetChannelMask() : 0;
+  int bits_set = 0;
+  for (unsigned int m = mask; m; m &= m - 1)
+    bits_set++;
+  if (mask != 0 && bits_set == nch && (mask >> channel_names_size) == 0) {
+    int c = 0;
+    for (int bit = 0; bit < (int)channel_names_size; bit++)
+      if (mask & (1u << bit))
+        names[c++] = channel_names[bit].name;
+  }
+  else {
+    for (int c = 0; c < nch; c++)
+      names[c] = env->SaveString(std::to_string(c).c_str());
+  }
+
+  std::vector<AVSValue> ch_items(nch);
+  for (int c = 0; c < nch; c++) {
+    const AudioChannelStats& st = r.channels[c];
+    const double loose = histogram ? loose_peak_from_hist(r.hist[c], n_ch, threshold, st.peak) : st.peak;
+    ch_items[c] = key_value(names[c], stats_to_dictionary(st, n_ch, loose));
+  }
+
+  const int n_overall = overall.ArraySize();
+  std::vector<AVSValue> items(n_overall + 1);
+  for (int i = 0; i < n_overall; i++)
+    items[i] = overall[i];
+  items[n_overall] = key_value("channels", AVSValue(ch_items.data(), nch));
+  return AVSValue(items.data(), (int)items.size());
+}
 
 /*****************************
  ***** Normalize audio  ******
@@ -1187,129 +1450,26 @@ Normalize::Normalize(PClip _child, float _max_factor, bool _showvalues) :
 
 void __stdcall Normalize::GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) {
   if (max_volume < 0.0f) {
-    // Read samples into buffer and test them
-    if (vi.SampleType() == SAMPLE_INT16) {
-      int64_t bcount = count;
-      short* samples = (short*)buf;
-      bool bigbuff=false;
-
-    if (vi.BytesFromAudioSamples(count) < BIGBUFFSIZE) {
-      samples = new(std::nothrow) short[BIGBUFFSIZE/sizeof(short)];
-      if (samples) {
-        bigbuff=true;
-        bcount = vi.AudioSamplesFromBytes(BIGBUFFSIZE);
-      }
-      else {
-        samples = (short*)buf; // malloc failed just reuse clients buffer
+    // Find the peak of the whole clip at the first request.
+    // int16: nothing exceeds -32768 (1.0), stop reading there; 32767 is not enough, a later -32768 is larger.
+    const bool is_int16 = vi.SampleType() == SAMPLE_INT16;
+    AudioScanResult r;
+    scan_audio(child, is_int16 ? 32767.0f / 32768.0f : 1.0f, false,
+      is_int16 ? 1.0f : 0.0f, r, env);
+    float peak = 0.0f;
+    int64_t peak_sample = 0;
+    for (const AudioChannelStats& st : r.channels) {
+      if (st.peak > peak || (st.peak == peak && st.peak > 0.0f && st.peak_sample < peak_sample)) {
+        peak = st.peak;
+        peak_sample = st.peak_sample;
       }
     }
-
-      const int64_t passes = vi.num_audio_samples / bcount;
-    int64_t negpeaksampleno=-1, pospeaksampleno=-1;
-      int i_pos_volume = 0;
-      int i_neg_volume = 0;
-      const int chanXbcount = (int)bcount * vi.AudioChannels();
-
-      for (int64_t i = 0; i < passes; i++) {
-        child->GetAudio(samples, bcount*i, bcount, env);
-        for (int j = 0; j < chanXbcount; j++) {
-      const int sample=samples[j];
-          if (sample < i_neg_volume) {	// Cope with MIN_SHORT
-        i_neg_volume = sample;
-        negpeaksampleno = chanXbcount*i+j;
-      if (sample <= -32767) {
-        i = passes;
-        break;
-      }
-      }
-      else if (sample > i_pos_volume) {
-      i_pos_volume = sample;
-      pospeaksampleno = chanXbcount*i+j;
-      if (sample == 32767) {
-        i = passes;
-        break;
-      }
-      }
-        }
-      }
-    // Remaining samples
-    if ((i_pos_volume != 32767) && (i_neg_volume > -32767)) {
-    const int64_t rem_samples = vi.num_audio_samples % bcount;
-    const int chanXremcount = (int)rem_samples * vi.AudioChannels();
-
-    child->GetAudio(samples, bcount*passes, rem_samples, env);
-    for (int j = 0; j < chanXremcount; j++) {
-      const int sample=samples[j];
-      if (sample < i_neg_volume) {	// Cope with MIN_SHORT
-      i_neg_volume = sample;
-      negpeaksampleno = chanXbcount*passes+j;
-      }
-      else if (sample > i_pos_volume) {
-      i_pos_volume = sample;
-      pospeaksampleno = chanXbcount*passes+j;
-      }
-    }
-    }
-    if (bigbuff) delete[] samples;
-
-    i_pos_volume = -i_pos_volume; // Remember -ve has 1 more range than +ve, i.e. -32768
-    if (i_neg_volume < i_pos_volume) {
-      i_pos_volume = i_neg_volume;
-      frameno = vi.FramesFromAudioSamples(negpeaksampleno / vi.AudioChannels());
-    }
-    else {
-      frameno = vi.FramesFromAudioSamples(pospeaksampleno / vi.AudioChannels());
-    }
-      max_volume = float(i_pos_volume * (-1.0/32768.0));
-      max_factor = max_factor / max_volume;
-
-    } else if (vi.SampleType() == SAMPLE_FLOAT) {  // Float
-      int64_t bcount = count;
-      SFLOAT* samples = (SFLOAT*)buf;
-      bool bigbuff=false;
-
-    if (vi.BytesFromAudioSamples(count) < BIGBUFFSIZE) {
-      samples = new(std::nothrow) SFLOAT[BIGBUFFSIZE/sizeof(SFLOAT)];
-      if (samples) {
-        bigbuff=true;
-        bcount = vi.AudioSamplesFromBytes(BIGBUFFSIZE);
-      }
-      else {
-        samples = (SFLOAT*)buf; // malloc failed just reuse clients buffer
-      }
-    }
-
-      const int chanXbcount = (int)bcount * vi.AudioChannels();
-      const int64_t passes = vi.num_audio_samples / bcount;
-    int64_t peaksampleno=-1;
-
-      for (int64_t i = 0;i < passes;i++) {
-        child->GetAudio(samples, bcount*i, bcount, env);
-        for (int j = 0;j < chanXbcount;j++) {
-      const SFLOAT sample = fabsf(samples[j]);
-          if (sample > max_volume) {
-        max_volume = sample;
-      peaksampleno = chanXbcount*i+j;
-      }
-        }
-      }
-      // Remaining samples
-      const int64_t rem_samples = vi.num_audio_samples % bcount;
-      const int chanXremcount = (int)rem_samples * vi.AudioChannels();
-
-      child->GetAudio(samples, bcount*passes, rem_samples, env);
-      for (int j = 0;j < chanXremcount;j++) {
-    const SFLOAT sample = fabsf(samples[j]);
-        if (sample > max_volume) {
-      max_volume = sample;
-      peaksampleno = chanXbcount*passes+j;
-    }
-      }
-    if (bigbuff) delete[] samples;
-
-    frameno = vi.FramesFromAudioSamples(peaksampleno / vi.AudioChannels());
-      max_factor = max_factor / max_volume;
-    }
+    frameno = vi.FramesFromAudioSamples(peak_sample);
+    max_volume = peak;
+    if (peak > 0.0f)
+      max_factor = max_factor / peak;
+    else
+      max_factor = 1.0f; // silence: leave it as is
   }
 
   const int chanXcount = (int)count * vi.AudioChannels();
@@ -1389,8 +1549,7 @@ PVideoFrame __stdcall Normalize::GetFrame(int n, IScriptEnvironment* env) {
     if (max_volume < 0) {
       sprintf(text, "Normalize: Result not yet calculated!");
     } else {
-      double maxdb = 8.685889638 * log(max_factor);
-      // maxdb = (20 * log(factor)) / log(10);
+      const double maxdb = 20.0 * std::log10(max_factor); // as AudioStats and AmplifydB
       sprintf(text, "Amplify Factor: %8.4f\nAmplify DB: %8.4f\nAt Frame: %d", max_factor, maxdb, frameno);
     }
     env->ApplyMessage(&src, vi, text, vi.width / 4, 0xf0f080, 0, 0);

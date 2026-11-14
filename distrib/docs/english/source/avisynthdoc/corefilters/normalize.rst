@@ -46,6 +46,10 @@ Syntax and Parameters
 
     Default: false
 
+Normalize reads the whole audio track at its first audio request, to find the peak. The same values
+are available while the script is loaded from :doc:`AudioStats <audiostats>`: ``Normalize(v)`` is the
+same as ``Amplify(v / AudioStats(clip)["peak"])``. A silent track (peak 0) is left as it is.
+
 
 Normalization and Floating-point Audio
 --------------------------------------
@@ -65,6 +69,14 @@ integer clipping range.
 
 Examples
 --------
+
+The factor as a number, at script load time, e.g. to write it into the script and skip the scan
+next time (see :doc:`AudioStats <audiostats>`)::
+
+    audio = WavSource("audio.wav")
+    peak = AudioStats(audio)["peak"]
+    factor = peak > 0 ? 0.98 / peak : 1.0        # silence: unchanged, as Normalize
+    audio.Amplify(factor)
 
 Normalize signal to 98% ::
 
@@ -106,6 +118,13 @@ Changelog
 +-----------------+-----------------------------------------------------+
 | Version         | Changes                                             |
 +=================+=====================================================+
+| AviSynth+ 3.7.7 | A silent track is left unchanged (was: infinite     |
+|                 | factor, NaN or undefined 16 bit result). Same peak  |
+|                 | search as :doc:`AudioStats <audiostats>`. The       |
+|                 | ``show`` dB value is 20*log10(factor). 16 bit: the  |
+|                 | peak search does not stop at 32767 any more (a      |
+|                 | later -32768 is the real peak).                     |
++-----------------+-----------------------------------------------------+
 | AviSynth 2.5.0  | Replaced left and right parameters with ``volume``. |
 +-----------------+-----------------------------------------------------+
 | AviSynth 2.0.8  | Added ``show`` parameter.                           |
@@ -113,7 +132,7 @@ Changelog
 | AviSynth 2.0.3  | Added Normalize filter.                             |
 +-----------------+-----------------------------------------------------+
 
-$Date: 2022/03/05 15:10:22 $
+$Date: 2026/11/14 14:15:00 $
 
 .. _audio normalization:
     https://en.wikipedia.org/wiki/Audio_normalization

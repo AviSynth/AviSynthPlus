@@ -224,6 +224,8 @@ converted to 16 bit, since float cannot be passed as valid AVI data.
   argument and the audio stream from the second argument and combines them.
   AudioDubEx is similar, but it doesn't throw an exception if both clips don't
   have a video or audio stream.
+- :doc:`AudioStats <corefilters/audiostats>` Returns the levels of the audio track (peak, RMS, clipped samples,
+  loose peak), for all channels and per channel, as an array of named values.
 - :doc:`AudioTrim <corefilters/trim>` Trims an audio clip so that it includes only the start_time
   through end_time.
 - :doc:`ConvertToMono <corefilters/converttomono>` Merges all audio channels.
@@ -312,4 +314,4 @@ Debug filters
 - :doc:`Version <corefilters/version>` The Version filter generates a video clip with a short version and
   copyright statement
 
-$Date: 2013/01/06 13:38:34 $
+$Date: 2026/11/14 14:15:00 $

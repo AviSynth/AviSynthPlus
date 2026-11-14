@@ -14,6 +14,8 @@ Additions, changes
   ``_ColorRange`` stays reserved and it is its older name with 0 and 1 swapped: the two are one property, the frame holds it
   as ``_Range``. Plugins and scripts of any version reach it by both names. Key lists give ``_Range`` only, ``propGetAll``
   and ``propShow`` both. See :doc:`frame properties <syntax/syntax_internal_functions_frame_properties>`.
+- New :doc:`AudioStats <corefilters/audiostats>`: audio levels (peak, RMS, clipped samples, loose peak), also per
+  channel, as an array of named values at script load time.
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -146,6 +148,9 @@ Output changes by a rounding step; the values now match ConvertBits and the othe
   16 at 8 bit, 65 instead of 64 at 10 bit. Existed since 3.5.0 (2020).
 - Fix: Histogram ``classic``, 32 bit float, limited range, ``bits`` above 8: bars were not at the same position as at
   integer bit depths.
+- AmplifydB: the dB to factor conversion is calculated in double: ``AmplifydB(-peak_db)`` of an
+  :doc:`AudioStats <corefilters/audiostats>` value gives the exact factor (was up to one float step off). See
+  :doc:`Amplify <corefilters/amplify>`.
 - Fix: Histogram ``"audiolevels"``: the RMS level was calculated from a mean square rounded down to an integer, too
   low near silence (e.g. -96 dB instead of -92.5 dB). dB values use the same formula as ``AmplifydB``; full scale shows
   ``0.00dB`` instead of ``-0.00dB``.
@@ -250,6 +255,10 @@ integer or a shift by 32 bits; the compiler may do anything. Here the result was
 tested platforms. Found by UndefinedBehaviorSanitizer (UBSan) builds.
 
 - Float parameters of the built-in filters which are not a number (NaN) or infinite give an error, when the filter uses them.
+- Fix: Normalize on a silent track: the factor was infinite, float output NaN, 16 bit undefined. The track is left
+  as it is now.
+- Fix: Normalize, 16 bit: the peak search stopped at the first 32767 (or -32767), a later -32768 was not seen: the
+  factor could be one step too large, e.g. ``Normalize(0.5)`` of a full scale square wave gave -0.500015.
 - Fix: resizers, Bob, and ``param1``, ``param2``, ``param3`` of the ``ConvertTo...`` filters, AddBorders and LetterBox: NaN
   and Inf were accepted, the result was undefined and differed by platform. Now an error, as are ``src_left``, ``src_top``,
   ``src_width``, ``src_height`` too large for the resizer.
