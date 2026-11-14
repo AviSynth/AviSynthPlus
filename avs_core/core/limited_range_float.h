@@ -36,16 +36,27 @@ constexpr float limited_float_chroma_span = 112 / 255.0f; // +/-112
 [[maybe_unused]] static constexpr AVS_FORCEINLINE float y8tof(float luma) {
   return (luma - 16) * (limited_float_luma_span / 219) + limited_float_luma_offset;
 }
+// int overload: explicit conversion, no C4244 at the (mostly integer) call sites
+[[maybe_unused]] static constexpr AVS_FORCEINLINE float y8tof(int luma) {
+  return y8tof(static_cast<float>(luma));
+}
 
 // A difference of 8 bit limited range luma levels to float: scale only, no offset (e.g. the bright parameter)
 [[maybe_unused]] static constexpr AVS_FORCEINLINE float y8diff_tof(float luma_difference) {
   return luma_difference * (limited_float_luma_span / 219);
+}
+[[maybe_unused]] static constexpr AVS_FORCEINLINE float y8diff_tof(int luma_difference) {
+  return y8diff_tof(static_cast<float>(luma_difference));
 }
 
 // 8 bit limited range chroma level to float. 16-128-240 -> -112-0-112.
 // float parameter: Limiter(paramscale=true) passes the script's levels here, they can be non-integer
 [[maybe_unused]] static constexpr AVS_FORCEINLINE float uv8tof(float chroma) {
   return (chroma - 128) * (limited_float_chroma_span / 112);
+}
+// int overload: explicit conversion, no C4244 at the (mostly integer) call sites
+[[maybe_unused]] static constexpr AVS_FORCEINLINE float uv8tof(int chroma) {
+  return uv8tof(static_cast<float>(chroma));
 }
 
 // 8 bit full range to float: RGB and alpha. Not for limited range luma, see y8tof.
