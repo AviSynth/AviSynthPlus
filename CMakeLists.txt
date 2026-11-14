@@ -425,7 +425,25 @@ if(NOT HEADERS_ONLY)
       list(APPEND ALL_AFFECTED_TARGETS AvsCore)
   endif()
   list(APPEND ALL_AFFECTED_TARGETS ${NEW_PLUGIN_TARGETS})
-  
+
+  # v143 STL (VS2022, 14.30..14.44; the Win7 build): since 14.40 std::mutex has a constexpr constructor,
+  # and such a DLL crashes at the first lock on an msvcp140.dll older than 14.40.
+  # _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR keeps it running on older runtimes too (no-op before 14.40).
+  # Checked on the STL itself, so it covers MSVC, clang-cl and IntelLLVM alike.
+  # Not for v141_xp (old STL) and v145 (Win10+ only, the runtime is new enough there anyway).
+  if(MSVC)
+    include(CheckCXXSourceCompiles)
+    check_cxx_source_compiles("
+      #include <yvals_core.h>
+      #if !defined(_MSVC_STL_VERSION) || _MSVC_STL_VERSION != 143
+      #error not the v143 STL
+      #endif
+      int main() { return 0; }" AVS_MSVC_STL_V143)
+    if(AVS_MSVC_STL_V143)
+      message(STATUS "v143 STL: adding _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR (runtimes older than 14.40 keep working)")
+    endif()
+  endif()
+
   # -----------------------------------------------------------------------
   # Per-target, modern & safe application of options/defines (CORE and PLUGINS)
   # -----------------------------------------------------------------------
@@ -467,6 +485,9 @@ if(NOT HEADERS_ONLY)
           _CRTDBG_MAP_ALLOC
           __SSE2__
         )
+        if(AVS_MSVC_STL_V143)
+          target_compile_definitions(${AFFECTED_TARGET} PRIVATE _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR)
+        endif()
 
         # INTEL intrinsics master switch (if enabled)
         if(ENABLE_INTEL_SIMD)
