@@ -378,11 +378,16 @@ v143  x64 / Win32  (Windows 7 compatibility)
 
 * Toolset: ``v143`` — the VS 2022 toolset (MSVC 19.44), invoked from VS 2026
   via the ``-T v143`` switch.
-* **Why v143 and not v145?**  The v145 toolset (MSVC 19.50+) links the CRT
-  against ``CreateFile2``, a kernel32 entry point introduced in Windows 8
-  that does not exist in Windows 7.  Binaries built with v145 crash on
-  Windows 7 at startup with a missing entry point error.  MSVC 19.44
-  (the latest v143 revision) uses ``CreateFileW`` instead and runs correctly.
+* **Why v143 and not v145?**  From MSVC 14.50 (v145, VS 2026) the toolset and
+  its runtime support Windows 10 / Server 2016 and newer only.  The STL calls
+  Windows 8+ APIs (e.g. ``GetSystemTimePreciseAsFileTime``, ``WaitOnAddress``)
+  unconditionally, so v145 binaries fail to load on Windows 7 with a missing
+  entry point, and the v145 Redistributable does not install there.  MSVC
+  14.44 (the last v143 revision) is the newest toolset that still targets
+  Windows 7.
+* ``_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR`` is defined automatically: CMake
+  adds it to every build that uses the v143 STL (ClangCL too, when it runs
+  with the v143 STL).  See `VC++ runtime requirements`_ below.
 * Plugins built: same full set as the other modern builds — ConvertStacked,
   ImageSeq, Shibatch, TimeStretch, VDubFilter.
 * Also copied from origin: DirectShowSource.
@@ -393,6 +398,51 @@ v143  x64 / Win32  (Windows 7 compatibility)
    requiring the older ``v141_xp`` toolset.  For users who only need Win7
    (not XP), ``x86-win7`` is the recommended 32-bit choice.  Users requiring
    XP support should use ``x86-xp`` instead.
+
+VC++ runtime requirements
+~~~~~~~~~~~~~~~~~~~~~~~~~
+
+The MSVC-built variants need the Visual C++ Redistributable (``msvcp140.dll``
+and friends).  It must be **the same or newer** than the toolset that built
+the DLLs, and it must itself run on the target OS.  A newer runtime runs
+older-built DLLs; the reverse is not guaranteed.
+
++---------------+--------------------+-----------------------+---------------------------------------------+
+| Variant       | Toolset            | Redistributable       | File in ``distrib\Prerequisites``           |
++===============+====================+=======================+=============================================+
+| v145          | 14.5x (VS 2026)    | latest v14, Win10+    | ``VC_redist.{x86,x64,arm64}.exe``           |
++---------------+--------------------+-----------------------+---------------------------------------------+
+| v143 (win7)   | 14.44 (VS 2022)    | 14.44.35211.0         | ``VC_redist_14.44.35211.0.{x86,x64}.exe``   |
++---------------+--------------------+-----------------------+---------------------------------------------+
+| v141_xp       | 14.16              | 14.27.29114.0         | ``VC_redist_14.27.29114.0.{x86,x64}.exe``   |
++---------------+--------------------+-----------------------+---------------------------------------------+
+| ARM64 (MinGW) | llvm-mingw         | none (ships libc++)   | -                                           |
++---------------+--------------------+-----------------------+---------------------------------------------+
+
+The latest Redistributable keeps the generic name because its download link
+moves forward; the OS-limited ones carry their file version in the name (the
+downloaded ``VC_redist.<arch>.exe`` is renamed).  ``keep.me`` in that folder
+lists the download links.
+
+The breaking changes behind these limits:
+
+* **After 14.27 (VS 2019 16.7, 2020):** the runtime drops Windows XP.  The XP
+  builds need ``v141_xp``, ``/Zc:threadSafeInit-`` and the 14.27 runtime.
+* **14.40 (VS 2022 17.10, 2024):** ``std::mutex`` got a ``constexpr``
+  constructor.  A DLL built with 14.40 or newer crashes with an access
+  violation at its first mutex lock if the loaded ``msvcp140.dll`` is older
+  than 14.40 (`MS STL issue 4730 <https://github.com/microsoft/STL/issues/4730>`_).
+  The v143 builds define ``_DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR``, so the
+  win7 variant also works with an older runtime that is already installed.
+  The v145 builds need a 14.40+ runtime; the current Redistributable is
+  newer than that.
+* **14.50 (VS 2026, 2025):** the toolset and the runtime drop Windows 7, 8
+  and 8.1.  The last Redistributable that installs on Windows 7 is
+  **14.44.35211.0**, and on Windows 7 SP1 / Server 2008 R2 it needs
+  **KB2999226** (Universal C Runtime).
+
+The build number within a minor version does not matter: a 14.44.35207
+toolset with the 14.44.35211 runtime is fine.
 
 MinGW  ARM64  (Windows on ARM64)
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
