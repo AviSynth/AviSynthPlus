@@ -327,6 +327,11 @@ Bugfixes, crash or hang on unusual parameters or input:
   row this could read up to ~120 bytes past the buffer, beyond the guaranteed 64 byte slack. The values were
   never used (output unchanged), but it could fault. Now every window start is checked.
   Existed since 3.7.6.
+- Fix: Histogram("audiolevels"): stack overflow (the host crashed) on a low frame rate with a high sample rate or
+  many channels. The audio of one frame (rate x channels x 2 bytes / fps) was allocated on the stack; above about
+  1 MB, the usual stack size of a Windows program, it overflowed. E.g. 5.1 48 kHz at fps 0.5 (a slide show with
+  2 s per image), or 5.1 96 kHz at 1 fps. The buffers are on the heap now.
+  Existed since classic AviSynth.
 
 Bugfixes, undefined behaviour, NaN parameters, cosmetics:
   Undefined behaviour (UB): an operation whose result the C++ standard leaves open, e.g. a NaN converted to an

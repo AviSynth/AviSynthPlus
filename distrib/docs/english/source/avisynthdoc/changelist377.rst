@@ -236,6 +236,9 @@ loop. Most need an unusual parameter or input.
 - Fix: 8 and 16 bit horizontal resize, AVX-512: some kernels could read up to ~120 bytes past the end of the
   source frame buffer on the last row (possible access violation; the output was not affected).
   Existed since 3.7.6.
+- Fix: Histogram ``"audiolevels"``: stack overflow (the host crashed) on a low frame rate with a high sample rate
+  or many channels, when one frame's audio was above about 1 MB: e.g. 5.1 48 kHz at fps 0.5 (2 s per image), or
+  5.1 96 kHz at 1 fps. Existed since classic AviSynth.
 
 Undefined behaviour, NaN parameters, cosmetics
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

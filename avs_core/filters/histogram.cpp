@@ -303,13 +303,15 @@ PVideoFrame Histogram::DrawModeAudioLevels(int n, IScriptEnvironment* env) {
   // Get audio for current frame.
   const int64_t start = vi.AudioSamplesFromFrames(n);
   const int count = (int)(vi.AudioSamplesFromFrames(1));
-  signed short* samples = static_cast<signed short*>(_alloca(sizeof(signed short)* count * channels));
+  // heap: a low frame rate with many channels can be megabytes
+  std::vector<int16_t> sample_buf((size_t)count * channels);
+  const int16_t* samples = sample_buf.data();
 
-  aud_clip->GetAudio(samples, max((int64_t)0ll,start), count, env);
+  aud_clip->GetAudio(sample_buf.data(), max((int64_t)0ll,start), count, env);
 
   // Find maximum volume and rms.
-  int*     channel_max = static_cast<int*>(_alloca(channels * sizeof(int)));
-  int64_t* channel_rms = static_cast<int64_t*>(_alloca(channels * sizeof(int64_t)));;
+  std::vector<int> channel_max(channels);
+  std::vector<int64_t> channel_rms(channels);
 
   const int c = count*channels;
   for (int ch = 0; ch<channels; ch++) {
