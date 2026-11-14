@@ -607,7 +607,7 @@ static void convert_yuv_to_planarrgb_sse2_internal(BYTE* (&dstp)[3], int(&dstPit
           XP_LAMBDA_CAPTURE_FIX(limit);
           // Note: v_patch is already set to the right 32 or 64 bits width based on lessthan16bit
           auto madd_scale = [&](__m128i uy, __m128i vr) {
-            XP_LAMBDA_CAPTURE_FIX(v_patch); XP_LAMBDA_CAPTURE_FIX(target_shift);
+            XP_LAMBDA_CAPTURE_FIX(v_patch); XP_LAMBDA_CAPTURE_FIX(target_shift); XP_LAMBDA_CAPTURE_FIX(zero);
             __m128i sum = _mm_add_epi32(_mm_madd_epi16(m_uy, uy), _mm_madd_epi16(m_vr, vr));
             {
               // this one needs to be in sse2, sign extension needed for epi32->64
