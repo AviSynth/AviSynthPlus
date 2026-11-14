@@ -1,24 +1,62 @@
-This folder is a placeholder for installer prerequisites, which has to be updated before creating the installer
-Such as Microsoft Visual C++ Redistributable packages for Visual Studio 2015, 2017, 2019, and 2022: VC_redist.x64.exe and VC_redist.x86.exe 
+This folder is a placeholder for installer prerequisites, which have to be put here before creating the installers.
+The .exe files are not committed (see .gitignore). Check each file's version (Properties / Details) after download.
 
-Installer searches for XP redistributables under specific names: 
-VC_redist_14.27.29114.0.x86.exe and VC_redist_14.27.29114.0.x64.exe
-When you download these, rename VC_redist.x86.exe and VC_redist.x64.exe if XP specific builds are set in installer script
+File naming
+-----------
+The installer scripts search for the redistributables under these names:
 
-https://docs.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist?view=msvc-170
+  VC_redist.x86.exe / .x64.exe / .arm64.exe        latest v14 (rolling), modern build only (Win10+)
+  VC_redist_14.44.35211.0.x86.exe / .x64.exe       Win7 build (v143, VS2022 17.14 toolset)
+  VC_redist_14.27.29114.0.x86.exe / .x64.exe       XP build (v141_xp toolset)
 
-Important note:
-  Windows XP Support: Microsoft ended support for Windows XP on April 8, 2014
-  As of 2021, XP-specific AviSynth builds still require a _compatible_ (=not latest) Visual C++ runtime.
+The latest one keeps the generic name, because the permalink moves forward. The OS-limited ones carry
+their file version in the name: rename the downloaded VC_redist.<arch>.exe accordingly.
 
-  Runtime library support for Windows XP is no longer available in the latest Visual C++ Redistributable for Visual Studio 2015, 2017, 2019, and 2022.
+Downloads
+---------
+  latest (Win10+):  https://aka.ms/vc14/vc_redist.x86.exe (also .x64.exe, .arm64.exe)
+  Win7 (14.44):     https://aka.ms/vs/17/release/vc_redist.x86.exe (also .x64.exe)
+                    the VS2022 17.14 permalink; served 14.44.35211.0 when last checked (2026-10-25)
+  XP (14.27/14.28): see the links at the end
+  https://learn.microsoft.com/en-us/cpp/windows/latest-supported-vc-redist
+
+Which runtime for which build, and why
+--------------------------------------
+Rule: the runtime (msvcp140.dll etc.) must be the same or newer than the toolset that built the DLLs,
+and it must itself run on the target OS. A newer runtime runs older-built DLLs (MS keeps v14 backward
+compatible since VS2015); the reverse is not guaranteed. The breaking changes that set the limits:
+
+1. 2020, after VS2019 16.7 (14.27): the v14 runtime officially drops Windows XP.
+   Last XP-capable redistributable: 14.27.29114.0 (some report 14.28.29213.0 still working).
+   XP builds need v141_xp, /Zc:threadSafeInit-, and this old runtime.
+   See https://github.com/AviSynth/AviSynthPlus/issues/241
+
+2. 2024, VS2022 17.10 (14.40): std::mutex got a constexpr constructor.
+   A DLL built with 14.40 or newer, run on an older msvcp140.dll (before 14.40), crashes with an
+   access violation at the first mutex lock. Microsoft calls it by design; see
+   https://github.com/microsoft/STL/issues/4730
+   Older DLLs on a newer runtime are fine. The AviSynth+ core uses std::mutex, so it is affected.
+   Building with _DISABLE_CONSTEXPR_MUTEX_CONSTRUCTOR avoids it (the DLL then runs on old runtimes too).
+
+3. 2025, VS2026 (14.50): the toolset and the runtime drop Windows 7, 8 and 8.1 (Win10 / Server 2016 minimum).
+   The 14.50+ STL calls Windows 8+ APIs unconditionally. The latest redistributable (14.51 when last
+   checked) does not run on Windows 7.
+   The 14.44 line (VS2022 17.14, v143) is the last one for Windows 7: the Win7 build is made with
+   the 14.44 toolset and ships the 14.44.35211.0 redistributable.
+   Windows 7 SP1 / Server 2008 R2 also needs KB2999226 (Universal C Runtime).
+   Reported working on Server 2008 R2 x64 (Doom9, 2026-02).
+
+The build number within a minor line does not matter (14.44.35207 toolset with the 14.44.35211 runtime is fine).
+
+Important note on XP
+--------------------
+  Microsoft ended support for Windows XP on April 8, 2014.
+  XP-specific AviSynth builds still require a _compatible_ (= not latest) Visual C++ runtime.
   The last redistributable to support Windows XP is version 16.7 (file version 14.27.29114.0*).
   If Windows XP apps are deployed with or updated to a later version of the redistributable, the apps won't run.
-
-  As discussed in issue: https://github.com/AviSynth/AviSynthPlus/issues/241
   https://my.visualstudio.com/downloads?Visual%20Studio%202019%20version%2016.7
 
   *Others experienced that the latest XP compatible version is 14.28.29213.0.
   Links to official installers for last XP compatible Microsoft Visual C++ 2015-2019 Redistributable (version 14.28.29213):
   x64 - https://download.visualstudio.microsoft.com/download/pr/566435ac-4e1c-434b-b93f-aecc71e8cffc/B75590149FA14B37997C35724BC93776F67E08BFF9BD5A69FACBF41B3846D084/VC_redist.x64.exe
-  x86 - https://download.visualstudio.microsoft.com/download/pr/566435ac-4e1c-434b-b93f-aecc71e8cffc/0D59EC7FDBF05DE813736BF875CEA5C894FFF4769F60E32E87BD48406BBF0A3A/VC_redist.x86.exe 
+  x86 - https://download.visualstudio.microsoft.com/download/pr/566435ac-4e1c-434b-b93f-aecc71e8cffc/0D59EC7FDBF05DE813736BF875CEA5C894FFF4769F60E32E87BD48406BBF0A3A/VC_redist.x86.exe
