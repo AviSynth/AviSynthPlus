@@ -208,6 +208,10 @@ Bugfixes, accuracy: rounding, limited range levels:
 - Fix: Expr cmin, scale_inputs="floatUV", 8-16 bit clips: it was half a step too high and rounded up, 17 instead of
   16 at 8 bit, 65 instead of 64 at 10 bit. Existed since 3.5.0 (2020).
 - Fix: Histogram "classic", 32 bit float, limited range, bits above 8: position was x*(2^bits-1) instead of x*255<<(bits-8).
+- Fix: Histogram("audiolevels"): RMS level: the mean square of the 16 bit samples was an integer division, rounded down
+  before the log: too low near silence, e.g. a mean square of 0.6 showed -96 dB (the "no signal" value) instead of
+  -92.5 dB. Now in double. dB values are 10*log10(x^2/32768^2), the same formula as AmplifydB; the
+  truncated 8.685889638 (20/ln 10) constant is gone. Full scale shows 0.00dB instead of -0.00dB.
 - Fix: Subtitle (gdi=true), 10-16 bit YUV: the colour addends of the text have a *256.99 scale (right for the 8 bit >>8,
   right for full range RGB, 255 is 65535), so limited range got Y*257: 16 bit white 60393 instead of 60160, neutral U
   32895 instead of 32768. Now they are scaled back to a plain shift, exact at full coverage for all 8 bit levels.

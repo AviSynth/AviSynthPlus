@@ -146,6 +146,9 @@ Output changes by a rounding step; the values now match ConvertBits and the othe
   16 at 8 bit, 65 instead of 64 at 10 bit. Existed since 3.5.0 (2020).
 - Fix: Histogram ``classic``, 32 bit float, limited range, ``bits`` above 8: bars were not at the same position as at
   integer bit depths.
+- Fix: Histogram ``"audiolevels"``: the RMS level was calculated from a mean square rounded down to an integer, too
+  low near silence (e.g. -96 dB instead of -92.5 dB). dB values use the same formula as ``AmplifydB``; full scale shows
+  ``0.00dB`` instead of ``-0.00dB``.
 - Fix: Subtitle (``gdi=true``), 10-16 bit YUV: levels were level * 257 instead of a limited range shift: white Y was
   60393 instead of 60160, neutral U 32895 instead of 32768 at 16 bit. 8 bit output is the same as before, see
   :doc:`Subtitle <corefilters/subtitle>`. Existed since the 10-16 bit support of text overlay (2016).
