@@ -200,6 +200,34 @@ rem  Use the UCRT flavour of llvm-mingw (the "-ucrt-" build): it links
 rem  against ucrtbase.dll and the api-ms-win-crt-* forwarders, i.e. the
 rem  CRT of Windows 10/11 -- the same one the MSVC build uses.
 rem  Update the path below when the toolchain is updated.
+rem
+rem  ---- C++ runtime of the ARM64 build (libc++ / libunwind) ----------------
+rem  Problem: a default llvm-mingw link imports libc++.dll and libunwind.dll,
+rem  which are NOT part of Windows, so the release would need them shipped
+rem  beside AviSynth.dll and in plugins\.
+rem  Decision: link them STATICALLY into the Release DLLs (what the official
+rem  3.7.6 ARM64 package does).  Done in toolchains\llvm-mingw-aarch64.cmake:
+rem    CMAKE_SHARED_LINKER_FLAGS_RELEASE / CMAKE_MODULE_LINKER_FLAGS_RELEASE /
+rem    CMAKE_EXE_LINKER_FLAGS_RELEASE = "-static".
+rem  Why the per-config variables: CMakeLists.txt overwrites
+rem  CMAKE_SHARED_LINKER_FLAGS for non-MSVC builds, so a plain
+rem  CMAKE_SHARED_LINKER_FLAGS would be lost.  Do not pass -static on the
+rem  cmake command line either: it would also hit the build tools.
+rem  Needs the static archives: aarch64-w64-mingw32\lib\libc++.a and
+rem  libunwind.a under the llvm-mingw root (libc++.a checked in the
+rem  checks before the build).
+rem  Alternatives, not used:
+rem    - ship libc++.dll + libunwind.dll (the old behaviour; they must be
+rem      copied to every folder with a DLL that needs them);
+rem    - delete the .dll.a stubs from the llvm-mingw sysroot (the ARM doc,
+rem      avsplus_external_deps_guide_manual_arm.rst, does this): it gives the
+rem      same static result but changes the shared toolchain install, so
+rem      the flag above is preferred;
+rem    - the GCC recipe in compiling_avsplus.rst ("Static linking",
+rem      -static-libstdc++ -lwinpthread): for GNU GCC, not for llvm-mingw.
+rem  Check after a build:  aarch64-w64-mingw32-objdump -p AviSynth.dll
+rem  must not list libc++.dll or libunwind.dll (plugins too).
+rem  -------------------------------------------------------------------------
 if not defined LLVM_MINGW_ROOT set "LLVM_MINGW_ROOT=C:\avsplus_build_deps\llvm-mingw-20261020-ucrt-x86_64"
 set LLVM_MINGW_CLANG=%LLVM_MINGW_ROOT%\bin\aarch64-w64-mingw32-clang++.exe
 set LLVM_MINGW_VER=
@@ -420,9 +448,10 @@ rem  block (missing toolchain -> the variant is skipped there).  Only the
 rem  runtime DLLs are checked here, since without them the ARM64 build
 rem  would produce DLLs that cannot start on the target machine.
 if "%BUILD_ARM64%"=="1" (
-    if not exist "%LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin\libc++.dll" (
-        echo ERROR: the aarch64 runtime of llvm-mingw was not found under
-        echo        %LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin
+    rem  The static C++ runtime needs the .a archives, not the .dll.a stubs
+    if not exist "%LLVM_MINGW_ROOT%\aarch64-w64-mingw32\lib\libc++.a" (
+        echo ERROR: the static aarch64 C++ runtime of llvm-mingw was not found under
+        echo        %LLVM_MINGW_ROOT%\aarch64-w64-mingw32\lib
         goto :fatal_exit
     )
 )
@@ -898,8 +927,14 @@ rem  ones.
 rem
 rem  The C runtime is the UCRT (ucrtbase.dll + the api-ms-win-crt-*
 rem  forwarders), which is part of Windows 10/11 -- nothing to ship
-rem  for it.  libc++.dll and libunwind.dll are NOT part of Windows,
-rem  so they are copied next to the DLLs that need them.
+rem  for it.
+rem
+rem  The C++ runtime (libc++, libunwind) is linked STATICALLY: the
+rem  Release DLLs get -static from toolchains\llvm-mingw-aarch64.cmake.
+rem  Nothing is shipped beside them; the output imports only Windows and
+rem  UCRT DLLs.  Check with:  aarch64-w64-mingw32-objdump -p X.dll
+rem  (only libc++.dll / libunwind.dll would be a regression).
+rem  See "C++ runtime of the ARM64 build" in the llvm-mingw section at the top.
 rem
 rem  ImageSeq is not part of this variant: the prebuilt DevIL SDK
 rem  has no ARM64 binaries.  TimeStretch needs the aarch64
@@ -962,11 +997,9 @@ copy /y "%OUT%\plugins\Shibatch\Shibatch.dll"             "%DEST%\%DIR_ARM64%\pl
 if exist "%OUT%\plugins\TimeStretch\TimeStretch.dll" (
     copy /y "%OUT%\plugins\TimeStretch\TimeStretch.dll" "%DEST%\%DIR_ARM64%\plugins\" > nul
 )
-rem  The C++ runtime of the MinGW build is not part of Windows
-copy /y "%LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin\libc++.dll"    "%DEST%\%DIR_ARM64%\"         > nul
-copy /y "%LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin\libunwind.dll"  "%DEST%\%DIR_ARM64%\"         > nul
-copy /y "%LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin\libc++.dll"    "%DEST%\%DIR_ARM64%\plugins\" > nul
-copy /y "%LLVM_MINGW_ROOT%\aarch64-w64-mingw32\bin\libunwind.dll"  "%DEST%\%DIR_ARM64%\plugins\" > nul
+rem  No libc++.dll / libunwind.dll to copy: the C++ runtime is linked in
+rem  statically (see "C++ runtime of the ARM64 build" in the llvm-mingw
+rem  section at the top of this file).
 
 :after_build_arm64
 

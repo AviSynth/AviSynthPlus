@@ -75,10 +75,20 @@ set(CMAKE_C_COMPILER_TARGET   aarch64-w64-mingw32)
 set(CMAKE_CXX_COMPILER_TARGET aarch64-w64-mingw32)
 
 # --- flags ------------------------------------------------------------------
-#  The produced DLLs import libc++.dll and libunwind.dll (llvm-mingw's C++
-#  runtime, not part of Windows): ship them next to AviSynth.dll and in
-#  plugins\ (build_release.bat copies them).  The C runtime is the UCRT.
+#  The C++ runtime (libc++, libunwind) is linked STATICALLY into the Release
+#  DLLs.  Without this they import libc++.dll and libunwind.dll, which are
+#  not part of Windows, so the release would need them shipped beside it.
+#  With -static the output imports only the UCRT (api-ms-win-crt-*) and the
+#  Windows system DLLs, like the official 3.7.6 ARM64 package.
+#  The C runtime is the UCRT in all cases.
+#
+#  Set here, not in the CMake files: CMakeLists.txt overwrites
+#  CMAKE_SHARED_LINKER_FLAGS for non-MSVC builds, and the per-config
+#  variables are not touched by that.
 set(AVS_MINGW_COMMON_FLAGS "")
+set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "-static")
+set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "-static")
+set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-static")
 
 # --- search paths -----------------------------------------------------------
 #  llvm-mingw keeps the target libraries under lib/aarch64-w64-mingw32;
