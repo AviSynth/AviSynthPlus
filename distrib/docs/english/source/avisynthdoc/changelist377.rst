@@ -22,6 +22,9 @@ Build environment, Interface
 - Fix: GCC build with LTO (link-time optimization) failed with "inlining failed in call to 'always_inline'
   ... target specific option mismatch" in the SSE4.1 Overlay/Layer mask row preparation (x86/x64).
   (`issue #531 <https://github.com/AviSynth/AviSynthPlus/issues/531>`_)
+- Fix: MinGW/llvm-mingw builds (Windows ARM64, GCC x86/x64) had no version resource in ``AviSynth.dll``, so the
+  File and Product version showed n/a. The resource is now compiled for MinGW too, as it is for MSVC. Its copyright
+  sign is written as ``(C)``, because llvm-rc rejects the cp1252 character. Existed since 3.4.0.
 - Linux/macOS: the core exports only the C API (``avs_*``) and ``CreateScriptEnvironment`` / ``CreateScriptEnvironment2``,
   as the Windows DLL does (about 5000 symbols before). Hidden default symbol visibility, and on ELF platforms
   (Linux, BSD) also a linker version script generated from ``avisynth_c.h``. Plugins no longer get the core's ``BitBlt``,

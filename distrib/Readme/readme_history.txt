@@ -50,6 +50,9 @@ Build environment:
   function without the SSE4.1 target; LTO tried to inline it across the files.
   The caller now has the SSE4.1 target, and the needless force-inline was removed (also from the AVX2 twin).
   Existed since 3.7.6.
+- Fix: MinGW/llvm-mingw builds (Windows ARM64, GCC x86/x64) had no version resource in AviSynth.dll, so the
+  File and Product version showed n/a. The resource is now compiled for MinGW too, as it is for MSVC. Its copyright
+  sign is written as (C), because llvm-rc rejects the cp1252 character. Existed since 3.4.0.
 - Interface version 14.1: AVISYNTHPLUS_INTERFACE_BUGFIX_VERSION = 1 (avisynth.h, avisynth_c.h), no API change.
   It marks the _Range / _ColorRange alias, so a plugin can check whether the AviSynth it runs on understands
   _Range (before, only _ColorRange): AEP_INTERFACE_VERSION > 14, or 14 with AEP_INTERFACE_BUGFIX >= 1.

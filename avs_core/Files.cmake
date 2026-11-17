@@ -116,4 +116,8 @@ ENDIF()
 IF( MSVC_IDE )
     # Ninja, unfortunately, seems to have some issues with using rc.exe
     LIST(APPEND AvsCore_Sources "core/avisynth.rc")
+ELSEIF( MINGW )
+    # Version resource for llvm-mingw / GCC (windres or llvm-rc)
+    enable_language(RC)
+    LIST(APPEND AvsCore_Sources "core/avisynth.rc")
 ENDIF()
