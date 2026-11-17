@@ -43,6 +43,7 @@
 
 #include <avs/minmax.h>
 #include <cmath>
+#include <cstdlib>
 #include <cassert>
 #include <algorithm>
 
