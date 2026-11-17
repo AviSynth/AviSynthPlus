@@ -129,6 +129,14 @@ Bugfixes, bugs in normal use:
   MAX_PATH (260) includes the terminating zero, so 260 needs it too. A UNC path "\\server\share\..." got
   "\\?\\\server\..." instead of "\\?\UNC\server\share\...", so long UNC paths always failed. "\\.\" device paths
   are left as they are. Existed since 3.7.0 (long path support).
+- Fix: Windows ARM64 (and MinGW/GCC x86/x64) builds: the USER_CLASSIC_PLUGINS and MACHINE_CLASSIC_PLUGINS macros
+  of the default autoload folder list were never expanded, so they stayed as relative folder names:
+  ListAutoloadDirs (e.g. AVSMeter64 -avsinfo on Windows on Arm) showed "<current folder>\USER_CLASSIC_PLUGINS\" and
+  "<current folder>\MACHINE_CLASSIC_PLUGINS\" instead of the plugins64 folder. Only the *_PLUS_PLUGINS macros were
+  handled outside x86/x64 MSVC. Now ARM64 reads them from HKCU/HKLM Software\Avisynth\PluginDir2_5, as the x86/x64
+  MSVC builds do (the ARM64 installer sets PluginDir2_5 to plugins64); a missing entry removes the folder. GCC builds
+  use PluginDir+GCC only and have no classic plugin folder, there the macros are removed.
+  Existed since 3.7.4 (found by AVSMeter).
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ConvertToRGB32 from
   10-16 bit or 32 bit float YUVA, or ConvertToPlanarRGBA(bits=8).
 - Fix: AVX2 YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit source to 32 bit float output:

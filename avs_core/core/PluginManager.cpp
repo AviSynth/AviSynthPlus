@@ -728,6 +728,9 @@ std::string ExeFilePath;
         replace_beginning(dir, "MACHINE_PLUS_PLUGINS", plugin_dir);
       else
         replace_beginning(dir, "MACHINE_PLUS_PLUGINS", "");
+      // GCC builds have no classic plugin folder
+      replace_beginning(dir, "USER_CLASSIC_PLUGINS", "");
+      replace_beginning(dir, "MACHINE_CLASSIC_PLUGINS", "");
     #else
       // note: if e.g HKCU/PluginDir+ does not exist, USER_PLUS_PLUGINS as a string remain in search path
       if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
@@ -748,6 +751,7 @@ std::string ExeFilePath;
         replace_beginning(dir, "MACHINE_CLASSIC_PLUGINS", "");
     #endif // _GNUC_
   #else
+    // Windows ARM, like aarch64
     if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirPlus, &plugin_dir))
       replace_beginning(dir, "USER_PLUS_PLUGINS", plugin_dir);
     else
@@ -756,7 +760,14 @@ std::string ExeFilePath;
       replace_beginning(dir, "MACHINE_PLUS_PLUGINS", plugin_dir);
     else
       replace_beginning(dir, "MACHINE_PLUS_PLUGINS", "");
-
+    if (GetRegString(HKEY_CURRENT_USER, RegAvisynthKey, RegPluginDirClassic, &plugin_dir))
+      replace_beginning(dir, "USER_CLASSIC_PLUGINS", plugin_dir);
+    else
+      replace_beginning(dir, "USER_CLASSIC_PLUGINS", "");
+    if (GetRegString(HKEY_LOCAL_MACHINE, RegAvisynthKey, RegPluginDirClassic, &plugin_dir))
+      replace_beginning(dir, "MACHINE_CLASSIC_PLUGINS", plugin_dir);
+    else
+      replace_beginning(dir, "MACHINE_CLASSIC_PLUGINS", "");
   #endif // AVS_WINDOWS_X86
 #endif // AVS_WINDOWS
 

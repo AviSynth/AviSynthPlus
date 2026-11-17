@@ -87,6 +87,10 @@ Bugs in normal use
 - Fix: Import of a script whose full path is exactly 260 characters long, or a UNC path (``\\server\share\...``)
   of 260 or more, failed with "couldn't open": the long path prefix was not added, or was wrong for UNC.
   Existed since 3.7.0 (long path support).
+- Fix: Windows ARM64 (and MinGW/GCC x86/x64) builds: the ``USER_CLASSIC_PLUGINS`` and ``MACHINE_CLASSIC_PLUGINS``
+  autoload folders were not expanded, ``ListAutoloadDirs`` showed ``<current folder>\USER_CLASSIC_PLUGINS\`` instead of
+  e.g. the ``plugins64`` folder. ARM64 now reads them from ``PluginDir2_5`` as x86/x64 MSVC builds do (the ARM64
+  installer sets it); GCC builds have no classic plugin folder, the macros are removed. Existed since 3.7.4.
 - Fix: non-Intel builds (aarch64): crash in YUV with alpha to RGB when the bit depth changes, e.g. ``ConvertToRGB32`` from
   10-16 bit or 32 bit float YUVA, or ``ConvertToPlanarRGBA(bits=8)``. Existed since 3.7.6.
 - Fix: YUV to planar RGB (and RGB to YUV/Y) conversion from 8-16 bit to 32 bit float, AVX2: memory

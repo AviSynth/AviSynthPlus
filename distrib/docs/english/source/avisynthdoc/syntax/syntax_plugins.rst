@@ -141,13 +141,17 @@ during the operation.
 
     * ``USER_PLUS_PLUGINS`` from ``HKCU\Software\Avisynth\PluginDir+`` (or GNU C Build: ``HKCU\Software\Avisynth\PluginDir+GCC``)
     * ``MACHINE_PLUS_PLUGINS`` from ``HKLM\Software\Avisynth\PluginDir+`` (or GNU C Build:  ``HKLM\Software\Avisynth\PluginDir+GCC``)
-    * ``USER_CLASSIC_PLUGINS`` from ``HKCU\Software\Avisynth\PluginDir2_5``
-    * ``MACHINE_CLASSIC_PLUGINS`` from ``HKLM\Software\Avisynth\PluginDir2_5``
+    * ``USER_CLASSIC_PLUGINS`` from ``HKCU\Software\Avisynth\PluginDir2_5`` (GNU C Build: not used, removed)
+    * ``MACHINE_CLASSIC_PLUGINS`` from ``HKLM\Software\Avisynth\PluginDir2_5`` (GNU C Build: not used, removed)
   
   - other (e.g. ARM)
   
     * ``USER_PLUS_PLUGINS`` from ``HKCU\Software\Avisynth\PluginDir+``
     * ``MACHINE_PLUS_PLUGINS`` from ``HKLM\Software\Avisynth\PluginDir+``
+    * ``USER_CLASSIC_PLUGINS`` from ``HKCU\Software\Avisynth\PluginDir2_5``
+    * ``MACHINE_CLASSIC_PLUGINS`` from ``HKLM\Software\Avisynth\PluginDir2_5``
+
+  A macro whose registry entry does not exist is removed (the folder is not added).
 
 
 ClearAutoloadDirs
