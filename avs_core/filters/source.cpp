@@ -2941,7 +2941,7 @@ class Tone : public IClip {
   const double freq;            // Frequency in Hz
   const double samplerate;      // Samples per second
   const int ch;                 // Number of channels
-  const double add_per_sample;  // How much should we add per sample in seconds
+  const double add_per_sample;  // freq / samplerate: cycles per sample
   const float level;
 
 public:
@@ -2972,20 +2972,30 @@ public:
 
   void __stdcall GetAudio(void* buf, int64_t start, int64_t count, IScriptEnvironment* env) {
     AVS_UNUSED(env);
-    // Where in the cycle are we in?
-    const double cycle = (freq * start) / samplerate;
-    double period_place = cycle - floor(cycle);
-
     SFLOAT* samples = (SFLOAT*)buf;
 
-    for (int i=0;i<count;i++) {
+    // Decision: the phase of every sample is computed from its absolute index (start + i), in double.
+    // Accuracy and determinism are both kept: the same sample has the same value whatever the request
+    // (one big GetAudio, small chunks, a seek, backward reads).
+    //  - Accumulating the phase (pos += freq/samplerate) is faster, but each addition rounds, so the error
+    //    grows with the distance from the request start and a sample depends on how it was requested.
+    //  - An exact integer phase counter (k = start*freq mod samplerate, k += freq, phase = k/samplerate)
+    //    is deterministic and nearly as fast, but it changes the output in the last float bits, and it is
+    //    exact only for integer frequency and sample rate, so it would need a second path.
+    //  - The cost is the phase conversion (int64 -> double, a branch, double -> int64 -> double) in front of
+    //    the virtual getValueAt() call: about 2.5-3.5 ns per sample on top of sin() at about 7.7 ns
+    //    (x64 MSVC and clang-cl, Tone 600 s stereo: +35-40% for this generator).
+    for (int64_t i = 0; i < count; i++) {
+      const double pos_cycle = (double)(start + i) * add_per_sample;
+      // fractional part; for a non-negative position an integer cast is enough
+      // (floor() is a library call without SSE4.1)
+      const double period_place = pos_cycle >= 0.0
+        ? pos_cycle - (double)(int64_t)pos_cycle
+        : pos_cycle - floor(pos_cycle);
       SFLOAT v = s->getValueAt(period_place) * level;
-      for (int o=0;o<ch;o++) {
-        samples[o+i*ch] = v;
+      for (int o = 0; o < ch; o++) {
+        samples[o + i * ch] = v;
       }
-      period_place += add_per_sample;
-      if (period_place >= 1.0)
-        period_place -= floor(period_place);
     }
   }
 

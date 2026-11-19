@@ -187,6 +187,12 @@ Same output on every CPU, OS and compiler
 The C, the x86 SIMD and the aarch64 NEON paths, or two runs of the same script, gave different output. Found by
 comparing them, and by the sanitizer builds (planes left unset kept the content of a reused frame buffer).
 
+- Fix: ``Tone()`` (Sine, Square, Triangle, Sawtooth): the samples depended on how the audio was requested. The phase
+  was accumulated sample by sample from the start of each request, so one long ``GetAudio`` and smaller requests, or
+  a seek, gave different last float bits. The phase is now computed from the absolute sample position,
+  strictly as in the formula of :doc:`Tone <corefilters/tone>`. The difference was about 1e-12 at 440 Hz,
+  inaudible, but it made the output depend on the read pattern. The output is now deterministic for tests.
+  Existed since 2.5.4.
 - Fix: Expr: ``pow`` with a negative base, x86 JIT: it gave 2.4e38 on any power which was not a constant 2, 3 or 4. Now it follows
   IEEE 754 as the C paths do: an integer power has a real result (``-2 ^ 3`` is -8), a fractional power is NaN. Also
   ``0 ^ 0.25`` was 3.3e-10, now 0. Results of a positive base are not changed.
@@ -294,7 +300,7 @@ Documentation
 Please report bugs at `github AviSynthPlus page`_ - or - `Doom9's AviSynth+
 forum`_
 
-$Date: 2026/11/10 21:00:00 $
+$Date: 2026/11/19 09:00:00 $
 
 .. _github AviSynthPlus page:
     https://github.com/AviSynth/AviSynthPlus

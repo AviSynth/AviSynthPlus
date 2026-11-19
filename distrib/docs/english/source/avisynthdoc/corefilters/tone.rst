@@ -100,12 +100,21 @@ Changelog
 +----------------+----------------------------+
 | Version        | Changes                    |
 +================+============================+
+| AviSynth 3.7.7 | The phase comes from the   |
+|                | absolute sample position,  |
+|                | strictly as in the formula |
+|                | above, so the output does  |
+|                | not depend on how the      |
+|                | audio is requested (last   |
+|                | float bits only).          |
+|                | Deterministic for tests.   |
++----------------+----------------------------+
 | AviSynth 2.5.6 | Added ``level`` parameter. |
 +----------------+----------------------------+
 | AviSynth 2.5.4 | Initial release.           |
 +----------------+----------------------------+
 
-$Date: 2022/03/04 00:53:01 $
+$Date: 2026/11/19 09:00:00 $
 
 .. _dB:
     https://en.wikipedia.org/wiki/Decibel

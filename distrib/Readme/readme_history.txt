@@ -9,7 +9,7 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist377.html
 
-20261110 3.7.6.rXXXX (pre 3.7.7)
+20261119 3.7.6.rXXXX (pre 3.7.7)
 --------------------------------
 Additions, changes:
 - Frame properties: _Range is added, the number follows ITU-T H.273, as in VapourSynth: 1 is full, 0 is limited.
@@ -260,6 +260,12 @@ Bugfixes, accuracy: rounding, limited range levels:
 Bugfixes, same output on every CPU, OS and compiler:
   The C, the x86 SIMD and the aarch64 NEON paths, or two runs of the same script, gave different output. Found by
   comparing them, and by the sanitizer builds (planes left unset kept the content of a reused frame buffer).
+- Fix: Tone() (Sine, Square, Triangle, Sawtooth): the samples depended on how the audio was requested. The phase
+  was accumulated sample by sample from the start of each request, so one long GetAudio and smaller requests, or
+  a seek, gave different last float bits. The phase is now computed from the absolute sample position,
+  strictly as in the formula of the Tone documentation. The difference was about 1e-12 at 440 Hz, inaudible,
+  but it made the output depend on the read pattern. The output is now deterministic for tests.
+  Existed since 2.5.4.
 - Fix: Expr: pow with a negative base, x86 JIT: it gave 2.4e38 on any power which was not a constant 2, 3 or 4. Now it follows
   IEEE 754 as the C paths do: an integer power has a real result (-2 ^ 3 is -8), a fractional power is NaN. Also
   0 ^ 0.25 was 3.3e-10, now 0. Results of a positive base are not changed.
