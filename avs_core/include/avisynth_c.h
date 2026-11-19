@@ -153,6 +153,10 @@
 //              Removed the Windows-only avs_load_library, AVS26_FALLBACK_SIMULATION and EXTERNAL_AVS_C_API_LOADER.
 // 20261109 V14.1 Frame properties: _Range is the stored key (ITU-T H.273: 0 limited, 1 full), _ColorRange is its
 //              older name with 0 and 1 swapped, an alias of the same key. No API change.
+// 20261119 Fix, no API change: avs_audio_samples_from_frames and avs_frames_from_audio_samples are exact on
+//              degenerate frame rates (no 64 bit overflow of the intermediate product), as the C++ API
+//              VideoInfo::AudioSamplesFromFrames / FramesFromAudioSamples are in the core. These are inline
+//              functions: a plugin gets the fix when it is rebuilt with this header.
 
 // Notes.
 // Choose either method:
@@ -855,11 +859,98 @@ AVSC_INLINE int avs_bytes_per_channel_sample(const AVS_VideoInfo * p)
 AVSC_INLINE int avs_bytes_per_audio_sample(const AVS_VideoInfo * p)
         { return p->nchannels*avs_bytes_per_channel_sample(p);}
 
+/* Exact frame <-> audio sample conversion, the same results as VideoInfo::AudioSamplesFromFrames and
+   VideoInfo::FramesFromAudioSamples in the core (avs_core/core/interface.cpp).
+   Every product is split so that no step overflows 64 bits; the result saturates
+   to the range of the return type. Frame rate fields are 32 bit unsigned, the sample rate is an int. */
+AVSC_INLINE void avsc_umul64_wide(uint64_t a, uint64_t b, uint64_t *hi, uint64_t *lo)
+{
+  const uint64_t a_lo = a & 0xFFFFFFFFull, a_hi = a >> 32;
+  const uint64_t b_lo = b & 0xFFFFFFFFull, b_hi = b >> 32;
+  const uint64_t lo_lo = a_lo * b_lo;
+  const uint64_t hi_lo = a_hi * b_lo;
+  const uint64_t lo_hi = a_lo * b_hi;
+  const uint64_t hi_hi = a_hi * b_hi;
+  const uint64_t mid = (lo_lo >> 32) + (hi_lo & 0xFFFFFFFFull) + (lo_hi & 0xFFFFFFFFull);
+  *lo = (lo_lo & 0xFFFFFFFFull) | (mid << 32);
+  *hi = (hi_lo >> 32) + (lo_hi >> 32) + hi_hi + (mid >> 32);
+}
+
+/* floor((hi * 2^64 + lo) / d), requires hi < d (the quotient fits 64 bits); d < 2^63 */
+AVSC_INLINE uint64_t avsc_udiv128_64(uint64_t hi, uint64_t lo, uint64_t d)
+{
+  uint64_t r = hi, q = 0;
+  int i;
+  for (i = 63; i >= 0; i--) {
+    r = (r << 1) | ((lo >> i) & 1);
+    q <<= 1;
+    if (r >= d) { r -= d; q |= 1; }
+  }
+  return q;
+}
+
+/* floor(frames * rate * den / num), frames >= 0, num > 0; saturated to 0x7FFFFFFFFFFFFFFF */
+AVSC_INLINE uint64_t avsc_samples_from_frames_u(uint64_t frames, uint64_t rate, uint64_t den, uint64_t num)
+{
+  const uint64_t kMax = 0x7FFFFFFFFFFFFFFFull;
+  const uint64_t R = rate * den;   /* rate < 2^31, den < 2^32 */
+  const uint64_t q = R / num;
+  const uint64_t r = R % num;
+  const uint64_t a = frames / num;
+  const uint64_t b = frames % num;
+  const uint64_t rest = a * r + (b * r) / num;   /* b, r < num < 2^32: b*r < 2^64; rest <= frames */
+  if (q != 0 && frames > (kMax - rest) / q)
+    return kMax;
+  return frames * q + rest;
+}
+
+/* floor(samples * num / (den * rate)) for samples >= 0; saturated to 0x7FFFFFFF */
+AVSC_INLINE uint64_t avsc_frames_from_samples_u(uint64_t samples, uint64_t num, uint64_t den, uint64_t rate)
+{
+  const uint64_t kMaxS64 = 0x7FFFFFFFFFFFFFFFull;
+  const uint64_t kMaxInt = 0x7FFFFFFFull;
+  const uint64_t d = den * rate;   /* den < 2^32, rate < 2^31: d < 2^63 */
+  uint64_t frames;
+  if (samples <= kMaxS64 / num) {  /* samples * num fits 63 bits: plain division */
+    frames = (samples * num) / d;
+  } else {
+    uint64_t hi, lo;
+    avsc_umul64_wide(samples, num, &hi, &lo);
+    frames = (hi >= d) ? kMaxInt : avsc_udiv128_64(hi, lo, d);
+  }
+  return frames > kMaxInt ? kMaxInt : frames;
+}
+
 AVSC_INLINE int64_t avs_audio_samples_from_frames(const AVS_VideoInfo * p, int64_t frames)
-        { return ((int64_t)(frames) * p->audio_samples_per_second * p->fps_denominator / p->fps_numerator); }
+{
+  /* no video (width 0), no frame rate or no audio give 0, as VideoInfo::AudioSamplesFromFrames */
+  uint64_t mag;
+  if (!p->fps_numerator || p->width == 0 || p->audio_samples_per_second <= 0)
+    return 0;
+  /* negative frames: truncation towards zero; the magnitude of INT64_MIN is 2^63, exact in uint64 */
+  if (frames < 0) {
+    const uint64_t abs_frames = (frames == (-0x7FFFFFFFFFFFFFFFll - 1)) ? 0x8000000000000000ull : (uint64_t)(-frames);
+    mag = avsc_samples_from_frames_u(abs_frames, (uint64_t)p->audio_samples_per_second, p->fps_denominator, p->fps_numerator);
+    return -(int64_t)mag;
+  }
+  mag = avsc_samples_from_frames_u((uint64_t)frames, (uint64_t)p->audio_samples_per_second, p->fps_denominator, p->fps_numerator);
+  return (int64_t)mag;
+}
 
 AVSC_INLINE int avs_frames_from_audio_samples(const AVS_VideoInfo * p, int64_t samples)
-        { return (int)(samples * (int64_t)p->fps_numerator / (int64_t)p->fps_denominator / (int64_t)p->audio_samples_per_second); }
+{
+  /* no frame rate, no audio, or sample rate <= 0 give 0, as VideoInfo::FramesFromAudioSamples */
+  uint64_t mag;
+  if (!p->fps_numerator || !p->fps_denominator || p->audio_samples_per_second <= 0)
+    return 0;
+  if (samples < 0) {
+    const uint64_t abs_samples = (samples == (-0x7FFFFFFFFFFFFFFFll - 1)) ? 0x8000000000000000ull : (uint64_t)(-samples);
+    mag = avsc_frames_from_samples_u(abs_samples, p->fps_numerator, p->fps_denominator, (uint64_t)p->audio_samples_per_second);
+    return -(int)mag;
+  }
+  mag = avsc_frames_from_samples_u((uint64_t)samples, p->fps_numerator, p->fps_denominator, (uint64_t)p->audio_samples_per_second);
+  return (int)mag;
+}
 
 AVSC_INLINE int64_t avs_audio_samples_from_bytes(const AVS_VideoInfo * p, int64_t bytes)
         { return bytes / avs_bytes_per_audio_sample(p); }

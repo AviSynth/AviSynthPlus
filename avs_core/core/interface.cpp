@@ -48,6 +48,7 @@
  */
 
 #include <avisynth.h>
+#include <limits>
 
 #ifdef AVS_WINDOWS
     #include <avs/win.h>
@@ -107,15 +108,108 @@ bool VideoInfo::IsParityKnown() const { return ((image_type & IT_FIELDBASED)&&(i
 bool VideoInfo::IsBFF() const { return !!(image_type & IT_BFF); }
 bool VideoInfo::IsTFF() const { return !!(image_type & IT_TFF); }
 
+// floor(frames * rate * den / num) for frames >= 0, without the 64 bit overflow of the plain product
+// (frames * rate * den wraps e.g. at 192 kHz, fps_denominator ~2^30 after ~46k frames).
+// The result is saturated to INT64_MAX when it does not fit (only degenerate frame rates reach that).
+// Exact: R = rate*den is split as R = q*num + r; frames = a*num + b gives
+// floor(frames*R/num) = frames*q + a*r + floor(b*r/num), and a*r + floor(b*r/num) <= frames, so no step overflows.
+// Types: fps_numerator and fps_denominator are 32 bit unsigned, the sample rate is an int (< 2^31), so
+// rate*den < 2^63 and b*r < num*num < 2^64: the arithmetic below is exact for every value the struct can hold.
+static int64_t SamplesFromFramesExact(uint64_t frames, uint64_t rate, uint64_t den, uint64_t num)
+{
+  constexpr uint64_t kMaxS64 = (uint64_t)std::numeric_limits<int64_t>::max();
+  const uint64_t R = rate * den;
+  const uint64_t q = R / num;
+  const uint64_t r = R % num;
+  const uint64_t a = frames / num;
+  const uint64_t b = frames % num;
+  const uint64_t rest = a * r + (b * r) / num;   // <= frames
+  if (q != 0 && frames > (kMaxS64 - rest) / q)
+    return (int64_t)kMaxS64;
+  return (int64_t)(frames * q + rest);
+}
+
+// Same as VideoInfo::AudioSamplesFromFrames for any int64 frame count (the public class only has the int overload).
+static int64_t AudioSamplesFromFramesExact(int64_t frames, unsigned fps_num, unsigned fps_den, int sps, bool has_video)
+{
+  if (!fps_num || !has_video || sps <= 0)
+    return 0;
+  constexpr uint64_t kMaxS64 = (uint64_t)std::numeric_limits<int64_t>::max();
+  // Magnitude once; negative frames give negative samples, truncated towards zero as the plain division did.
+  // min() (== lowest() for signed types): its magnitude 2^63 is exact in uint64 (no signed negation).
+  const uint64_t abs_frames = frames < 0 ? (frames == std::numeric_limits<int64_t>::min() ? (uint64_t)1 << 63 : (uint64_t)(-frames)) : (uint64_t)frames;
+  const int64_t mag = SamplesFromFramesExact(abs_frames, (uint64_t)sps, fps_den, fps_num);
+  return frames < 0 ? -mag : mag;
+}
+
 /* Baked ********************
 bool VideoInfo::IsVPlaneFirst() const {return ((pixel_type & CS_YV12) == CS_YV12); }  // Don't use this
 int VideoInfo::BytesFromPixels(int pixels) const { return pixels * (BitsPerPixel()>>3); }   // Will not work on planar images, but will return only luma planes
 int VideoInfo::RowSize() const { return BytesFromPixels(width); }  // Also only returns first plane on planar images
 int VideoInfo::BMPSize() const { if (IsPlanar()) {int p = height * ((RowSize()+3) & ~3); p+=p>>1; return p;  } return height * ((RowSize()+3) & ~3); }
-int64_t VideoInfo::AudioSamplesFromFrames(int64_t frames) const { return (fps_numerator && HasVideo()) ? ((int64_t)(frames) * audio_samples_per_second * fps_denominator / fps_numerator) : 0; }
+
+
    Baked ********************/
-int64_t VideoInfo::AudioSamplesFromFrames(int frames) const { return (fps_numerator && HasVideo()) ? ((int64_t)(frames) * audio_samples_per_second * fps_denominator / fps_numerator) : 0; }
-int VideoInfo::FramesFromAudioSamples(int64_t samples) const { return (fps_denominator && HasAudio()) ? (int)((samples * fps_numerator)/((int64_t)fps_denominator * audio_samples_per_second)) : 0; }
+int64_t VideoInfo::AudioSamplesFromFrames(int frames) const { return AudioSamplesFromFramesExact((int64_t)frames, fps_numerator, fps_denominator, audio_samples_per_second, HasVideo()); }
+// 64 x 64 -> 128 bit unsigned product (portable: no __int128, which only GCC has)
+static void umul_64x64_to_128(uint64_t a, uint64_t b, uint64_t &hi, uint64_t &lo)
+{
+  const uint64_t a_lo = a & 0xFFFFFFFFull, a_hi = a >> 32;
+  const uint64_t b_lo = b & 0xFFFFFFFFull, b_hi = b >> 32;
+  const uint64_t lo_lo = a_lo * b_lo;
+  const uint64_t hi_lo = a_hi * b_lo;
+  const uint64_t lo_hi = a_lo * b_hi;
+  const uint64_t hi_hi = a_hi * b_hi;
+  const uint64_t mid = (lo_lo >> 32) + (hi_lo & 0xFFFFFFFFull) + (lo_hi & 0xFFFFFFFFull);   // < 3 * 2^32
+  lo = (lo_lo & 0xFFFFFFFFull) | (mid << 32);
+  hi = (hi_lo >> 32) + (lo_hi >> 32) + hi_hi + (mid >> 32);
+}
+
+// floor((hi * 2^64 + lo) / d) for hi < d (the quotient fits 64 bits); d < 2^63 so 2*d does not wrap
+static uint64_t udiv_128_64(uint64_t hi, uint64_t lo, uint64_t d)
+{
+  uint64_t r = hi, q = 0;
+  for (int i = 63; i >= 0; i--) {
+    r = (r << 1) | ((lo >> i) & 1);
+    q <<= 1;
+    if (r >= d) { r -= d; q |= 1; }
+  }
+  return q;
+}
+
+// floor(samples * num / (den * rate)), truncated towards zero for negative samples, saturated to int.
+// Exact for every value: samples * num is 64 bit when it fits (the normal case), otherwise 128 bit.
+// num < 2^32, den < 2^32, rate < 2^31, so den * rate < 2^63.
+static int FramesFromSamplesExact(int64_t samples, uint64_t num, uint64_t den, uint64_t rate)
+{
+  const uint64_t kMaxS64 = (uint64_t)std::numeric_limits<int64_t>::max();
+  const uint64_t kMaxInt = (uint64_t)std::numeric_limits<int>::max();
+  const uint64_t d = den * rate;
+  // magnitude; min() has the magnitude 2^63, exact in uint64
+  const bool neg = samples < 0;
+  const uint64_t s = neg ? (samples == std::numeric_limits<int64_t>::min() ? (uint64_t)1 << 63 : (uint64_t)(-samples)) : (uint64_t)samples;
+  uint64_t frames;
+  if (s <= kMaxS64 / num)                 // s * num fits in 63 bits: plain division, identical to the old result
+    frames = (s * num) / d;
+  else {
+    uint64_t hi, lo;
+    umul_64x64_to_128(s, num, hi, lo);
+    if (hi >= d)                          // quotient does not fit 64 bits: far beyond any int
+      frames = kMaxInt;
+    else
+      frames = udiv_128_64(hi, lo, d);
+  }
+  if (frames > kMaxInt)
+    frames = kMaxInt;
+  return neg ? -(int)frames : (int)frames;
+}
+
+int VideoInfo::FramesFromAudioSamples(int64_t samples) const
+{
+  if (!fps_numerator || !fps_denominator || !HasAudio() || audio_samples_per_second <= 0)
+    return 0;
+  return FramesFromSamplesExact(samples, fps_numerator, fps_denominator, (uint64_t)audio_samples_per_second);
+}
 int64_t VideoInfo::AudioSamplesFromBytes(int64_t bytes) const { return HasAudio() ? bytes / BytesPerAudioSample() : 0; }
 int64_t VideoInfo::BytesFromAudioSamples(int64_t samples) const { return samples * BytesPerAudioSample(); }
 int VideoInfo::AudioChannels() const { return HasAudio() ? nchannels : 0; }

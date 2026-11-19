@@ -261,12 +261,24 @@ loop. Most need an unusual parameter or input.
   or many channels, when one frame's audio was above about 1 MB: e.g. 5.1 48 kHz at fps 0.5 (2 s per image), or
   5.1 96 kHz at 1 fps. Existed since classic AviSynth.
 
-Undefined behaviour, NaN parameters, cosmetics
-^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+Undefined behaviour, NaN or degenerated parameters, cosmetics
+^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 Undefined behaviour (UB): an operation whose result the C++ standard leaves open, e.g. a NaN converted to an
 integer or a shift by 32 bits; the compiler may do anything. Here the result was not used or was the same on the
-tested platforms. Found by UndefinedBehaviorSanitizer (UBSan) builds.
+tested platforms. Some were found by UndefinedBehaviorSanitizer (UBSan) builds.
 
+- Fix: ``AudioSamplesFromFrames`` (used by Trim, AudioDub, BlankClip, AssumeFPS and others): the 64 bit product of
+  frames, sample rate and frame rate denominator overflowed on degenerate frame rates. E.g. at 192 kHz with a
+  denominator of about 2^30, after about 46 000 frames, the sample positions became garbage or negative. The
+  result is now exact, saturated to the 64 bit maximum when it does not fit. Other values are not changed.
+  Existed since classic AviSynth.
+- Fix: ``FramesFromAudioSamples`` (used by several filters, e.g. Trim and Histogram): ``samples * fps_numerator``
+  overflowed 64 bits for a large frame rate numerator and many samples (above about 2^31 samples with a numerator
+  near 2^32). The result is now exact, saturated to the int range. Other values are not changed.
+  Existed since classic AviSynth.
+- Fix: the C API helpers ``avs_audio_samples_from_frames`` and ``avs_frames_from_audio_samples`` in ``avisynth_c.h``
+  had the same overflow. They are inline functions, so a plugin gets the fix only when it is rebuilt with the new
+  header. Plain C99, no 128 bit integer type. Existed since classic AviSynth.
 - Float parameters of the built-in filters which are not a number (NaN) or infinite give an error, when the filter uses them.
 - Fix: Normalize on a silent track: the factor was infinite, float output NaN, 16 bit undefined. The track is left
   as it is now.
