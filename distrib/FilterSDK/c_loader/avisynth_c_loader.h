@@ -92,7 +92,7 @@
 //   has_frame_props checks both for the V8/V9 frame property set (one check is enough there).
 //   AVSC_LOADER_FUNCTIONS documents introduction versions
 //   and later fixes; see also "API functions fixed later than they appeared" in avisynth_c.h.
-// - Version flags: both variants expose released milestones plus the current WIP, not the
+// - Version flags: both variants expose the released milestones, not the
 //   development steps V9.1/V9.2/V12/V13. Exact comparisons use interface_version/interface_bugfix.
 // - Environment creation: prefer avs_library_create_script_environment for version negotiation.
 //   Direct avs_create_script_environment calls require avs_library_env_failed: unsupported requests
@@ -124,7 +124,7 @@
 //
 // Interface versions: V3: classic 2.5; V6: classic 2.6 and AviSynth+ through 3.5.0; V7: 3.5.1;
 // V8: 3.6.x/3.7.0; V9: 3.7.1/3.7.2; V10: 3.7.3; V11: 3.7.4; V11.1: 3.7.5;
-// V14: 3.7.6; V14.1: 3.7.7 WIP. "AVS+" in the function list means all AviSynth+ versions.
+// V14: 3.7.6; V14.1: 3.7.7. "AVS+" in the function list means all AviSynth+ versions.
 
 #ifndef AVISYNTH_C_LOADER_H
 #define AVISYNTH_C_LOADER_H
@@ -165,13 +165,13 @@ struct AVS_Library {
                            // Use the core's numeric accessors: V11.0 non-x86 64-bit storage differs
                            // from current inline helpers. Caller value support: has_64bit_values.
   int has_at_least_v11_1;  // 3.7.5: aligns non-x86 64-bit AVS_Value storage with current inline helpers.
-  // V12/V13: WIP before V14; not set.
+  // V12/V13: development steps before V14; not set.
   int has_at_least_v14;    // 3.7.6: includes the V12/V13 development additions:
                            // avs_acquire/release_global_lock, avs_get_cpu_flags_ex, AVS_AEP_CACHESIZE_L2;
                            // YUV(A) 4:4:0, 4:1:1, 4:1:0, YA pixel formats.
                            // Function values, avs_invoke2/3(_try), avs_create_map; avs_prop_get_xxx fixes
                            // (NULL error pointer, avs_prop_get_clip), AVS_MT_NICE_FILTER error reporting
-  int has_at_least_v14_1;  // 3.7.7 WIP: frame properties: _Range is the stored key, _ColorRange its alias
+  int has_at_least_v14_1;  // 3.7.7: frame properties: _Range is the stored key, _ColorRange its alias
                            // (0 and 1 swapped). Before, AviSynth knew only _ColorRange
 
   // has_at_least_v9 and all V8/V9 frame property functions present (AVSC_LOADER_FRAME_PROP_FUNCTIONS):
@@ -337,7 +337,7 @@ AVSC_LOADER_INLINE int avs_library_interface_version(const AVS_Library* library,
   return avs_loader_query_version(library->avs_check_version, library->avs_get_env_property, env, bugfix);
 }
 
-// Records the exact interface version and sets flags for released milestones plus the current WIP.
+// Records the exact interface version and sets flags for the released milestones.
 // Development steps V9.1/V9.2/V12/V13 have no separate flags.
 AVSC_LOADER_INLINE void avs_library_set_version(AVS_Library* library, int version, int bugfix)
 {
