@@ -43,6 +43,13 @@ Additions, changes:
   dictionary-style array at script load time: min, max, peak, peak_db, peak_sample, rms, rms_db, mean, clipped,
   loose_peak, loose_peak_db; per_channel=true adds "channels", keyed by the channel mask names (FL, FC, LFE...) or
   "0", "1"... Normalize uses the same peak search.
+- Prefetch: no frames are prefetched while no steady step is locked, except right after a short jump
+  (0 < |step| <= max(4, prefetch frames)). Before, every request prefetched n+1, n+2.. even after a jump to a
+  random place: work for frames nobody asked for, which kept the threads busy and pushed useful frames out of the
+  caches. Forward reading out of order (steps 1,3,1,3 of SelectEvery(4,0,1), or MT-like arrival) keeps its
+  read-ahead. The same frame requested again (a second output, e.g. AvsPmod's display clip) does not count as a
+  jump. QTGMC: 120 random jumps 18.4 s -> 11.0 s, AvsPmod 10 bookmarks 3.3 s -> 0.5 s; encoding, playing,
+  stepping unchanged.
 Build environment:
 - Fix #531: GCC build with LTO (-flto) failed at link time on x86/x64 Linux:
   "inlining failed in call to 'always_inline' prepare_effective_mask_for_row_float_sse41: target specific
@@ -84,6 +91,13 @@ Bugfixes:
   comparing the output of the different CPU paths, then analysed and fixed with AI tools. Some were reported by users.
 
 Bugfixes, bugs in normal use:
+- Fix: Prefetch pattern lock (Prefetcher.cpp): while unlocked, the step of each request was compared to the stored
+  step, but the new step was never stored. The stored step stayed 1 (or the last step seen while locked), so from
+  a cold start only step +1 could lock. SelectEven / SelectEvery(4) after Prefetch, playing backward, or a GUI
+  stepping by 2 never locked and kept prefetching n+1, n+2.., frames nobody asked for. Any constant step locks now
+  after 4 equal steps; a different step still locks when switched to while locked, as before.
+  QTGMC(Preset="Fast").Prefetch(8): step 2 3.9 s -> 2.7 s, step 4 7.4 s -> 4.2 s, 300 frames backward 6.4 s -> 2.1 s.
+  Existed since AviSynth+ MT (2014, "More intelligent pattern detection in Prefetcher").
 - Fix #462 (part 2): autoload of .avsi files with non-ASCII names, e.g. "CleanÁrvíztűrőTükörfúrógép.avsi" or
   "Clean_SC(シーンチェンジフレーム置換).avsi" (report on Doom9). The first #462 fix (3.7.6) made autoload UTF-8, but
   passed the UTF-8 .avsi path to Import without utf8=true, so Import read it as ANSI. On a non-UTF-8 ANSI code page

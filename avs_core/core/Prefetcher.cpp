@@ -4,6 +4,7 @@
 #include <mutex>
 #include <atomic>
 #include <cstdlib>
+#include <algorithm>
 #ifdef INTEL_INTRINSICS
 #include <mmintrin.h>
 #endif
@@ -91,6 +92,31 @@ struct PrefetcherPimpl
   }
 };
 
+
+// ---------------------------------------------------------------------------------------------
+// Pattern lock: what to prefetch
+//
+// The step between two requests ('pattern' = n - previous n) is tracked:
+// - Unlocked: when the same step repeats PATTERN_LOCK_LENGTH times in a row (4 equal steps, 5
+//   requests), the Prefetcher locks to it. Any constant step locks: +1 (playing, encoding),
+//   -1 (playing backward), +2 or +4 (SelectEven / SelectEvery(4) after Prefetch, a GUI stepping).
+// - Locked: it prefetches n + k * LockedPattern. When another step repeats PATTERN_LOCK_LENGTH
+//   times while the locked one misses as often, it switches to the new step; when the locked
+//   step misses PATTERN_LOCK_LENGTH times without a new steady step, it unlocks.
+// - A request for the same frame again (step 0) counts as step +1.
+//
+// While unlocked, nothing is prefetched, except right after a short jump
+// (0 < |raw step| <= max(4, prefetch frames)): then n+1, n+2.. are queued. Requests that move
+// forward but out of order (MT-like arrival, SelectEvery(4,0,1) = steps 1,3,1,3) keep their
+// read-ahead, while random jumps (bookmarks, seeking) no longer start work on frames nobody asks
+// for, which also kept the threads busy and pushed useful frames out of the caches.
+// The raw step is used here: a second output (AvsPmod's display clip) asking for the same frame
+// again is not a short jump.
+//
+// Before 3.7.7 the unlocked branch never stored the new step, so from a cold start only +1 could
+// lock (other steps only when switched to while already locked), and every unlocked request
+// prefetched n+1, n+2..
+// ---------------------------------------------------------------------------------------------
 
 // The number of intervals a pattern has to repeat itself to become (un)locked
 #define PATTERN_LOCK_LENGTH 3
@@ -215,6 +241,7 @@ PVideoFrame __stdcall Prefetcher::GetFrame(int n, IScriptEnvironment* env_)
 
   int pattern = n - _pimpl->LastRequestedFrame;
   _pimpl->LastRequestedFrame = n;
+  const int raw_step = pattern; // before the 0 -> 1 mapping below
   if (pattern == 0)
     pattern = 1;
 
@@ -260,6 +287,7 @@ PVideoFrame __stdcall Prefetcher::GetFrame(int n, IScriptEnvironment* env_)
       _pimpl->PatternHits = 0;    // Tracks Pattern
       _pimpl->PatternMisses++;    // Tracks Pattern
     }
+    _pimpl->Pattern = pattern; // the next request is compared to this step
 
     if (_pimpl->PatternHits >= PATTERN_LOCK_LENGTH)
     {
@@ -279,8 +307,13 @@ PVideoFrame __stdcall Prefetcher::GetFrame(int n, IScriptEnvironment* env_)
   }
 
 
+  // unlocked: prefetch only after a short jump, see the pattern lock comment above
+  // (step 0 = the same frame again, e.g. from a second output: no direction)
+  const bool short_jump = raw_step != 0 && std::abs(raw_step) <= std::max(4, _pimpl->nPrefetchFrames);
+  const bool do_prefetch = _pimpl->IsLocked || short_jump;
+
   // Prefetch 1
-  int prefetch_pos = SchedulePrefetch(n, n, IEnv);
+  int prefetch_pos = do_prefetch ? SchedulePrefetch(n, n, IEnv) : n;
 
   // Get requested frame
   PVideoFrame result;
@@ -328,7 +361,8 @@ PVideoFrame __stdcall Prefetcher::GetFrame(int n, IScriptEnvironment* env_)
   }
 
   // Prefetch 2
-  SchedulePrefetch(n, prefetch_pos, IEnv);
+  if (do_prefetch)
+    SchedulePrefetch(n, prefetch_pos, IEnv);
 
   return result;
 }

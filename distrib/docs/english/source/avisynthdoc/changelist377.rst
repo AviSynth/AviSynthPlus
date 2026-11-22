@@ -16,6 +16,9 @@ Additions, changes
   and ``propShow`` both. See :doc:`frame properties <syntax/syntax_internal_functions_frame_properties>`.
 - New :doc:`AudioStats <corefilters/audiostats>`: audio levels (peak, RMS, clipped samples, loose peak), also per
   channel, as an array of named values at script load time.
+- Prefetch: while no steady step is found (random jumps, bookmarks, seeking), no frames are prefetched, except
+  right after a jump of at most max(4, frames) frames. Random seeking on QTGMC 40% quicker, AvsPmod bookmark
+  cycling about 6x quicker; playing, encoding and out-of-order forward reading are unchanged.
 
 Build environment, Interface
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -68,6 +71,9 @@ the output of the different CPU paths, then analysed and fixed with AI tools. So
 
 Bugs in normal use
 ^^^^^^^^^^^^^^^^^^
+- Fix: Prefetch locked only to step +1 from a cold start: SelectEven/SelectEvery after Prefetch, playing backward or
+  a GUI stepping by 2 kept prefetching the next frames, which nobody asked for. Any constant step locks now
+  (step 2: 30% quicker, step 4 and backward about 45% on QTGMC). Existed since AviSynth+ MT (2014).
 - Fix #462 (part 2): autoload of ``.avsi`` files with non-ASCII names (e.g. Hungarian or Japanese characters) failed
   with "Import: couldn't open" on a non-UTF-8 ANSI code page. Regression since 3.7.6; 3.7.5 crashed on names
   outside the ANSI code page. (`issue #462 <https://github.com/AviSynth/AviSynthPlus/issues/462>`_)
