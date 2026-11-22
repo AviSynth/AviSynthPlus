@@ -80,7 +80,23 @@ endif()
 
 if(NOT HEADERS_ONLY)
 
+  # Single-configuration generators (Ninja, Makefiles, NMake) default to Release when no build type is given.
+  # This must come before project(): for MSVC, project() itself sets CMAKE_BUILD_TYPE to Debug on these
+  # generators, so a later "if(NOT CMAKE_BUILD_TYPE)" never fires (cmake -G Ninja gave an /Od /RTC1 build).
+  # GCC/Clang leave it empty (-O0, no debug info). As a cache entry it is visible in CMakeCache.txt.
+  # Multi-config generators (Visual Studio, Ninja Multi-Config, Xcode) use CMAKE_CONFIGURATION_TYPES instead.
+  if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_GENERATOR MATCHES "Visual Studio|Multi-Config|Xcode")
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
+  endif()
+
   project("AviSynth+" VERSION ${PROJECT_VERSION_STRING} LANGUAGES CXX)
+
+  if(MSVC)
+    # The targets use /EHa (target_compile_options below). CMake's default CMAKE_CXX_FLAGS has /EHsc; with both on
+    # the command line cl.exe warns D9025 "overriding '/EHs' with '/EHa'" for every file under Ninja/NMake
+    # (the Visual Studio generator merges them into one project setting and hides it). MSVC, clang-cl, icx-cl.
+    string(REPLACE "/EHsc" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+  endif()
 
   # message("Compiler ID: ${CMAKE_CXX_COMPILER_ID} ") 
 
@@ -175,16 +191,7 @@ if(NOT HEADERS_ONLY)
       endif()
       message("-- Build type: Multi-configuration (${CMAKE_CONFIGURATION_TYPES})")
     else()
-      # When CMAKE_BUILD_TYPE is not defined, CMake defaults to a simple -O0 configuration, no compiler optimizations
-      # and no debug symbols. For single-configuration generators (Makefiles, Ninja, etc.) we can make Release the
-      # assumed default if it isn't explicitly set by the user. Multi-config generators like Visual Studio ignore
-      # CMAKE_BUILD_TYPE.
-
-      # Unfortunately, this is not visible in CMakeCache, but it can be seen to take effect in build.ninja or running
-      # make with VERBOSE=1 adding the appropriate Release flags.
-      if(NOT CMAKE_BUILD_TYPE)
-        set(CMAKE_BUILD_TYPE "Release")
-      endif()
+      # Single-configuration generator: the Release default is set before project(), see there.
       message("-- Build type: ${CMAKE_BUILD_TYPE}")
     endif()
   endif()
@@ -502,8 +509,8 @@ if(NOT HEADERS_ONLY)
           endif()
         endif()
 
-        # FIXME: With Ninja, we can see cl : Command line warning D9025 : overriding '/EHs' with '/EHa'
-        
+        # /EHa below: CMake's default /EHsc is removed after project() (else D9025 with Ninja)
+
         # Compiler-specific options for IntelLLVM / Clang
         if(CLANG_IN_VS STREQUAL "1")
           target_compile_options(${AFFECTED_TARGET} PRIVATE /EHa -Wno-inconsistent-missing-override)

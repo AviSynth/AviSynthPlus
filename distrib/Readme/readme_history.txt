@@ -85,6 +85,16 @@ Additions, changes:
   jump. QTGMC: 120 random jumps 18.4 s -> 11.0 s, AvsPmod 10 bookmarks 3.3 s -> 0.5 s; encoding, playing,
   stepping unchanged.
 Build environment:
+- Fix: CMake with a single-configuration generator (Ninja, NMake) and MSVC, clang-cl or icx-cl, without
+  -DCMAKE_BUILD_TYPE: an unoptimized Debug build (/MDd /Zi /Ob0 /Od /RTC1, "-- Build type: Debug") instead of Release.
+  For MSVC, project() itself sets CMAKE_BUILD_TYPE to Debug on these generators, so the "if(NOT CMAKE_BUILD_TYPE)
+  -> Release" fallback added in 3.7.5 (after project()) never fired; it worked for GCC/Clang only. The default is set
+  before project() now, as a cache entry (visible in CMakeCache.txt, for GCC too); multi-config generators (Visual
+  Studio, Ninja Multi-Config, Xcode) are left alone. The CMake presets always gave a build type and were not affected.
+- Fix: the same builds warned D9025 "overriding '/EHs' with '/EHa'" for every file: CMake's default CMAKE_CXX_FLAGS
+  has /EHsc, the targets add /EHa. The Visual Studio generator merges both into one project setting and hid it.
+  /EHsc is removed from CMAKE_CXX_FLAGS after project() for MSVC-like compilers; all targets (core and plugins) keep
+  /EHa only. Found with the CMake build of AVSMeter, which got the same two fixes.
 - Fix #531: GCC build with LTO (-flto) failed at link time on x86/x64 Linux:
   "inlining failed in call to 'always_inline' prepare_effective_mask_for_row_float_sse41: target specific
   option mismatch". The force-inlined SSE4.1 function, defined in another source file, was called from a

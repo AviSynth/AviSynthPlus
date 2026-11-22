@@ -165,6 +165,12 @@ the compiler found in that environment); the ARM64 ones need only
 
 ``cmake --list-presets`` lists them.
 
+Without a preset, a single-configuration generator (``-G Ninja``, NMake) builds
+Release when no ``-DCMAKE_BUILD_TYPE`` is given, also with MSVC: in a *x64 Native
+Tools Command Prompt* ``cmake -S . -B build -G Ninja`` then ``cmake --build build``.
+(Before 3.7.7 this gave an unoptimized Debug build with MSVC, because CMake sets the
+Debug default for MSVC before the project's own Release default could apply.)
+
 
 What works for ARM64 in the IDE, and what does not
 ---------------------------------------------------

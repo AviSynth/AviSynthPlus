@@ -39,6 +39,11 @@ Build environment, Interface
 - Fix: GCC build with LTO (link-time optimization) failed with "inlining failed in call to 'always_inline'
   ... target specific option mismatch" in the SSE4.1 Overlay/Layer mask row preparation (x86/x64).
   (`issue #531 <https://github.com/AviSynth/AviSynthPlus/issues/531>`_)
+- Fix: CMake with Ninja (or NMake) and MSVC, clang-cl or icx-cl, without ``-DCMAKE_BUILD_TYPE``, gave an unoptimized
+  Debug build (``/Od /RTC1``) instead of Release; and every file warned D9025 "overriding '/EHs' with '/EHa'".
+  The Release default is set before ``project()`` now, and CMake's default ``/EHsc`` is removed (the targets use
+  ``/EHa``). The Visual Studio generator and GCC/Clang were not affected. The Release default of 3.7.5 never worked
+  for MSVC; both existed since the CMake build has /EHa.
 - Fix: MinGW/llvm-mingw builds (Windows ARM64, GCC x86/x64) had no version resource in ``AviSynth.dll``, so the
   File and Product version showed n/a. The resource is now compiled for MinGW too, as it is for MSVC. Its copyright
   sign is written as ``(C)``, because llvm-rc rejects the cp1252 character. Existed since 3.4.0.
