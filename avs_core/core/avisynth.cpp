@@ -1055,7 +1055,8 @@ private:
   VideoFrame* GetNewFrame(size_t vfb_size, size_t margin, Device* device);
   VideoFrame* GetFrameFromRegistry(size_t vfb_size, Device* device);
   void RegisterSubFrameInRegistry(size_t vfb_size, VideoFrameBuffer* vfb, VideoFrame* new_frame);
-  void ShrinkCache(Device* device);
+  int ShrinkCache(Device* device);
+  void FreeUnusedFrameBuffers(Device* device);
   VideoFrame* AllocateFrame(size_t vfb_size, size_t margin, Device* device);
   std::recursive_mutex memory_mutex;
   std::recursive_mutex invoke_mutex; // 3.7.2
@@ -4148,13 +4149,24 @@ VideoFrame* ScriptEnvironment::GetNewFrame(size_t vfb_size, size_t margin, Devic
   * Couldn't allocate, shrink cache and get more unused frames
   * -----------------------------------------------------------
   */
-  ShrinkCache(device);
+  const int shrinkcount = ShrinkCache(device);
 
   /* -----------------------------------------------------------
-  *   Try to return an unused frame again
+  *   Try to return an unused frame again: a buffer just released
+  *   by the shrunk caches is reused before anything is freed
   * -----------------------------------------------------------
   */
   frame = GetFrameFromRegistry(vfb_size, device);
+
+  /* -----------------------------------------------------------
+  *   Then free the other unused buffers (any size) to get back
+  *   under the memory limit. Freeing first would also delete the
+  *   buffers of the requested size, and we would allocate a new one.
+  * -----------------------------------------------------------
+  */
+  if (shrinkcount != 0)
+    FreeUnusedFrameBuffers(device);
+
   if (frame != NULL)
     return frame;
 
@@ -4246,7 +4258,10 @@ VideoFrame* ScriptEnvironment::GetNewFrame(size_t vfb_size, size_t margin, Devic
   return NULL;
 }
 
-void ScriptEnvironment::ShrinkCache(Device *device)
+// Takes one slot from each cache on 'device' that holds frames (least recently used caches first
+// in the registry order). Released frames go back to the frame registry; returns the number of
+// caches shrunk. FreeUnusedFrameBuffers frees the unused buffers afterwards.
+int ScriptEnvironment::ShrinkCache(Device *device)
 {
   /* -----------------------------------------------------------
   *   Shrink cache to keep memory limit
@@ -4279,13 +4294,16 @@ void ScriptEnvironment::ShrinkCache(Device *device)
     OneTimeLogTicket ticket(LOGTICKET_W1003);
     LogMsgOnce(ticket, LOGLEVEL_WARNING, "Caches have been shrunk due to low memory limit. This will probably degrade performance. You can try increasing the limit using SetMemoryMax().");
   }
+  return shrinkcount;
+}
 
+void ScriptEnvironment::FreeUnusedFrameBuffers(Device* device)
+{
   /* -----------------------------------------------------------
   * Count up free_count and free if it exceeds the threshold
   * -----------------------------------------------------------
   */
   // Free up in one pass in FrameRegistry2
-  if (shrinkcount)
   {
     _RPT1(0, "EnsureMemoryLimit GC start: memused=%" PRIu64 "\n", device->memory_used.load());
     [[maybe_unused]] int freed_vfb_count = 0;
@@ -4902,7 +4920,7 @@ void* ScriptEnvironment::ManageCache(int key, void* data) {
         if (old_cache->GetDevice() != device) {
           continue;
         }
-        int osize = cache->SetCacheHints(CACHE_GET_SIZE, 0);
+        int osize = old_cache->SetCacheHints(CACHE_GET_SIZE, 0);
         if (osize != 0)
         {
           old_cache->SetCacheHints(CACHE_SET_MAX_CAPACITY, osize - 1);

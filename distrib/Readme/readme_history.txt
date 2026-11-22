@@ -128,6 +128,9 @@ Bugfixes, bugs in normal use:
 - Fix: AvsPmod with 10 or more bookmarks on a slow script (QTGMC) recalculated every bookmark on every visit: the
   frame caches did not grow for them since the 3.7.6 change for #270/#379 (grow only for frames evicted twice).
   See the new frame cache sizing above. Regression since 3.7.6.
+- Fix: near the SetMemoryMax limit (MC_NodAndExpandCache), a growing cache took one slot from the least recently
+  used cache of the device, but read the size of itself instead of that cache (cache-> instead of old_cache->), and
+  set the other cache's limit to that size - 1: it shrank too much, or not at all. Existed since AviSynth+ MT (2014).
 - Fix #462 (part 2): autoload of .avsi files with non-ASCII names, e.g. "CleanÁrvíztűrőTükörfúrógép.avsi" or
   "Clean_SC(シーンチェンジフレーム置換).avsi" (report on Doom9). The first #462 fix (3.7.6) made autoload UTF-8, but
   passed the UTF-8 .avsi path to Import without utf8=true, so Import read it as ANSI. On a non-UTF-8 ANSI code page
@@ -450,6 +453,10 @@ Bugfixes, undefined behaviour, NaN parameters, cosmetics:
   Why: C vs SIMD comparison tests no longer show these 1 LSB differences.
 
 Optimizations:
+- Optimization: frame allocation near the SetMemoryMax limit (GetNewFrame): the caches are shrunk, then a frame
+  buffer released by them is reused, then the other unused buffers are freed. Before, ShrinkCache freed every unused
+  buffer of the device first (free threshold 0 on CPU), also those of the requested size, so the reuse step found
+  nothing and a new buffer was allocated: a free + malloc for every frame while at the limit.
 - Optimization: Text and Subtitle(gdi=false): non-fading luma loops skip empty bitmap bytes; chroma walks only the
   set bits of the bitmap, without branching on them; rectangle weights are computed once per column.
   About 20-35% quicker without halo and fading (19 lines of text, frame copies excluded).

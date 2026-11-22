@@ -84,6 +84,9 @@ Bugs in normal use
   (step 2: 30% quicker, step 4 and backward about 45% on QTGMC). Existed since AviSynth+ MT (2014).
 - Fix: AvsPmod with many bookmarks (10 or more on QTGMC) recalculated every bookmark on every visit since 3.7.6, the
   frame caches did not grow for them. Regression since 3.7.6, see the frame cache sizing change above.
+- Fix: near the ``SetMemoryMax`` limit, a growing cache took a slot from the least recently used cache using its own
+  size instead of the other cache's size, so the other cache shrank too much or not at all. Existed since AviSynth+
+  MT (2014).
 - Fix #462 (part 2): autoload of ``.avsi`` files with non-ASCII names (e.g. Hungarian or Japanese characters) failed
   with "Import: couldn't open" on a non-UTF-8 ANSI code page. Regression since 3.7.6; 3.7.5 crashed on names
   outside the ANSI code page. (`issue #462 <https://github.com/AviSynth/AviSynthPlus/issues/462>`_)
@@ -314,6 +317,9 @@ tested platforms. Some were found by UndefinedBehaviorSanitizer (UBSan) builds.
 
 Optimizations
 ~~~~~~~~~~~~~
+- Optimization: near the ``SetMemoryMax`` limit, a frame buffer released by shrinking the caches is reused before the
+  unused buffers are freed. Before, all unused buffers were freed first, also those of the requested size, and a new
+  one was allocated for every frame.
 - Optimization: Text and Subtitle(gdi=false): luma loops skip empty bitmap bytes, chroma visits only the set bits
   of the bitmap. About 20-35% quicker (19 lines of text, frame copies excluded) without halo and fading.
 - Optimization: x86 SSE2 (no SSE4.1) emulation of unsigned 16 bit min/max (Limiter, Blur/Sharpen, 10-14 bit
