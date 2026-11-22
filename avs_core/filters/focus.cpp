@@ -557,6 +557,8 @@ TemporalSoften::TemporalSoften( PClip _child, unsigned radius, unsigned luma_thr
   kernel(2 * min(radius, (unsigned int)MAX_RADIUS) + 1)
 {
 
+  // declares the frame window read per output frame; the AviSynth+ cache ignores it (see AvsCache::SetCacheHints)
+  // Comment added because it may serve later as test for memory-limited cashe shrink tests
   child->SetCacheHints(CACHE_WINDOW,kernel);
 
   if (vi.IsRGB24() || vi.IsRGB48()) {

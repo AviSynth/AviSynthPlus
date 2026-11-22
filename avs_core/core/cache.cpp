@@ -65,14 +65,18 @@ std::atomic<unsigned long long> g_prefetch_jobs{ 0 }; // frames queued for prefe
 std::atomic<unsigned long long> g_prefetch_hits{ 0 }; // requests found ready in a Prefetcher cache
 // frame memory, see avisynth.cpp: new buffers allocated, ShrinkCache calls that shrank caches, buffers freed
 std::atomic<unsigned long long> g_mem_allocs{ 0 }, g_mem_shrinks{ 0 }, g_mem_frees{ 0 };
+// highest memory_used seen at an allocation since the last CacheExperimentStats call
+std::atomic<unsigned long long> g_mem_peak{ 0 };
 
 static std::mutex g_stat_mutex;
 static std::vector<AvsCache*> g_stat_caches;
 static int g_stat_next_id = 0;
 
 // CacheExperimentStats(): one line per live AvsCache, see AvsCache::StatLine
-static AVSValue __cdecl CacheExperimentStats(AVSValue, void*, IScriptEnvironment* env)
+static AVSValue __cdecl CacheExperimentStats(AVSValue, void*, IScriptEnvironment* env_)
 {
+  InternalEnvironment* env = GetAndRevealCamouflagedEnv(env_);
+  Device* dev = env->GetCurrentDevice();
   std::string s;
   {
     std::lock_guard<std::mutex> lock(g_stat_mutex);
@@ -81,7 +85,10 @@ static AVSValue __cdecl CacheExperimentStats(AVSValue, void*, IScriptEnvironment
   }
   // last line: Prefetcher totals (all Prefetch instances)
   s += "prefetch;" + std::to_string(g_prefetch_jobs.load()) + ";" + std::to_string(g_prefetch_hits.load()) + "\n";
-  s += "mem;" + std::to_string(g_mem_allocs.load()) + ";" + std::to_string(g_mem_shrinks.load()) + ";" + std::to_string(g_mem_frees.load()) + "\n";
+  s += "mem;" + std::to_string(g_mem_allocs.load()) + ";" + std::to_string(g_mem_shrinks.load()) + ";" + std::to_string(g_mem_frees.load())
+    + ";" + std::to_string(g_mem_peak.load() >> 20) + ";" + std::to_string(dev->memory_used.load() >> 20)
+    + ";" + std::to_string(dev->memory_max >> 20) + "\n"; // MB
+  g_mem_peak = dev->memory_used.load();
   return env->SaveString(s.c_str(), (int)s.size());
 }
 #endif
@@ -608,10 +615,15 @@ int __stdcall AvsCache::SetCacheHints(int cachehints, int frame_range)
       return 2;
       break;
 
+    // CACHE_WINDOW (and CACHE_25_RANGE, mapped to it): the 2.x way a filter told its child cache how many
+    // consecutive frames it reads per output frame (e.g. TemporalSoften: 2*radius+1). Ignored: the cache size
+    // is found from the requests. Tried as a minimum capacity under memory pressure (2026-11, 8K at
+    // SetMemoryMax 2-4 GB): the window was kept but nothing measurable changed, so it stays a no-op.
+    // Filters keep sending it, it is the only place where they declare their window.
+    case CACHE_WINDOW:
     case CACHE_GENERIC:
     case CACHE_FORCE_GENERIC:
     case CACHE_NOTHING:
-    case CACHE_WINDOW:
     case CACHE_PREFETCH_FRAME:          // Queue request to prefetch frame N.
     case CACHE_PREFETCH_GO:             // Action video prefetches.
       break;
@@ -918,10 +930,10 @@ int __stdcall CacheGuard::SetCacheHints(int cachehints, int frame_range)
     return 2;
     break;
 
+  case CACHE_WINDOW: // ignored, see AvsCache::SetCacheHints
   case CACHE_GENERIC:
   case CACHE_FORCE_GENERIC:
   case CACHE_NOTHING:
-  case CACHE_WINDOW:
   case CACHE_PREFETCH_FRAME:          // Queue request to prefetch frame N.
   case CACHE_PREFETCH_GO:             // Action video prefetches.
     break;

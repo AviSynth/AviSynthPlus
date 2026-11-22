@@ -98,7 +98,7 @@
 #ifdef AVS_CACHE_EXPERIMENT
 // helper/cache_harness statistics, defined in cache.cpp
 #include <atomic>
-extern std::atomic<unsigned long long> g_mem_allocs, g_mem_shrinks, g_mem_frees;
+extern std::atomic<unsigned long long> g_mem_allocs, g_mem_shrinks, g_mem_frees, g_mem_peak;
 #endif
 #include "AVSMap.h"
 #include "../convert/frame_prop_enums.h"
@@ -3774,6 +3774,11 @@ VideoFrame* ScriptEnvironment::AllocateFrame(size_t vfb_size, size_t margin, Dev
   device->memory_used += vfb_size;
 #ifdef AVS_CACHE_EXPERIMENT
   g_mem_allocs++;
+  {
+    const unsigned long long used = device->memory_used.load();
+    unsigned long long peak = g_mem_peak.load();
+    while (used > peak && !g_mem_peak.compare_exchange_weak(peak, used)) {}
+  }
 #endif
   vfb->Attach(threadEnv->GetCurrentGraphNode());
 
