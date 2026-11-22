@@ -148,6 +148,16 @@ private:
   size_t window_misses = 0;     // misses in the current shrink window
   size_t window_max_depth = 0;  // deepest hit position + 1 in the current shrink window
 
+#ifdef AVS_CACHE_EXPERIMENT
+public:
+  // helper/cache_harness statistics, updated under 'mutex', read unlocked (approximate is fine)
+  size_t stat_ghost_hits = 0; // miss in main cache, found among the ghosts
+  size_t stat_grows = 0;      // capacity +1 steps
+  size_t stat_evictions = 0;
+  size_t stat_shrinks = 0;    // shrink steps
+private:
+#endif
+
   // like SimpleLruCache::lookup: found -> moved to front; not found -> new front entry (oldest dropped)
   LruGhostEntry* GhostLookup(const K& key, bool* found)
   {
@@ -190,6 +200,9 @@ private:
         const size_t target = std::max(need, cap - (cap + 3) / 4);
         MainCache.resize(target);
         GhostFitCapacity();
+#ifdef AVS_CACHE_EXPERIMENT
+        stat_shrinks++;
+#endif
       }
     }
     window_misses = 0;
@@ -202,6 +215,9 @@ private:
       return false;
 
     LruCache* me = reinterpret_cast<LruCache*>(userData);
+#ifdef AVS_CACHE_EXPERIMENT
+    me->stat_evictions++;
+#endif
 
     bool ghost_found;
     auto *g = me->GhostLookup(entry.key, &ghost_found);
@@ -243,6 +259,13 @@ public:
   {
     return MainCache.capacity();
   }
+
+#ifdef AVS_CACHE_EXPERIMENT
+  size_t ghost_capacity() const
+  {
+    return GhostCapacity;
+  }
+#endif
 
   void limits(size_t* min, size_t* max) const
   {
@@ -335,6 +358,9 @@ public:
       }
       else if (g->ghosted >= 1)
       {
+#ifdef AVS_CACHE_EXPERIMENT
+        stat_ghost_hits++;
+#endif
         if (g->ghosted >= 2)
           unproven = 0; // steady reuse proven
         if (mode != CACHE_NO_RESIZE)
@@ -344,6 +370,9 @@ public:
             MainCache.resize(MainCache.capacity() + 1);
             GhostFitCapacity();
             unproven++;
+#ifdef AVS_CACHE_EXPERIMENT
+            stat_grows++;
+#endif
           }
           // this cache keeps the frame: the caches below must not grow for it as well
           if (suppressCaching != nullptr)

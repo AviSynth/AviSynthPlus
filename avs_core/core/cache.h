@@ -71,6 +71,12 @@ public:
   static AVSValue __cdecl Create(AVSValue args, void*, IScriptEnvironment* env);
   static bool __stdcall IsCache(const PClip& c);
 
+#ifdef AVS_CACHE_EXPERIMENT
+  // Cache growth experiment build only (helper/cache_harness)
+  std::string stat_name;
+  int stat_id = 0;
+  std::string StatLine() const;
+#endif
 };
 
 class CacheGuard : public IClip

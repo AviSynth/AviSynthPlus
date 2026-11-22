@@ -15,6 +15,12 @@
 #include "InternalEnvironment.h"
 #include "internal.h"
 
+#ifdef AVS_CACHE_EXPERIMENT
+// Cache growth experiment build only (helper/cache_harness), defined in cache.cpp.
+extern std::atomic<unsigned long long> g_prefetch_jobs; // frames queued for prefetching
+extern std::atomic<unsigned long long> g_prefetch_hits; // requested frames found in the Prefetcher cache
+#endif
+
 struct PrefetcherJobParams
 {
   int frame;
@@ -207,6 +213,9 @@ int __stdcall Prefetcher::SchedulePrefetch(int current_n, int prefetch_start, In
         }
         p->frame = n;
         p->prefetcher = this;
+#ifdef AVS_CACHE_EXPERIMENT
+        g_prefetch_jobs++;
+#endif
         p->cache_handle = cache_handle;
         ++_pimpl->running_workers;
         _pimpl->thread_pool->QueueJob(ThreadWorker, p, env, NULL);
@@ -344,6 +353,9 @@ PVideoFrame __stdcall Prefetcher::GetFrame(int n, IScriptEnvironment* env_)
     }
   case LRU_LOOKUP_FOUND_AND_READY:
     {
+#ifdef AVS_CACHE_EXPERIMENT
+    g_prefetch_hits++;
+#endif
     //result = cache_handle.first->value; // old method, result is filled already
     break;
     }

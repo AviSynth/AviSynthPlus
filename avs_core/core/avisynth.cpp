@@ -95,6 +95,11 @@
 
 #include "FilterGraph.h"
 #include "DeviceManager.h"
+#ifdef AVS_CACHE_EXPERIMENT
+// helper/cache_harness statistics, defined in cache.cpp
+#include <atomic>
+extern std::atomic<unsigned long long> g_mem_allocs, g_mem_shrinks, g_mem_frees;
+#endif
 #include "AVSMap.h"
 #include "../convert/frame_prop_enums.h"
 
@@ -3753,6 +3758,9 @@ VideoFrame* ScriptEnvironment::AllocateFrame(size_t vfb_size, size_t margin, Dev
   }
 
   device->memory_used += vfb_size;
+#ifdef AVS_CACHE_EXPERIMENT
+  g_mem_allocs++;
+#endif
   vfb->Attach(threadEnv->GetCurrentGraphNode());
 
   // automatically inserts keys if they not exist!
@@ -4201,6 +4209,9 @@ VideoFrame* ScriptEnvironment::GetNewFrame(size_t vfb_size, size_t margin, Devic
       if (device == vfb->device && 0 == vfb->refcount) // vfb refcount check
       {
         vfb->device->memory_used -= vfb->GetDataSize(); // frame->vfb->GetDataSize();
+#ifdef AVS_CACHE_EXPERIMENT
+        g_mem_frees++;
+#endif
         delete vfb;
         for (auto &it3: it2->second)
         {
@@ -4291,6 +4302,9 @@ int ScriptEnvironment::ShrinkCache(Device *device)
 
   if (shrinkcount != 0)
   {
+#ifdef AVS_CACHE_EXPERIMENT
+    g_mem_shrinks++;
+#endif
     OneTimeLogTicket ticket(LOGTICKET_W1003);
     LogMsgOnce(ticket, LOGLEVEL_WARNING, "Caches have been shrunk due to low memory limit. This will probably degrade performance. You can try increasing the limit using SetMemoryMax().");
   }
@@ -4327,6 +4341,9 @@ void ScriptEnvironment::FreeUnusedFrameBuffers(Device* device)
           device->memory_used -= vfb->GetDataSize();
 #ifdef _DEBUG
           VFBStorage *_vfb = vfb;
+#endif
+#ifdef AVS_CACHE_EXPERIMENT
+          g_mem_frees++;
 #endif
           delete vfb;
           ++freed_vfb_count;
