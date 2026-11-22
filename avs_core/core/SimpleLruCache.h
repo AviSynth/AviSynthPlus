@@ -76,19 +76,23 @@ public:
     resize(RequestedCapacity);
   }
 
-  V* lookup(const K& key, bool *found, bool lookuponly = false)
+  // hit_pos (optional): position of the found entry before moving it to the front, 0 = most recent
+  V* lookup(const K& key, bool *found, bool lookuponly = false, size_t* hit_pos = nullptr)
   {
     // Look for an existing cache entry,
     // and return it when found
     const entry_type it_end =  Cache.end();
+    size_t pos = 0;
     for (
       entry_type it = Cache.begin();
       it != it_end;
-      ++it
+      ++it, ++pos
     )
     {
       if (it->key == key)
       {
+        if (hit_pos)
+          *hit_pos = pos;
         // Move found element to the front of the list
         if (it != Cache.begin())
           Cache.splice(Cache.begin(), Cache, it);

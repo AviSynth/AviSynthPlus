@@ -43,6 +43,33 @@ Additions, changes:
   dictionary-style array at script load time: min, max, peak, peak_db, peak_sample, rms, rms_db, mean, clipped,
   loose_peak, loose_peak_db; per_channel=true adds "channels", keyed by the channel mask names (FL, FC, LFE...) or
   "0", "1"... Normalize uses the same peak search.
+- Frame cache sizing (LruCache.h), new algorithm. Every cache starts empty and sizes itself:
+  - Evicted frame numbers are remembered in a ghost list (hashed, max(1024, 4 x capacity) entries) with how many
+    times each was evicted.
+  - A request for a frame evicted at least once adds one slot, but at most 32 in a row ("unproven" growth).
+  - A request for a frame evicted at least twice proves steady reuse and resets that budget, so a cycle (bookmarks
+    visited in turn, a range played again) is cached as a whole.
+  - Patterns whose frames come back only once, at a growing distance, stop after 32 slots: stepping back after
+    playing (#379), Bob/Merge mixes (#270).
+  - Shrink: over a window of max(64, 4 x capacity) misses the deepest hit position is noted; if all hits came from
+    the front (deepest + 8 < capacity), up to a quarter of the slots is given back.
+  - When a cache grows to keep a frame, the caches below it in the same request do not grow for it. They still store
+    it at their current size (CACHE_FAST_START, default), or do not store it (SetCacheMode(CACHE_OPTIMAL_SIZE)).
+    From 3.6.1 to 3.7.6 CACHE_OPTIMAL_SIZE stopped the storing only after a growth and CACHE_FAST_START let the
+    whole chain grow.
+  The single per-frame threshold before could not tell these cases apart: "grow on the first re-request of an
+  evicted frame" (up to 3.7.5) grew without limit in #270 and #379; "on the second" (3.7.6) left AvsPmod bookmarks
+  uncached.
+  Measured with QTGMC(Preset="Fast").Prefetch(8) on a DV clip, AvsPmod access (script + RGB32 display output),
+  last cycle (3.7.6 -> 3.7.7, with the Prefetch change below):
+    30 bookmarks 100 frames apart, 6 cycles: 138 ms per jump, never cached -> 0 ms from the 3rd cycle, 284 MB
+    10 bookmarks: 131 ms -> 0 ms from the 3rd cycle
+    play 60 frames, step back, repeat (#379): 4.5 ms, 2.4 GB and still growing -> 0.06 ms from the 4th pass, 410 MB
+    player reading 28 frames ahead: same speed, 3.3 GB -> 339 MB
+    encoding 1000 frames: 7.7 s -> 5.6 s, 413 MB -> 301 MB
+  MDegrain3 / MDegrain6 (mvtools2, +-3 / +-6 frames) on a DV clip: 30 bookmarks 369 / 728 ms per jump -> 0 ms,
+  300 frames backward 25.0 / 50.4 s -> 6.5 / 12.9 s, encoding unchanged.
+  (issues #270, #379; doom9 AviSynth+ thread, gispos, 3.7.6 bookmark regression)
 - Prefetch: no frames are prefetched while no steady step is locked, except right after a short jump
   (0 < |step| <= max(4, prefetch frames)). Before, every request prefetched n+1, n+2.. even after a jump to a
   random place: work for frames nobody asked for, which kept the threads busy and pushed useful frames out of the
@@ -98,6 +125,9 @@ Bugfixes, bugs in normal use:
   after 4 equal steps; a different step still locks when switched to while locked, as before.
   QTGMC(Preset="Fast").Prefetch(8): step 2 3.9 s -> 2.7 s, step 4 7.4 s -> 4.2 s, 300 frames backward 6.4 s -> 2.1 s.
   Existed since AviSynth+ MT (2014, "More intelligent pattern detection in Prefetcher").
+- Fix: AvsPmod with 10 or more bookmarks on a slow script (QTGMC) recalculated every bookmark on every visit: the
+  frame caches did not grow for them since the 3.7.6 change for #270/#379 (grow only for frames evicted twice).
+  See the new frame cache sizing above. Regression since 3.7.6.
 - Fix #462 (part 2): autoload of .avsi files with non-ASCII names, e.g. "CleanÁrvíztűrőTükörfúrógép.avsi" or
   "Clean_SC(シーンチェンジフレーム置換).avsi" (report on Doom9). The first #462 fix (3.7.6) made autoload UTF-8, but
   passed the UTF-8 .avsi path to Import without utf8=true, so Import read it as ANSI. On a non-UTF-8 ANSI code page

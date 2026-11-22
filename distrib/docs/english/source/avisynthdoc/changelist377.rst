@@ -16,6 +16,14 @@ Additions, changes
   and ``propShow`` both. See :doc:`frame properties <syntax/syntax_internal_functions_frame_properties>`.
 - New :doc:`AudioStats <corefilters/audiostats>`: audio levels (peak, RMS, clipped samples, loose peak), also per
   channel, as an array of named values at script load time.
+- Frame cache sizing: a cache grows when an evicted frame is requested again, but at most 32 slots in a row
+  unless frames come back steadily (evicted at least twice); it gives slots back when only its front is used.
+  AvsPmod bookmarks (30 bookmarks on QTGMC: 138 ms per jump in 3.7.6, cached from the 3rd cycle on) and stepping
+  back after playing (#379: 2.4 GB and still growing, now 410 MB) are both cached; encoding is unchanged or faster.
+  When a cache grows to keep a frame, the caches below it do not grow for it; ``SetCacheMode(CACHE_OPTIMAL_SIZE)``
+  makes them not store it either. See :ref:`SetCacheMode <setcachemode>`.
+  (`issue #270 <https://github.com/AviSynth/AviSynthPlus/issues/270>`_,
+  `issue #379 <https://github.com/AviSynth/AviSynthPlus/issues/379>`_)
 - Prefetch: while no steady step is found (random jumps, bookmarks, seeking), no frames are prefetched, except
   right after a jump of at most max(4, frames) frames. Random seeking on QTGMC 40% quicker, AvsPmod bookmark
   cycling about 6x quicker; playing, encoding and out-of-order forward reading are unchanged.
@@ -74,6 +82,8 @@ Bugs in normal use
 - Fix: Prefetch locked only to step +1 from a cold start: SelectEven/SelectEvery after Prefetch, playing backward or
   a GUI stepping by 2 kept prefetching the next frames, which nobody asked for. Any constant step locks now
   (step 2: 30% quicker, step 4 and backward about 45% on QTGMC). Existed since AviSynth+ MT (2014).
+- Fix: AvsPmod with many bookmarks (10 or more on QTGMC) recalculated every bookmark on every visit since 3.7.6, the
+  frame caches did not grow for them. Regression since 3.7.6, see the frame cache sizing change above.
 - Fix #462 (part 2): autoload of ``.avsi`` files with non-ASCII names (e.g. Hungarian or Japanese characters) failed
   with "Import: couldn't open" on a non-UTF-8 ANSI code page. Regression since 3.7.6; 3.7.5 crashed on names
   outside the ANSI code page. (`issue #462 <https://github.com/AviSynth/AviSynthPlus/issues/462>`_)

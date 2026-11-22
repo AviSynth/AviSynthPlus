@@ -5,6 +5,9 @@
 #include <condition_variable>
 #include <memory>
 #include <cassert>
+#include <list>
+#include <unordered_map>
+#include <algorithm>
 #include "ObjectPool.h"
 #include "SimpleLruCache.h"
 #include "InternalEnvironment.h"
@@ -17,6 +20,54 @@ enum LruLookupResult
   LRU_LOOKUP_NO_CACHE            // Item will not be cached, no storage is returned
 };
 
+// ---------------------------------------------------------------------------------------------
+// LruCache: the frame cache behind every AvsCache, plus the fixed size caches of the Prefetcher
+// and the device transfer filters (CACHE_NO_RESIZE).
+//
+// A cache starts with capacity 0 and finds its own size from the requests it sees. Nobody tells
+// it how many frames a temporal filter or a GUI will need again.
+//
+// Ghosts
+//   Keys evicted from the cache are remembered (key only, no frame) in a ghost list, with a
+//   counter 'ghosted' = how many times the key was evicted. A miss on a key that is still among
+//   the ghosts means: one more slot would have turned this miss into a hit.
+//   The ghost list is an LRU list with a hash index, capacity max(1024, 4 * capacity), so that a
+//   cycle of a few hundred frames (AvsPmod bookmarks, a temporal filter with a large radius on a
+//   few outputs) is still remembered while lookups stay O(1).
+//
+// Growth: limited by proven benefit
+//   - A ghost hit on a key evicted at least once (ghosted >= 1) adds one slot, but at most
+//     UNPROVEN_GROWTH slots in a row may be added this way ('unproven' counts them).
+//   - A ghost hit on a key evicted at least twice (ghosted >= 2) proves steady reuse: the key keeps
+//     coming back at about the same distance (bookmark cycles, ranges played again). It resets
+//     'unproven', so growth can go on until the whole cycle fits.
+//   - Patterns whose keys come back once, at an ever growing distance, never prove anything and stop
+//     after UNPROVEN_GROWTH slots: stepping back after playing forward (#379), Bob/Merge mixes
+//     (#270). Before, a per-key threshold had to choose between these and the bookmark case
+//     (ghosted > 0: unbounded growth in #270/#379; ghosted > 1 (3.7.6): bookmarks never cached).
+//
+// Shrink
+//   Over a window of max(SHRINK_WINDOW_MIN, 4 * capacity) misses the deepest hit position is
+//   recorded. If every hit came from the front (deepest + SHRINK_SLACK < capacity), up to a quarter
+//   of the slots is given back. The window counts misses, not lookups: only new keys age the cache,
+//   hits in the front (a player re-reading its read-ahead) do not.
+//   Evicted frames go back to the frame registry and are reused by the next NewVideoFrame; their
+//   memory is only freed under memory pressure (ScriptEnvironment::ShrinkCache).
+//
+// Growth suppression for the caches below
+//   When a cache grows for a ghost hit, it will keep that frame itself, so the caches below it in
+//   the same GetFrame chain (same thread, env->GetSupressCaching(), restored by CacheStack) must not
+//   grow for this request too; else one missing frame at the top makes the whole chain grow.
+//   - CACHE_FAST_START (default): the caches below still store the frame at their current capacity
+//     (a temporal filter below keeps its neighbour frames), they only do not grow.
+//   - CACHE_OPTIMAL_SIZE (SetCacheMode): the caches below do not store it at all (Nekopanda's
+//     original meaning, less memory, more recalculation).
+//
+// Memory limit
+//   Independently of the above, ScriptEnvironment lowers the maximum capacity of the least recently
+//   used caches when frame allocation hits SetMemoryMax, and raises it again by one per request
+//   (MC_NodAndExpandCache) when a cache's requested capacity is above its allowed one.
+// ---------------------------------------------------------------------------------------------
 template<typename K, typename V>
 class LruCache : public std::enable_shared_from_this<LruCache<K, V> >
 {
@@ -72,19 +123,78 @@ private:
     LruEntry& operator=(const LruEntry&);
   };
 
-  const int GHOSTS_MIN_CAPACITY;
   typedef LruEntry entry_type;
   typedef entry_type* entry_ptr;
   typedef SimpleLruCache<K, entry_ptr> CacheType;
-  typedef SimpleLruCache<K, LruGhostEntry> GhostCacheType;
 
   typedef size_t  size_type;
 
+  static constexpr size_t GHOST_MIN_CAPACITY = 1024;
+  static constexpr size_t UNPROVEN_GROWTH = 32;
+  static constexpr size_t SHRINK_WINDOW_MIN = 64;
+  static constexpr size_t SHRINK_SLACK = 8;
+
   CacheMode mode;
   CacheType MainCache;
-  GhostCacheType Ghosts;
   ObjectPool<entry_type> EntryPool;
   mutable std::mutex mutex;
+
+  // ghost list: LRU order in the list, index for O(1) lookup
+  std::list<LruGhostEntry> GhostList;
+  std::unordered_map<K, typename std::list<LruGhostEntry>::iterator> GhostIndex;
+  size_t GhostCapacity = GHOST_MIN_CAPACITY;
+
+  size_t unproven = 0;          // slots added since the last proof of steady reuse
+  size_t window_misses = 0;     // misses in the current shrink window
+  size_t window_max_depth = 0;  // deepest hit position + 1 in the current shrink window
+
+  // like SimpleLruCache::lookup: found -> moved to front; not found -> new front entry (oldest dropped)
+  LruGhostEntry* GhostLookup(const K& key, bool* found)
+  {
+    auto it = GhostIndex.find(key);
+    if (it != GhostIndex.end()) {
+      *found = true;
+      GhostList.splice(GhostList.begin(), GhostList, it->second);
+      return &GhostList.front();
+    }
+    *found = false;
+    while (GhostList.size() >= GhostCapacity && !GhostList.empty()) {
+      GhostIndex.erase(GhostList.back().key);
+      GhostList.pop_back();
+    }
+    GhostList.emplace_front(key, 0);
+    GhostIndex[key] = GhostList.begin();
+    return &GhostList.front();
+  }
+
+  // follows the main capacity, called after every resize
+  void GhostFitCapacity()
+  {
+    GhostCapacity = std::max(GHOST_MIN_CAPACITY, MainCache.capacity() * 4);
+    while (GhostList.size() > GhostCapacity) {
+      GhostIndex.erase(GhostList.back().key);
+      GhostList.pop_back();
+    }
+  }
+
+  // Called at the start of every non-suppressed lookup, under 'mutex'.
+  // Closes the shrink window when it is full, see the class comment.
+  void ShrinkTick()
+  {
+    const size_t cap = MainCache.capacity();
+    if (window_misses < std::max<size_t>(SHRINK_WINDOW_MIN, cap * 4))
+      return;
+    if (mode != CACHE_NO_RESIZE) {
+      const size_t need = window_max_depth + SHRINK_SLACK;
+      if (need < cap) {
+        const size_t target = std::max(need, cap - (cap + 3) / 4);
+        MainCache.resize(target);
+        GhostFitCapacity();
+      }
+    }
+    window_misses = 0;
+    window_max_depth = 0;
+  }
 
   static bool MainEvictEvent(CacheType* cache, const typename CacheType::Entry& entry, void* userData)
   {
@@ -94,7 +204,7 @@ private:
     LruCache* me = reinterpret_cast<LruCache*>(userData);
 
     bool ghost_found;
-    auto *g = me->Ghosts.lookup(entry.key, &ghost_found);
+    auto *g = me->GhostLookup(entry.key, &ghost_found);
     if (!ghost_found)
     {
       *g = LruGhostEntry(entry.key, entry.value->ghosted + 1);
@@ -114,10 +224,8 @@ public:
   typedef std::pair<entry_ptr, std::shared_ptr<LruCache> > handle;
 
   LruCache(size_type capacity, CacheMode mode) :
-    GHOSTS_MIN_CAPACITY(50),
     mode(mode),
-    MainCache(capacity, &MainEvictEvent, reinterpret_cast<void*>(this)),
-    Ghosts(GHOSTS_MIN_CAPACITY, typename GhostCacheType::EvictEventType(), reinterpret_cast<void*>(this))
+    MainCache(capacity, &MainEvictEvent, reinterpret_cast<void*>(this))
   {
   }
 
@@ -152,16 +260,25 @@ public:
 
   LruLookupResult lookup(const K& key, handle *hndl, bool block_for_completion, V& foundItem, bool* suppressCaching = nullptr)
   {
-    bool suppress = (suppressCaching != nullptr) && *suppressCaching;
+    // suppress: a cache above us in this GetFrame chain has just grown to keep this frame itself
+    const bool suppress = (suppressCaching != nullptr) && *suppressCaching;
     hndl->first = nullptr; // clear handle
 
     std::unique_lock<std::mutex> global_lock(mutex);
 
+    if (!suppress)
+      ShrinkTick();
+
     bool found;
-    entry_ptr* entryp = MainCache.lookup(key, &found, suppress);
+    size_t hit_pos = 0;
+    // CACHE_OPTIMAL_SIZE: a suppressed request is not stored at all
+    const bool lookup_only = suppress && mode == CACHE_OPTIMAL_SIZE;
+    entry_ptr* entryp = MainCache.lookup(key, &found, lookup_only, &hit_pos);
 
     if (found)
     {
+      if (!suppress)
+        window_max_depth = std::max(window_max_depth, hit_pos + 1);
       entry_ptr entry = *entryp;
 
       if (!block_for_completion && (entry->state != LRU_ENTRY_AVAILABLE))
@@ -194,63 +311,44 @@ public:
       --(entry->locks);
       return LRU_LOOKUP_FOUND_AND_READY;
     }
+    else if (suppress && entryp != NULL)
+    {
+      // CACHE_FAST_START, suppressed: store at the current capacity, no ghost bookkeeping, no growth
+      *entryp = EntryPool.Construct(key);
+      entry_ptr entry = *entryp;
+      *hndl = handle(entry, this->shared_from_this());
+      entry->locks = 1;
+      entry->ghosted = 0;
+      entry->value = NULL;
+      return LRU_LOOKUP_NOT_FOUND;
+    }
     else if (suppress == false)
     {
-      // ghost: self-tuning caching algorithm
+      // ghost: self-tuning caching algorithm, see the class comment
       bool ghost_found;
-      auto *g = Ghosts.lookup(key, &ghost_found);
+      auto *g = GhostLookup(key, &ghost_found);
       assert(g != NULL);
+      window_misses++;
       if (!ghost_found)
       {
         *g = LruGhostEntry(key, 0);
       }
-      else if (g->ghosted > 1)
+      else if (g->ghosted >= 1)
       {
-        // Fix for Issues #270 and #379: require a frame to have been evicted
-        // at least twice (ghosted > 1) before triggering a cache resize.
-        //
-        // With the old condition (ghosted > 0), any single eviction + re-request
-        // caused a +1 resize.  This led to unbounded cache growth in two cases:
-        //
-        // 1. Backward seeking (Issue #379): frames played forward get evicted and
-        //    ghosted=1.  Every backstep hits a ghost (1 > 0 was true) → +1 on each
-        //    step.
-        //
-        // 2. Bob()/SeparateFields access pattern (Issue #270): the n, n/2 pattern
-        //    keeps evicting the same frames with ghosted=1, so every GetFrame call
-        //    triggered a resize.
-        //    Infinite cache growth occured when the requested frame number pattern from 
-        //    source filter is something like that:
-        //    0,0, 0,1, 1,2, 1,3, 2,4, 2,5, 3,6, 3,7, 4,8,...
-        // Sample script:
-        //   ConvertToY8()
-        //   org = last
-        //   Bob()
-        //   Merge(last, org)
-        // With ghosted > 1: both cases are suppressed because frames evicted only
-        // once stay at ghosted=1 (1 > 1 is false).  An undersized cache
-        // still grows: frames that keep cycling will be evicted a second time,
-        // pushing ghosted to 2, and growth resumes from that point forward.
-        if (mode != CACHE_NO_RESIZE) {
-#ifdef CACHE_GROWTH_INFINITELY_TEST
-          // When the above (g->ghosted > 1) was (g->ghosted > 0)
-          _RPT1(0, "Not in cache but in ghost! g->ghosted > 0 => resize! MainCache.capacity()=%d -> += 1", MainCache.capacity() + 1);
-#endif
-          MainCache.resize(MainCache.capacity() + 1);
-          Ghosts.resize(GHOSTS_MIN_CAPACITY + MainCache.capacity() * 2);
+        if (g->ghosted >= 2)
+          unproven = 0; // steady reuse proven
+        if (mode != CACHE_NO_RESIZE)
+        {
+          if (unproven < UNPROVEN_GROWTH)
+          {
+            MainCache.resize(MainCache.capacity() + 1);
+            GhostFitCapacity();
+            unproven++;
+          }
+          // this cache keeps the frame: the caches below must not grow for it as well
+          if (suppressCaching != nullptr)
+            *suppressCaching = true;
         }
-
-        // Nekopanda: reduce amount of cache.
-        // when this filter increased the cache, we prevent lower filters increase their cache
-        // because the requests to the lower filters were not needed if this filter cached the frame.
-        if (mode == CACHE_OPTIMAL_SIZE && suppressCaching != nullptr) {
-          *suppressCaching = true;
-        }
-      }
-      else
-      {
-        // This cannot happen
-        //assert(0); LOL maybe it can...
       }
 
       if (entryp != NULL)

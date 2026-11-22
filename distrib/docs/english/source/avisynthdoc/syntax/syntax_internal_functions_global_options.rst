@@ -49,18 +49,71 @@ Return value: Actual MemoryMax value set.
     SetMemoryMax(16384)
 
 
+.. _setcachemode:
+
 SetCacheMode
 ~~~~~~~~~~~~
 ::
 
     SetCacheMode(int mode)
 
-Fine tunes the internal video frame caching strategy.
+Fine tunes the internal video frame caching strategy. Applies to the caches created after the call,
+so put it at the top of the script.
 
 Available values:
 
-*   0 or ``CACHE_FAST_START``: start up time and size balanced mode (default)
-*   1 or ``CACHE_OPTIMAL_SIZE`` slow start up but optimal speed and cache size 
+*   0 or ``CACHE_FAST_START``: lower caches still store a frame that an upper cache decided to keep (default)
+*   1 or ``CACHE_OPTIMAL_SIZE``: lower caches do not store such a frame: less memory, more recalculation
+
+**How the frame caches size themselves** (3.7.7)
+
+Every filter's cache starts empty and finds its size from the requests it sees.
+
++-------------------+----------------------------------------------------------------------------------+
+| Step              | What happens                                                                     |
++===================+==================================================================================+
+| Ghost list        | Frame numbers evicted from the cache are remembered (number only, no picture),   |
+|                   | with how many times each was evicted.                                            |
++-------------------+----------------------------------------------------------------------------------+
+| Grow              | A request for a remembered frame means one more slot would have been a hit: the  |
+|                   | cache grows by one. At most 32 slots are added this way in a row...              |
++-------------------+----------------------------------------------------------------------------------+
+| Proof             | ...unless a frame evicted at least twice comes back: the same frames keep        |
+|                   | returning (bookmarks visited in turn, a range played again). Then growth goes on |
+|                   | until the whole cycle fits.                                                      |
++-------------------+----------------------------------------------------------------------------------+
+| Shrink            | When for a while all hits come from the front of the cache, up to a quarter of   |
+|                   | the slots is given back.                                                         |
++-------------------+----------------------------------------------------------------------------------+
+| Caches below      | When a cache grows to keep a frame, the caches below it in the same request do   |
+|                   | not grow for it. ``CACHE_FAST_START``: they still store it at their current size |
+|                   | (temporal filters keep their neighbour frames). ``CACHE_OPTIMAL_SIZE``: they do  |
+|                   | not store it.                                                                    |
++-------------------+----------------------------------------------------------------------------------+
+| Memory limit      | Near the SetMemoryMax limit, the least recently used caches give slots back      |
+|                   | first.                                                                           |
++-------------------+----------------------------------------------------------------------------------+
+
+Before and after (QTGMC(Preset="Fast").Prefetch(8), last pass, ms per requested frame, process memory;
+3.7.7 includes the Prefetch change):
+
++--------------------------------------------+---------------------------+---------------------------+
+| Access pattern                             | 3.7.6                     | 3.7.7                     |
++============================================+===========================+===========================+
+| AvsPmod, 30 bookmarks cycled 6 times       | 138 ms (never cached),    | 0 ms from the 3rd cycle,  |
+|                                            | 550 MB                    | 284 MB                    |
++--------------------------------------------+---------------------------+---------------------------+
+| AvsPmod, play 60 frames, step back, repeat | 4.5 ms, still growing,    | 0.06 ms from the 4th pass,|
+|                                            | 2429 MB                   | 410 MB                    |
++--------------------------------------------+---------------------------+---------------------------+
+| Player reading 28 frames ahead             | 0.25 ms, 3325 MB          | 0.16 ms, 339 MB           |
++--------------------------------------------+---------------------------+---------------------------+
+| Encoding 1000 frames (total time)          | 7655 ms, 413 MB           | 5639 ms, 301 MB           |
++--------------------------------------------+---------------------------+---------------------------+
+
+From 3.6.1 to 3.7.6 ``CACHE_OPTIMAL_SIZE`` stopped lower caches from storing only after a cache grew;
+``CACHE_FAST_START`` let every cache in the chain grow for the same frame. Since 3.7.7 the lower
+caches do not grow in either mode, the mode only decides whether they store the frame.
 
 
 .. _setmaxcpu:
@@ -408,6 +461,10 @@ Changelog
 +----------------+------------------------------------------------------------+
 | Version        | Changes                                                    |
 +================+============================================================+
+| Avisynth 3.7.7 | "SetCacheMode": new frame cache sizing, see above;         |
+|                | ``CACHE_OPTIMAL_SIZE`` now means "lower caches do not      |
+|                | store a frame an upper cache keeps"                        |
++----------------+------------------------------------------------------------+
 | Avisynth 3.7.6 | Add "avx512base" and "avx512cli" to SetMaxCPU              |
 +----------------+------------------------------------------------------------+
 | Avisynth 3.6.1 | | Added "SetCacheMode" (Neo addition)                      |
