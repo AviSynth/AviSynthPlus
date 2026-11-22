@@ -916,6 +916,7 @@ public:
   void SetGraphAnalysis(bool enable) { graphAnalysisEnable = enable; }
 
   char* ListAutoloadDirs();
+  char* ListAutoloadedFunctions();
 
   void IncEnvCount() { InterlockedIncrement(&EnvCount); }
   void DecEnvCount() { InterlockedDecrement(&EnvCount); }
@@ -2156,6 +2157,11 @@ public:
   char* __stdcall ListAutoloadDirs()
   {
     return core->ListAutoloadDirs();
+  }
+
+  char* __stdcall ListAutoloadedFunctions()
+  {
+    return core->ListAutoloadedFunctions();
   }
 
   void __stdcall SetFilterProp(const char* filter, const char* key, const AVSValue& value, int mode)
@@ -3678,6 +3684,14 @@ char* ScriptEnvironment::ListAutoloadDirs()
   std::unique_lock<std::recursive_mutex> env_lock(plugin_mutex);
 
   std::string str = plugin_manager->ListAutoloadDirs();
+  return threadEnv->SaveString(str.c_str(), (int)str.size());
+}
+
+char* ScriptEnvironment::ListAutoloadedFunctions()
+{
+  std::unique_lock<std::recursive_mutex> env_lock(plugin_mutex);
+
+  std::string str = plugin_manager->ListAutoloadedFunctions();
   return threadEnv->SaveString(str.c_str(), (int)str.size());
 }
 

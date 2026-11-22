@@ -36,6 +36,8 @@ private:
   FunctionMap AutoloadedFunctions;
   bool AutoloadExecuted;
   bool Autoloading;
+  bool ExportBatch;                  // collect plugin function names during AutoloadPlugins
+  std::string PendingFunctionList;   // space separated names, published by FlushPendingExports
 
   int TryAsAvs26(PluginFile &plugin, AVSValue *result, std::string& avsexception_message);
   bool TryAsAvs25(PluginFile &plugin, AVSValue *result);
@@ -66,6 +68,8 @@ public:
   void UpdateFunctionExports(const char* funcName, const char* funcParams, const char *exportVar);
 
   std::string ListAutoloadDirs();
+  std::string ListAutoloadedFunctions();
+  void FlushPendingExports();
 
   bool FunctionExists(const char* name) const;
   std::string PluginLoading() const;    // Returns the basename of the plugin DLL that is currently being loaded, or NULL if no plugin is being loaded

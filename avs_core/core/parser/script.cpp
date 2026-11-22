@@ -300,6 +300,7 @@ extern const AVSFunction Script_functions[] = {
   { "AddAutoloadDir",     BUILTIN_FUNC_PREFIX, "s[toFront]b[utf8]b", AddAutoloadDir  },
   { "ClearAutoloadDirs",  BUILTIN_FUNC_PREFIX, "", ClearAutoloadDirs  },
   { "ListAutoloadDirs",   BUILTIN_FUNC_PREFIX, "[utf8]b", ListAutoloadDirs },
+  { "ListAutoloadedFunctions", BUILTIN_FUNC_PREFIX, "[utf8]b", ListAutoloadedFunctions },
   { "AutoloadPlugins",    BUILTIN_FUNC_PREFIX, "", AutoloadPlugins  },
   { "FunctionExists",     BUILTIN_FUNC_PREFIX, "s", FunctionExists  },
   { "InternalFunctionExists", BUILTIN_FUNC_PREFIX, "s", InternalFunctionExists  },
@@ -2391,6 +2392,19 @@ AVSValue ClearAutoloadDirs (AVSValue args, void*, IScriptEnvironment* env)
   IScriptEnvironment2 *env2 = static_cast<IScriptEnvironment2*>(env);
   env2->ClearAutoloadDirs();
   return AVSValue();
+}
+
+// One name per line, exactly as registered by the autoloaded plugins (not the space separated $PluginFunctions$)
+AVSValue ListAutoloadedFunctions(AVSValue args, void*, IScriptEnvironment* env)
+{
+  InternalEnvironment* envi = static_cast<InternalEnvironment*>(env);
+  const char* names = envi->ListAutoloadedFunctions(); // internally uses SaveString
+#if defined(AVS_WINDOWS)
+  const bool utf8 = args[0].AsBool(false);
+  if (!utf8)
+    return AVSValue(env->SaveString(Utf8ToAnsi(names).c_str())); // ANSI request: '?' for characters not in the code page
+#endif
+  return AVSValue(names);
 }
 
 AVSValue ListAutoloadDirs(AVSValue args, void*, IScriptEnvironment* env)

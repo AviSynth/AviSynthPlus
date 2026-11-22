@@ -606,7 +606,7 @@ PluginFile::PluginFile(const std::string &filePath) :
 */
 
 PluginManager::PluginManager(InternalEnvironment* env) :
-  Env(env), PluginInLoad(NULL), AutoloadExecuted(false), Autoloading(false)
+  Env(env), PluginInLoad(NULL), AutoloadExecuted(false), Autoloading(false), ExportBatch(false)
 {
   env->SetGlobalVar("$PluginFunctions$", AVSValue(""));
 }
@@ -803,6 +803,20 @@ void PluginManager::AutoloadPlugins()
     AutoloadingGuard(bool& f) : flag(f) { flag = true; }
     ~AutoloadingGuard() { flag = false; }
   } autoloading_guard(Autoloading);
+  // While the autoload runs, the names of the plugin functions are collected and published once at the end
+  // (see FlushPendingExports). On an exception the names collected so far are still published.
+  struct ExportBatchGuard {
+    PluginManager& pm;
+    bool published;
+    ExportBatchGuard(PluginManager& p) : pm(p), published(false) { pm.ExportBatch = true; }
+    ~ExportBatchGuard() {
+      pm.ExportBatch = false;
+      if (!published) {
+        try { pm.FlushPendingExports(); } catch (...) {}
+      }
+    }
+  } export_batch_guard(*this);
+
 
   // Load binary plugins
   // AutoLoadDirs are utf8 on Windows as well
@@ -935,6 +949,8 @@ void PluginManager::AutoloadPlugins()
       }
     }
   }
+  FlushPendingExports();
+  export_batch_guard.published = true;
 }
 
 PluginManager::~PluginManager()
@@ -977,18 +993,48 @@ PluginManager::~PluginManager()
   PluginInLoad = NULL;
 }
 
+// Publishes the names collected during AutoloadPlugins into $PluginFunctions$ with one SaveString.
+// (Per registration, the list was re-saved; with n names that stores ~n^2/2 characters.)
+void PluginManager::FlushPendingExports()
+{
+  if (PendingFunctionList.empty())
+    return;
+  const char *oldFnList = Env->GetVarString("$PluginFunctions$", "");
+  std::string FnList(oldFnList);
+  if (!FnList.empty())
+    FnList.push_back(' ');
+  FnList.append(PendingFunctionList);
+  PendingFunctionList.clear();
+  Env->SetGlobalVar("$PluginFunctions$", AVSValue( Env->SaveString(FnList.c_str(), (int)FnList.size()) ));
+}
+
 void PluginManager::UpdateFunctionExports(const char* funcName, const char* funcParams, const char *exportVar)
 {
   if (exportVar == NULL)
     exportVar = "$PluginFunctions$";
 
-  // Update $PluginFunctions$
-  const char *oldFnList = Env->GetVarString(exportVar, "");
-  std::string FnList(oldFnList);
-  if (FnList.size() > 0)    // if the list is not empty...
-    FnList.push_back(' ');  // ...add a delimiting whitespace
-  FnList.append(funcName);
-  Env->SetGlobalVar(exportVar, AVSValue( Env->SaveString(FnList.c_str(), (int)FnList.size()) ));
+  // Update $PluginFunctions$: a space separated list, read by tools in pairs (AvsPMod: short name, then
+  // "<dll>_<short name>") or one token per name (AVSMeter). Every entry must stay one token, so whitespace in a
+  // name is replaced by '_'. The canonical name carries the DLL file name, which may contain spaces
+  // (e.g. "TimeStretch 泳装 ű.dll"). The replaced name is only listed; it cannot be called from a script anyway.
+  std::string listName(funcName);
+  for (char& c : listName)
+    if (c == ' ' || c == '\t' || c == '\r' || c == '\n')
+      c = '_';
+  if (ExportBatch && strcmp(exportVar, "$PluginFunctions$") == 0) {
+    // collected here, published by FlushPendingExports at the end of AutoloadPlugins
+    if (!PendingFunctionList.empty())
+      PendingFunctionList.push_back(' ');
+    PendingFunctionList.append(listName);
+  }
+  else {
+    const char *oldFnList = Env->GetVarString(exportVar, "");
+    std::string FnList(oldFnList);
+    if (FnList.size() > 0)    // if the list is not empty...
+      FnList.push_back(' ');  // ...add a delimiting whitespace
+    FnList.append(listName);
+    Env->SetGlobalVar(exportVar, AVSValue( Env->SaveString(FnList.c_str(), (int)FnList.size()) ));
+  }
 
   // Update $Plugin!...!Param$
   std::string param_id;
@@ -1143,6 +1189,20 @@ std::string PluginManager::ListAutoloadDirs()
     for (size_t i = 1; i < AutoloadDirs.size(); ++i) {
       result += "\n" + AutoloadDirs[i];
     }
+  }
+  return result;
+}
+
+// Names of the functions registered from autoloaded plugins, one per line, exactly as registered (spaces kept).
+// Both the plain name and the canonical "<dll base name>_<name>" are listed (each is a key of the map).
+// AutoloadedFunctions is a std::map, so the order is the case insensitive name order.
+std::string PluginManager::ListAutoloadedFunctions()
+{
+  std::string result;
+  for (const auto& entry : AutoloadedFunctions) {
+    if (!result.empty())
+      result += '\n';
+    result += entry.first;
   }
   return result;
 }

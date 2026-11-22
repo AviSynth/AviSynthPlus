@@ -14,6 +14,12 @@ Additions, changes
   ``_ColorRange`` stays reserved and it is its older name with 0 and 1 swapped: the two are one property, the frame holds it
   as ``_Range``. Plugins and scripts of any version reach it by both names. Key lists give ``_Range`` only, ``propGetAll``
   and ``propShow`` both. See :doc:`frame properties <syntax/syntax_internal_functions_frame_properties>`.
+- New ``ListAutoloadedFunctions(utf8)``: the names of the functions of the autoloaded plugins, one per line, exactly
+  as registered. Needed because ``$PluginFunctions$`` is one space separated string: the canonical name
+  ``<plugin file name>_<function>`` of a plugin whose DLL/.so file name has a space could not be held in it, the space
+  split it in two. There such spaces are now written as ``_`` (one entry per name, but not the exact name, it cannot be
+  called in that form). Use ``$Plugin!<name>!Param$`` for the parameters of each name.
+  See :doc:`plugins <syntax/syntax_plugins>`.
 - New :doc:`AudioStats <corefilters/audiostats>`: audio levels (peak, RMS, clipped samples, loose peak), also per
   channel, as an array of named values at script load time.
 - Frame cache sizing: a cache grows when an evicted frame is requested again, but at most 32 slots in a row
@@ -87,6 +93,10 @@ Bugs in normal use
 - Fix: near the ``SetMemoryMax`` limit, a growing cache took a slot from the least recently used cache using its own
   size instead of the other cache's size, so the other cache shrank too much or not at all. Existed since AviSynth+
   MT (2014).
+- Fix: the ``$PluginFunctions$`` list, read by tools such as AVSMeter, split the function names of a plugin whose DLL
+  file name contains spaces (e.g. ``TimeStretch 泳装 ű.dll`` gave the entries ``泳装`` and ``ű_TimeStretch``). The
+  space is written as ``_`` in the listed name now, so every entry stays one token and the pairs stay aligned.
+  The name cannot be called from a script anyway. Existed since 3.7.6.
 - Fix #462 (part 2): autoload of ``.avsi`` files with non-ASCII names (e.g. Hungarian or Japanese characters) failed
   with "Import: couldn't open" on a non-UTF-8 ANSI code page. Regression since 3.7.6; 3.7.5 crashed on names
   outside the ANSI code page. (`issue #462 <https://github.com/AviSynth/AviSynthPlus/issues/462>`_)
@@ -320,6 +330,9 @@ Optimizations
 - Optimization: near the ``SetMemoryMax`` limit, a frame buffer released by shrinking the caches is reused before the
   unused buffers are freed. Before, all unused buffers were freed first, also those of the requested size, and a new
   one was allocated for every frame.
+- Optimization: autoloading plugins: the function list ``$PluginFunctions$`` is published once at the end of the
+  autoload instead of being saved again after each function. Its memory and time grew with the square of the number
+  of functions (1332 names of a plugin set: 26 MB and 0.04 s, now 1 MB and 0.005 s). The list is the same.
 - Optimization: Text and Subtitle(gdi=false): luma loops skip empty bitmap bytes, chroma visits only the set bits
   of the bitmap. About 20-35% quicker (19 lines of text, frame copies excluded) without halo and fading.
 - Optimization: x86 SSE2 (no SSE4.1) emulation of unsigned 16 bit min/max (Limiter, Blur/Sharpen, 10-14 bit

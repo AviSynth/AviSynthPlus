@@ -240,6 +240,7 @@ public:
 
   // InternalEnvironment
   virtual char *__stdcall ListAutoloadDirs() = 0;
+  virtual char *__stdcall ListAutoloadedFunctions() = 0;
   virtual int __stdcall IncrImportDepth() = 0;
   virtual int __stdcall DecrImportDepth() = 0;
   virtual void __stdcall AdjustMemoryConsumption(size_t amount, bool minus) = 0;

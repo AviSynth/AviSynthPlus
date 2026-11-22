@@ -39,6 +39,13 @@ Additions, changes:
   The safety columns of the text bitmap are gone.
 - Subtitle(gdi=true): the chroma processing range has a one chroma block margin, for the same reason.
 
+- New ListAutoloadedFunctions(utf8): the names of the functions of the autoloaded plugins, one per line, exactly as
+  registered (spaces kept), both the plain and the canonical "<plugin file name>_<function>" names.
+  Why: $PluginFunctions$ is one string with the names separated by spaces, so a canonical name containing a space
+  (plugin DLL/.so file name with a space, e.g. "TimeStretch 泳装 ű.dll") could not be held in it: the space split it
+  into two entries. $PluginFunctions$ now writes such spaces as _ (see the fix below): one entry per name again, but
+  not the exact name, a script cannot call it in that form. ListAutoloadedFunctions gives the exact names; use
+  $Plugin!<name>!Param$ for the parameters of each name. The autoload must have run (AutoloadPlugins()).
 - New AudioStats(clip, float "threshold", bool "per_channel"): reads the audio once, returns its levels as a
   dictionary-style array at script load time: min, max, peak, peak_db, peak_sample, rms, rms_db, mean, clipped,
   loose_peak, loose_peak_db; per_channel=true adds "channels", keyed by the channel mask names (FL, FC, LFE...) or
@@ -131,6 +138,10 @@ Bugfixes, bugs in normal use:
 - Fix: near the SetMemoryMax limit (MC_NodAndExpandCache), a growing cache took one slot from the least recently
   used cache of the device, but read the size of itself instead of that cache (cache-> instead of old_cache->), and
   set the other cache's limit to that size - 1: it shrank too much, or not at all. Existed since AviSynth+ MT (2014).
+- Fix: the $PluginFunctions$ list, read by tools such as AVSMeter, split the function names of a plugin whose DLL
+  file name contains spaces (e.g. TimeStretch 泳装 ű.dll gave the entries 泳装 and ű_TimeStretch). The space is
+  written as _ in the listed name now, so every entry stays one token and the pairs stay aligned. The name
+  cannot be called from a script anyway. Existed since 3.7.6.
 - Fix #462 (part 2): autoload of .avsi files with non-ASCII names, e.g. "CleanÁrvíztűrőTükörfúrógép.avsi" or
   "Clean_SC(シーンチェンジフレーム置換).avsi" (report on Doom9). The first #462 fix (3.7.6) made autoload UTF-8, but
   passed the UTF-8 .avsi path to Import without utf8=true, so Import read it as ANSI. On a non-UTF-8 ANSI code page
@@ -457,6 +468,9 @@ Optimizations:
   buffer released by them is reused, then the other unused buffers are freed. Before, ShrinkCache freed every unused
   buffer of the device first (free threshold 0 on CPU), also those of the requested size, so the reuse step found
   nothing and a new buffer was allocated: a free + malloc for every frame while at the limit.
+- Optimization: autoloading plugins: the function list $PluginFunctions$ is published once at the end of the autoload
+  instead of being saved again after each function. Its memory and time grew with the square of the number of
+  functions (1332 names of a plugin set: 26 MB and 0.04 s, now 1 MB and 0.005 s). The list is the same.
 - Optimization: Text and Subtitle(gdi=false): non-fading luma loops skip empty bitmap bytes; chroma walks only the
   set bits of the bitmap, without branching on them; rectangle weights are computed once per column.
   About 20-35% quicker without halo and fading (19 lines of text, frame copies excluded).

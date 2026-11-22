@@ -189,6 +189,37 @@ parameter is ignored.
     AddAutoLoadDir("MACHINE_PLUS_PLUGINS\myplugins3")
     SubTitle(ListAutoLoadDirs(utf8=true), align=7, size=20, utf8=true)
 
+ListAutoloadedFunctions
+~~~~~~~~~~~~~~~~~~~~~~~
+::
+
+    ListAutoloadedFunctions(bool utf8 = false)
+
+Returns a LF (0x0A, \\n) separated list of the functions registered by the autoloaded plugins,
+exactly as registered: both the plain name and the canonical ``<plugin DLL name>_<name>``, spaces kept
+(e.g. from a DLL file name with spaces), in case insensitive name order.
+
+Why it is needed: ``$PluginFunctions$`` is one string with the names separated by spaces. A canonical
+name that contains a space itself, because the plugin's DLL (or .so) file name has one, was split into two
+entries there, and the list read by tools got out of step. Since 3.7.7 ``$PluginFunctions$`` writes such
+spaces as ``_``: every name stays one entry, but it is not the exact name any more; a script cannot call
+a function by that ``_`` form. This function lists the exact names.
+
+The list is filled by the autoload, which is started by the first call of a function that is not
+built in, or by ``AutoloadPlugins``. Call ``AutoloadPlugins`` first if the script has not used a
+plugin function yet.
+
+``utf8``: as at ``ListAutoloadDirs``; without it, characters outside the ANSI code page become ``?``
+on Windows.
+
+``$PluginFunctions$`` (read by tools like AvsPMod and AVSMeter) stays the space separated list.
+``$Plugin!<name>!Param$`` holds the parameters of each name.
+
+::
+
+    AutoloadPlugins()
+    SubTitle(ListAutoloadedFunctions(utf8=true), align=7, size=14, lsp=0, utf8=true)
+
 AutoloadPlugins
 ~~~~~~~~~~~~~~~
 ::
