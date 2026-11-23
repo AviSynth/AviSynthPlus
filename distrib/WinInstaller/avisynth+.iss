@@ -1,6 +1,17 @@
 ﻿;!!!Conditional!!!  comment out the following define to ignore VS redistributables
 ;#define WITH_VC_REDIST
+;/DNO_VC_REDIST: no redistributable. /DWITH_VC_REDIST (+ /DVcRedistX86=... /DVcRedistX64=..., file names in
+;..\Prerequisites, installed as VC_redist.x86/x64.exe): the given (current) redistributable instead of the XP one.
+;make_release.ps1: main installer WITH_VC_REDIST with the 14.44 files (as 3.7.6), XP installer the default (14.27).
+#if !defined(NO_VC_REDIST) && !defined(WITH_VC_REDIST)
 #define WITH_VC_REDIST_XP
+#endif
+#ifndef VcRedistX86
+#define VcRedistX86 "VC_redist.x86.exe"
+#endif
+#ifndef VcRedistX64
+#define VcRedistX64 "VC_redist.x64.exe"
+#endif
 ;Note 1: do not enable both.
 ;Note 2: XP: Though Microsoft Visual C++ Redistributable (2015-2022) still installs on older OS's,
 ;XP support has been ended, an older redistributable (officially 14.27.29114.0) needed for XP
@@ -30,9 +41,18 @@
 ;There is no specific x86/x64 output directory.
 ;folders must be created relative to the folder of iss script.
 ;Build x86 avs+ then copy the Output folder (with the folder itself) here
+;(make_release.ps1 passes /DBuildDir32=... /DBuildDir64=... instead)
+#ifndef BuildDir32
 #define BuildDir32 "x86"
+#endif
 ;Build x64 avs+ then copy the Output folder (with the folder itself) here
+#ifndef BuildDir64
 #define BuildDir64 "x64"
+#endif
+;Minimum Windows version; Inno Setup 6+ rejects anything below 6.0 (XP needs Inno Setup 5)
+#ifndef MinVer
+#define MinVer "5.1sp3"
+#endif
 ;.\x86\Output\...
 ;.\x64\Output\...
 
@@ -86,7 +106,7 @@ ChangesEnvironment=yes
 Compression=lzma2/ultra
 SolidCompression=yes
 SetupLogging=yes
-MinVersion=5.1sp3
+MinVersion={#MinVer}
 
 [Types]
 Name: "compact"; Description: "{cm:CompactInstallation}"
@@ -165,7 +185,7 @@ Source: "..\lgpl_for_used_libs.txt"; DestDir: "{app}\License"; Components: main;
 Source: "..\Readme\readme_history.txt"; DestDir: "{app}"; Components: main; Flags: ignoreversion
 
 Source: "{#BuildDir32}\Output\AviSynth.dll"; DestDir:{sys}; Components: main\avs32; Flags: 32bit ignoreversion 
-Source: "{#BuildDir32}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main\avs32; Flags: 32bit ignoreversion 
+Source: "{#BuildDir32}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main\avs32; Flags: 32bit ignoreversion skipifsourcedoesntexist 
 Source: "{#BuildDir32}\Output\Plugins\*.dll"; DestDir:{code:GetAvsDirsPlus|PlugPlus32}; Components: main\avs32; Flags: ignoreversion 
 Source: "..\ColorPresets\*"; DestDir:{code:GetAvsDirsPlus|PlugPlus32}; Components: main\avs32; Flags: ignoreversion 
 #ifdef WITH_VC_REDIST_XP
@@ -173,11 +193,11 @@ Source: "..\Prerequisites\VC_redist_14.27.29114.0.x86.exe"; DestDir: {app}; Dest
 #endif
 #ifdef WITH_VC_REDIST
 ;get latest from https://www.visualstudio.com/downloads/
-Source: "..\Prerequisites\VC_redist.x86.exe"; DestDir: {app}; Components: main\avs32; Flags: deleteafterinstall; Check: IncludeVcRedist()
+Source: "..\Prerequisites\{#VcRedistX86}"; DestDir: {app}; DestName: "VC_redist.x86.exe"; Components: main\avs32; Flags: deleteafterinstall; Check: IncludeVcRedist()
 #endif
 
 Source: "{#BuildDir64}\Output\AviSynth.dll"; DestDir:{sys}; Components: main\avs64; Flags: 64bit ignoreversion 
-Source: "{#BuildDir64}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main\avs64; Flags: 64bit ignoreversion 
+Source: "{#BuildDir64}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main\avs64; Flags: 64bit ignoreversion skipifsourcedoesntexist 
 Source: "{#BuildDir64}\Output\Plugins\*.dll"; DestDir:{code:GetAvsDirsPlus|PlugPlus64}; Components: main\avs64; Flags: ignoreversion 
 Source: "..\ColorPresets\*"; DestDir:{code:GetAvsDirsPlus|PlugPlus64}; Components: main\avs64; Flags: ignoreversion
 #ifdef WITH_VC_REDIST_XP
@@ -185,13 +205,13 @@ Source: "..\Prerequisites\VC_redist_14.27.29114.0.x64.exe"; DestDir: {app}; Dest
 #endif
 #ifdef WITH_VC_REDIST
 ;get latest from https://www.visualstudio.com/downloads/
-Source: "..\Prerequisites\VC_redist.x64.exe"; DestDir: {app}; Components: main\avs64; Flags: deleteafterinstall; Check: IncludeVcRedist()
+Source: "..\Prerequisites\{#VcRedistX64}"; DestDir: {app}; DestName: "VC_redist.x64.exe"; Components: main\avs64; Flags: deleteafterinstall; Check: IncludeVcRedist()
 #endif
 
 #ifdef WITH_DOCS
 ;don't forget to render .rst sources into html-format by issuing 'make html'. E.g. in the ..\docs\english\
 ;You needed a working python sphinx-build. https://www.sphinx-doc.org/
-Source: "..\docs\*.css"; DestDir: "{app}\docs"; Components: docs; Flags: ignoreversion
+Source: "..\docs\*.css"; DestDir: "{app}\docs"; Components: docs; Flags: ignoreversion skipifsourcedoesntexist
 ;Source: "..\docs\czech\*"; DestDir: "{app}\docs\Czech"; Components: docs\cs; Flags: ignoreversion recursesubdirs 
 Source: "..\docs\english\build\html\*"; DestDir: "{app}\docs\English"; Components: docs\en docs\enall; Flags: ignoreversion recursesubdirs 
 ;Source: "..\docs\french\*"; DestDir: "{app}\docs\French"; Components: docs\fr; Flags: ignoreversion recursesubdirs 
@@ -801,6 +821,7 @@ end;
 
 function IncludeVcRedist(): boolean;
 begin
+  // true for both: the XP variant was never copied nor run before (only WITH_VC_REDIST was tested)
   #if defined(WITH_VC_REDIST) || defined(WITH_VC_REDIST_XP)
   Result := True;
   #else

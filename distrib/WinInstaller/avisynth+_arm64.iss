@@ -24,7 +24,10 @@
 ;There is no specific x86/x64 output directory.
 ;folders must be created relative to the folder of iss script.
 ;Build x64 avs+ then copy the Output folder (with the folder itself) here
+;(make_release.ps1 passes /DBuildDir64=...)
+#ifndef BuildDir64
 #define BuildDir64 "arm64"
+#endif
 ;.\arm64\usr\...
 
 #define VcVersion "Microsoft Visual C++ Redistributable for Visual Studio 2015-2022"
