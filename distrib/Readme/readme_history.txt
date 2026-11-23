@@ -9,8 +9,27 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist377.html
 
-20261119 3.7.6.rXXXX (pre 3.7.7)
+20261123 3.7.6.r5023 (pre 3.7.7)
 --------------------------------
+TL;DR, the most important changes since 3.7.6 (details below):
+- Frame cache and Prefetch: AvsPmod bookmarks are cached again (regression of 3.7.6), stepping back after playing
+  no longer eats memory (#379), Prefetch follows any constant step (SelectEven, playing backward), random seeking
+  is quicker.
+- Non-ASCII names on a non-UTF-8 code page work again: autoload of .avsi files (#462), LoadPlugin from a folder like
+  C:\Videók\ (regressions of 3.7.6); ScriptDir/ScriptName were cut on CJK and UTF-8 code pages.
+- Crash fixes: conversions to 32 bit float (AVX2) on narrow clips, closing a script with Prefetch, YUVA to RGB on
+  aarch64, LoadPlugin(""), Histogram "audiolevels", and more.
+- Output changes (by design): chroma mask kernels of Overlay, Layer, Subtitle and Text on subsampled formats;
+  32 bit float limited range levels and rounding now match ConvertBits; YUV <-> RGB to float is always calculated
+  in float.
+- Same output on every CPU: several C vs SIMD vs NEON differences and random (unset) planes fixed.
+- NaN or infinite float parameters of the built-in filters are an error now.
+- New: _Range frame property (H.273 numbers, _ColorRange is its alias), AudioStats, ListAutoloadedFunctions.
+- Plugin authors: Linux/macOS core exports only the C API now, use AVS_PLUGIN_EXPORT with -fvisibility=hidden;
+  the C API loader moved from the installed headers to the FilterSDK/c_loader samples.
+- Windows packages: the default build is for Windows 10 and later, Windows 7 has its own _win7 installer; the XP
+  installer installs its VC++ redistributable now (it never did); no DevIL.dll in the system folder any more.
+
 Additions, changes:
 - Frame properties: _Range is added, the number follows ITU-T H.273, as in VapourSynth: 1 is full, 0 is limited.
   _ColorRange stays reserved and it is its older name with 0 and 1 swapped: the two are one property, the frame holds it
@@ -84,6 +103,7 @@ Additions, changes:
   read-ahead. The same frame requested again (a second output, e.g. AvsPmod's display clip) does not count as a
   jump. QTGMC: 120 random jumps 18.4 s -> 11.0 s, AvsPmod 10 bookmarks 3.3 s -> 0.5 s; encoding, playing,
   stepping unchanged.
+
 Build environment:
 - Fix: CMake with a single-configuration generator (Ninja, NMake) and MSVC, clang-cl or icx-cl, without
   -DCMAKE_BUILD_TYPE: an unoptimized Debug build (/MDd /Zi /Ob0 /Od /RTC1, "-- Build type: Debug") instead of Release.
@@ -129,6 +149,20 @@ Build environment:
   mixed up. The loader's avs_add_function(_r) now registers each one with its own user_data and passes the
   plugin's own user_data on to it.
 - C API loader: compiles in strict ISO C mode on Linux too (gcc -std=c11: PATH_MAX was missing).
+- Windows release: avisynth-build-win\make_release.bat (make_release.ps1) builds the whole release in one run:
+  dependencies from pinned sources (DevIL with its image libraries, SoundTouch, DirectShow base classes), all variants,
+  check stage (PDB names, Vista+ imports in the XP DLLs), files-only pack, PDB archives, installers, SHA-256 list.
+  Variants: default x86/x64 for Windows 10 and later (clang-cl with -ClangCL, then MSVC v145 is the _msvc download;
+  without -ClangCL MSVC v145 is the default); _win7 (v143 toolset 14.44 and its redistributable); _xp (v141_xp,
+  VC++ 14.27 redistributable); _arm64 (llvm-mingw). build_release.bat stays as it was.
+  See contributing/release_full_build.rst.
+- Windows installers: ImageSeq has DevIL and its image libraries (libpng, libjpeg-turbo, libtiff, JasPer, ...) linked
+  in statically, in every installer, ARM64 and XP included. No DevIL.dll is installed into the system folder any more.
+  XP: JasPer is patched to use GlobalMemoryStatusEx instead of the Vista+ GetPhysicallyInstalledSystemMemory; the
+  patch checks the source pattern and fails on a JasPer version where it does not match.
+- Installer script (avisynth+.iss): build folders (BuildDir32/BuildDir64), redistributable names (VcRedistX86/X64)
+  and the minimum Windows version (MinVer) are defines, so one script builds the Windows 10+, Windows 7 and XP
+  installers (avisynth+_arm64.iss: BuildDir64). Missing optional files (DevIL.dll, css) are skipped.
 
 Bugfixes:
   Most of these bugs were found by AddressSanitizer (ASan) and UndefinedBehaviorSanitizer (UBSan) builds, or by
@@ -324,6 +358,12 @@ Bugfixes, accuracy: rounding, limited range levels:
   input (_Range=0) to full range output, where the coefficients are scaled by 255/219: values above nominal white
   wrapped around, e.g. RGB 65535 gave Y -0.904 instead of 1.096 (SIMD; C was right with int64). Fixed by the
   float workflow above (16 bit RGB -> YUV/Y with integer output already used it for the same overflow reason).
+- Fix: the XP installer never installed its Visual C++ redistributable (14.27). The installer copied the files under
+  their versioned names (VC_redist_14.27.29114.0 x86/x64) while the [Run] section started VC_redist.x86.exe and
+  VC_redist.x64.exe, and IncludeVcRedist() returned true only when WITH_VC_REDIST (the modern redistributable) was
+  defined, not with WITH_VC_REDIST_XP. On an XP without the runtime, AviSynth+ did not start ("MSVCP140.dll was not
+  found"). Now the files get the started names (DestName) and the XP define enables them. Tested on a clean
+  Windows XP SP3. Existed in the 3.7.6 XP installer.
 
 Bugfixes, same output on every CPU, OS and compiler:
   The C, the x86 SIMD and the aarch64 NEON paths, or two runs of the same script, gave different output. Found by
@@ -495,6 +535,13 @@ Optimizations:
   lanes; now both use 4 x 32 bit lanes. Output is unchanged (old C vs new C bit identical; 0 / 32768 / 65535 edge
   values in all planes, 8 matrices, 16 bit to 8-16 bit and float).
 
+Documentation:
+- New: contributing/release_full_build.rst, the full Windows release build (make_release.bat): installers,
+  files-only pack, PDB files and checksums in one run, dependencies from pinned sources, version bump and tagging order.
+- Resize, UserDefined2Resize: link to the external command line tool SincDownsizeCoeffs by DTL (MIT license, C++17
+  source, https://github.com/DTL2020/SincDownsizeCoeffs/releases), which computes b, c and s for different use
+  cases. Input: a mode (1 to 4), the downsize ratio and the overshoot of the source in percent, measured on the
+  source upsampled with SincResize to 2x or more. Doom9: https://forum.doom9.org/showthread.php?p=2052516#post2052516
 
 20261025 3.7.6.r4909
 --------------------

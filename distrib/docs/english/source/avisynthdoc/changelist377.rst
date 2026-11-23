@@ -1,6 +1,26 @@
 Changes from 3.7.6 to 3.7.7
 ---------------------------
 
+TL;DR
+~~~~~
+The most important changes since 3.7.6; details in the sections below.
+
+- Frame cache and Prefetch: AvsPmod bookmarks are cached again (regression of 3.7.6), stepping back after playing
+  no longer eats memory (#379), Prefetch follows any constant step (SelectEven, playing backward), random seeking is quicker.
+- Non-ASCII names on a non-UTF-8 code page work again: autoload of ``.avsi`` files (#462), ``LoadPlugin`` from a
+  folder like ``C:\Videók\`` (regressions of 3.7.6); ``ScriptDir``/``ScriptName`` were cut on CJK and UTF-8 code pages.
+- Crash fixes: conversions to 32 bit float (AVX2) on narrow clips, closing a script with ``Prefetch``, YUVA to RGB on
+  aarch64, ``LoadPlugin("")``, Histogram ``audiolevels``, and more.
+- Output changes (by design): chroma mask kernels of Overlay, Layer, Subtitle and Text on subsampled formats;
+  32 bit float limited range levels and rounding now match ConvertBits; YUV <-> RGB to float is always calculated in float.
+- Same output on every CPU: several C vs SIMD vs NEON differences and random (unset) planes fixed.
+- NaN or infinite float parameters of the built-in filters are an error now.
+- New: ``_Range`` frame property (H.273 numbers, ``_ColorRange`` is its alias), ``AudioStats``, ``ListAutoloadedFunctions``.
+- Plugin authors: Linux/macOS core exports only the C API now, use ``AVS_PLUGIN_EXPORT`` with ``-fvisibility=hidden``;
+  the C API loader moved from the installed headers to the ``FilterSDK/c_loader`` samples.
+- Windows packages: the default build is for Windows 10 and later, Windows 7 has its own ``_win7`` installer; the XP
+  installer installs its VC++ redistributable now (it never did); no ``DevIL.dll`` in the system folder any more.
+
 Additions, changes
 ~~~~~~~~~~~~~~~~~~
 - Overlay, Layer, Subtitle, Text: chroma of subsampled formats: low-pass filter kernels instead of point samples.
