@@ -348,11 +348,12 @@ Optimizations
 
 Documentation
 ~~~~~~~~~~~~~
+- New: :doc:`Full Windows release build (make_release.bat) <contributing/release_full_build>`: the release
+  installers, files-only pack, PDB files and checksums in one run, with all dependencies (DevIL and its image
+  libraries, SoundTouch, the DirectShow base classes) built from pinned sources; version bump and tagging order.
 
 Please report bugs at `github AviSynthPlus page`_ - or - `Doom9's AviSynth+
 forum`_
-
-$Date: 2026/11/19 09:00:00 $
 
 .. _github AviSynthPlus page:
     https://github.com/AviSynth/AviSynthPlus

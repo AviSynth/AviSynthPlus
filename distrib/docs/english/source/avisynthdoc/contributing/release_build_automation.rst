@@ -9,11 +9,11 @@ outputs by hand.
 
 .. note::
 
-   This is a **dev/test build**, not an official release.  An official release
-   additionally requires building the installer and compiling the HTML
-   documentation — processes described in :doc:`compiling_avsplus`.  The dev
-   build produced here is suitable for distribution to beta testers as a plain
-   folder tree (or 7-Zip archive).
+   This is a **dev/test build**, not an official release.  The official
+   release (installers, HTML documentation, PDBs, all dependencies built from
+   source) is made by ``make_release.bat``, see :doc:`release_full_build`.  The
+   dev build produced here is suitable for distribution to beta testers as a
+   plain folder tree (or 7-Zip archive).
 
 Related documents:
 
