@@ -169,7 +169,7 @@ Source: "{#BuildDir32}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main
 Source: "{#BuildDir32}\Output\Plugins\*.dll"; DestDir:{code:GetAvsDirsPlus|PlugPlus32}; Components: main\avs32; Flags: ignoreversion 
 Source: "..\ColorPresets\*"; DestDir:{code:GetAvsDirsPlus|PlugPlus32}; Components: main\avs32; Flags: ignoreversion 
 #ifdef WITH_VC_REDIST_XP
-Source: "..\Prerequisites\VC_redist_14.27.29114.0.x86.exe"; DestDir: {app}; Components: main\avs32; Flags: deleteafterinstall; Check: IncludeVcRedist()
+Source: "..\Prerequisites\VC_redist_14.27.29114.0.x86.exe"; DestDir: {app}; DestName: "VC_redist.x86.exe"; Components: main\avs32; Flags: deleteafterinstall; Check: IncludeVcRedist()
 #endif
 #ifdef WITH_VC_REDIST
 ;get latest from https://www.visualstudio.com/downloads/
@@ -181,7 +181,7 @@ Source: "{#BuildDir64}\Output\System\DevIL.dll"; DestDir:{sys}; Components: main
 Source: "{#BuildDir64}\Output\Plugins\*.dll"; DestDir:{code:GetAvsDirsPlus|PlugPlus64}; Components: main\avs64; Flags: ignoreversion 
 Source: "..\ColorPresets\*"; DestDir:{code:GetAvsDirsPlus|PlugPlus64}; Components: main\avs64; Flags: ignoreversion
 #ifdef WITH_VC_REDIST_XP
-Source: "..\Prerequisites\VC_redist_14.27.29114.0.x64.exe"; DestDir: {app}; Components: main\avs64; Flags: deleteafterinstall; Check: IncludeVcRedist()
+Source: "..\Prerequisites\VC_redist_14.27.29114.0.x64.exe"; DestDir: {app}; DestName: "VC_redist.x64.exe"; Components: main\avs64; Flags: deleteafterinstall; Check: IncludeVcRedist()
 #endif
 #ifdef WITH_VC_REDIST
 ;get latest from https://www.visualstudio.com/downloads/
@@ -801,7 +801,7 @@ end;
 
 function IncludeVcRedist(): boolean;
 begin
-  #ifdef WITH_VC_REDIST
+  #if defined(WITH_VC_REDIST) || defined(WITH_VC_REDIST_XP)
   Result := True;
   #else
   Result := False;
