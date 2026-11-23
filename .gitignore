@@ -4,9 +4,13 @@ avisynth-build/*
 avisynth-build-win/*
 !avisynth-build-win/build_release.bat
 !avisynth-build-win/build_info.cmake
+!avisynth-build-win/make_release.bat
+!avisynth-build-win/make_release.ps1
 !avisynth-build-win/helpers/
 avisynth-build-win/helpers/*
 !avisynth-build-win/helpers/makesoundtouch.bat
+!avisynth-build-win/helpers/makestrmbase.bat
+!avisynth-build-win/helpers/makedevil.ps1
 !avisynth-build-win/toolchains/
 !avisynth-build-win/release-sample/
 avisynth-build-win/release-sample/*

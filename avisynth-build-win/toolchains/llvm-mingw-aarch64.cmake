@@ -86,8 +86,11 @@ set(CMAKE_CXX_COMPILER_TARGET aarch64-w64-mingw32)
 #  CMAKE_SHARED_LINKER_FLAGS for non-MSVC builds, and the per-config
 #  variables are not touched by that.
 set(AVS_MINGW_COMMON_FLAGS "")
-set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "-static")
-set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "-static")
+#  AVS_MINGW_RELEASE_LINK_EXTRA: more Release linker flags, e.g. the release build's PDB
+#  (make_release.ps1: -Wl,--pdb= -Wl,-Xlink=/pdbaltpath:%_PDB%, with -g -gcodeview compiling)
+set(AVS_MINGW_RELEASE_LINK_EXTRA "" CACHE STRING "Additional Release linker flags (llvm-mingw)")
+set(CMAKE_SHARED_LINKER_FLAGS_RELEASE "-static ${AVS_MINGW_RELEASE_LINK_EXTRA}")
+set(CMAKE_MODULE_LINKER_FLAGS_RELEASE "-static ${AVS_MINGW_RELEASE_LINK_EXTRA}")
 set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-static")
 
 # --- search paths -----------------------------------------------------------
