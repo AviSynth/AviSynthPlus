@@ -81,6 +81,14 @@ Build environment, Interface
   plugin's own ``user_data`` on to it.
   See :ref:`Dynamic loading<c_api_dynamic_loading>`.
 - C API loader: compiles in strict ISO C mode on Linux too (``gcc -std=c11``: ``PATH_MAX`` was missing).
+- Windows release: ``make_release.bat`` builds the whole release in one run (all variants, installers, files-only pack,
+  PDB files, checksums). The default x86/x64 build is for Windows 10 and later (clang-cl with ``-ClangCL``, MSVC v145 without it;
+  MSVC is then the ``_msvc`` download); Windows 7 has its own build and installer (``_win7``, v143 toolset 14.44 and its
+  redistributable); XP and ARM64 are separate packages. See :doc:`contributing/release_full_build`.
+- Windows installers: ImageSeq has DevIL and its image libraries linked in statically, in every installer
+  (ARM64 and XP included): no ``DevIL.dll`` is installed into the system folder any more.
+- Installer script: build folders, redistributable names and the minimum Windows version are defines, so one script builds
+  the Windows 10+, Windows 7, XP and ARM64 installers.
 
 Bugfixes
 ~~~~~~~~
@@ -329,6 +337,9 @@ tested platforms. Some were found by UndefinedBehaviorSanitizer (UBSan) builds.
   read back exactly; only the last digit was superfluous. Existed since 3.7.6.
 - Planar YUV <-> RGB conversions, float inside calculation (``quality=true``, full range, 16 bit RGB to YUV, float
   sources): the C path computes in the same order as SSE2 (pre-scaled coefficients), so C vs SIMD tests compare clean.
+- Fix: the XP installer never installed its Visual C++ redistributable (14.27): the file was copied under its versioned name
+  while the installer started ``VC_redist.x86.exe``/``VC_redist.x64.exe``, and the redistributable was included only in builds
+  defined with the modern one. On a clean XP, AviSynth+ then did not start (``MSVCP140.dll`` not found). Existed in the 3.7.6 XP installer.
 
 Optimizations
 ~~~~~~~~~~~~~
