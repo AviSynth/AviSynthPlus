@@ -78,7 +78,11 @@ function Log($m) { $l = "[{0:HH:mm:ss}] $m" -f (Get-Date); Write-Host $l; Add-Co
 function Fail($m) { Log "ERROR: $m"; throw $m }
 function Run($exe, [string[]]$a, [string]$what) {
   Add-Content $Log ">> $exe $($a -join ' ')"
-  & $exe @a *>> $Log
+  # Windows PowerShell 5.1 turns redirected native stderr (e.g. CMake message() without mode) into an
+  # error record, which 'Stop' makes fatal. Only the exit code decides here. Lines go to the log as plain
+  # text (*>> would write UTF-16 and wrap stderr lines in error records there).
+  $eap = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+  try { & $exe @a 2>&1 | ForEach-Object { "$_" } | Add-Content $Log } finally { $ErrorActionPreference = $eap }
   if ($LASTEXITCODE -ne 0) { Fail "$what failed (exit $LASTEXITCODE), see $Log" }
 }
 

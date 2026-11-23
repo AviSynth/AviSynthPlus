@@ -9,7 +9,7 @@ For online documentation check https://avisynthplus.readthedocs.io/en/latest/
 Actual:
 https://avisynthplus.readthedocs.io/en/latest/avisynthdoc/changelist377.html
 
-20261123 3.7.6.r5023 (pre 3.7.7)
+20261123 3.7.6.r5024 (pre 3.7.7)
 --------------------------------
 TL;DR, the most important changes since 3.7.6 (details below):
 - Frame cache and Prefetch: AvsPmod bookmarks are cached again (regression of 3.7.6), stepping back after playing
