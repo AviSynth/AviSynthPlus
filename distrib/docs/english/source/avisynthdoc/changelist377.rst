@@ -351,6 +351,8 @@ Documentation
 - New: :doc:`Full Windows release build (make_release.bat) <contributing/release_full_build>`: the release
   installers, files-only pack, PDB files and checksums in one run, with all dependencies (DevIL and its image
   libraries, SoundTouch, the DirectShow base classes) built from pinned sources; version bump and tagging order.
+- :doc:`Resize <corefilters/resize>`: ``UserDefined2Resize`` links the external tool SincDownsizeCoeffs
+  (by DTL), which computes ``b``, ``c`` and ``s`` from the downsize ratio and the overshoot of the source.
 
 Please report bugs at `github AviSynthPlus page`_ - or - `Doom9's AviSynth+
 forum`_

@@ -318,8 +318,18 @@ Syntax and Parameters
     * b > 130: Typically close to ``GaussResize`` with 'zero acutance' ('film' look/makeup).
     * b < 95: Produces high levels of sharpness/acutance ('video' look/makeup).
     
-    For the initial setup, the c value must follow the b value from the table and may be 
+    For the initial setup, the c value must follow the b value from the table and may be
     adjusted for each source to minimize ringing.
+
+    The table is only a starting point. The external command line tool
+    `SincDownsizeCoeffs <https://github.com/DTL2020/SincDownsizeCoeffs/releases>`_
+    by DTL (MIT license, C++17 source) computes ``b``, ``c`` and ``s`` for ``UserDefined2Resize``
+    for different use cases (discussion: `Doom9 thread <https://forum.doom9.org/showthread.php?p=2052516#post2052516>`_).
+    You run it, choose a mode (1 to 4), and enter the downsize ratio and the overshoot
+    amplitude of the source in percent. Estimate or measure the overshoot with a waveform
+    monitor or a pixel profile tool, on the source upsampled with ``SincResize`` to 2x size or more,
+    so that the real overshoot at the display scaler is visible.
+    It is a separate program, not part of AviSynth+, and it is early (version 0.0.1).
 
     Internally, it is based on a sum of weighted sinc functions by b and c parameters. 
     With b = c = 16, it is equivalent to SincResize with the given support size by the s parameter.
