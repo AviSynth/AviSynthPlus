@@ -159,10 +159,23 @@ foreach ($lang in 'french', 'german', 'italian', 'spanish') {
 if ($IsXp) {
   $jm = "$SrcRoot\jasper\src\libjasper\base\jas_malloc.c"
   $t = [IO.File]::ReadAllText($jm)
-  $t2 = $t -replace '(?m)^#\s*include <sysinfoapi\.h>\r?\n', ''
-  $t2 = [regex]::Replace($t2, '(?s)ULONGLONG mem_size_in_kb;.*?: SIZE_MAX;',
+  # Sanity checks instead of trusting the pattern: the JasPer source may have changed shape since 4.2.9.
+  $incPat = '(?m)^#\s*include <sysinfoapi\.h>\r?\n'
+  $bodyPat = '(?s)ULONGLONG mem_size_in_kb;.*?: SIZE_MAX;'
+  if ([regex]::Matches($t, $incPat).Count -ne 1) { throw 'JasPer XP patch: expected exactly one sysinfoapi.h include in jas_malloc.c' }
+  $bm = [regex]::Matches($t, $bodyPat)
+  if ($bm.Count -ne 1) { throw "JasPer XP patch: expected one memory query body, found $($bm.Count) (jas_malloc.c changed?)" }
+  # the replaced span must be the small body of the one function: short, and it must hold the Vista+ call
+  $span = $bm[0].Value
+  if (($span -split "`n").Count -gt 20 -or $span -notmatch 'GetPhysicallyInstalledSystemMemory') { throw 'JasPer XP patch: the matched span is not the GetPhysicallyInstalledSystemMemory block' }
+  $t2 = [regex]::Replace($t, $incPat, '')
+  $t2 = [regex]::Replace($t2, $bodyPat,
     "MEMORYSTATUSEX ms; /* XP: GlobalMemoryStatusEx instead of GetPhysicallyInstalledSystemMemory (Vista SP1+) */`n`tms.dwLength = sizeof(ms);`n`tif (!GlobalMemoryStatusEx(&ms)) {`n`t`treturn 0;`n`t}`n`treturn (ms.ullTotalPhys < SIZE_MAX) ? JAS_CAST(size_t, ms.ullTotalPhys) : SIZE_MAX;")
-  if ($t2 -eq $t -or $t2 -match 'GetPhysicallyInstalledSystemMemory\(') { throw 'JasPer XP patch did not apply (jas_malloc.c changed?)' }
+  $open = { param($s) ($s.ToCharArray() | Where-Object { $_ -eq '{' }).Count - ($s.ToCharArray() | Where-Object { $_ -eq '}' }).Count }
+  if ($t2 -match 'GetPhysicallyInstalledSystemMemory\(' -or $t2 -match 'sysinfoapi\.h' -or
+      [regex]::Matches($t2, 'GlobalMemoryStatusEx\(').Count -ne 1 -or (& $open $t2) -ne (& $open $t)) {
+    throw 'JasPer XP patch did not apply cleanly (Vista+ call left, or the new call count / brace balance is wrong)'
+  }
   [IO.File]::WriteAllText($jm, $t2)
 }
 

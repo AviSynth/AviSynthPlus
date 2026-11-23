@@ -1101,8 +1101,24 @@ JasPer
         }
         return (ms.ullTotalPhys < SIZE_MAX) ? JAS_CAST(size_t, ms.ullTotalPhys) : SIZE_MAX;
 
-    The line numbers in the ``sed`` command are of the JasPer version of that time; check them for
-    a newer one (in 4.2.9 the same lines: 97 and 659-669).
+    The line numbers in the ``sed`` command belong to one JasPer version, so check them before running
+    it, and the result after. Before (in 4.2.9 this prints line 97 for the include, 659 for the Windows
+    branch and 669 for the end of the ``return``; other numbers mean the file has changed, and the command
+    would comment out the wrong lines and still compile)::
+
+        grep -n -E "sysinfoapi\.h|^#elif defined\(_WIN32\)|: SIZE_MAX;" src/libjasper/base/jas_malloc.c
+
+    After (no live line may call the Vista+ function, else ``ImageSeq.dll`` imports it and does not
+    load on XP; this must print nothing)::
+
+        grep -v "^//" src/libjasper/base/jas_malloc.c | grep GetPhysicallyInstalledSystemMemory
+
+    ``helpers\makedevil.ps1`` does not use line numbers: it matches the include and the body of the query
+    by pattern and stops with an error unless it finds exactly one include and one body, the body is short
+    and contains the Vista+ call, the call is gone afterwards, ``GlobalMemoryStatusEx`` is used once and the
+    braces of the file stay balanced. A newer JasPer that changes this function therefore fails the build
+    instead of producing a wrong patch. Checks of the result: the XP DLL import check in
+    ``make_release.ps1`` (Vista+ imports) and the round-trip test of ImageSeq on XP.
 ..
 
 
